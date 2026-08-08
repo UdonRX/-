@@ -230,10 +230,15 @@ h2 {
   text-decoration: underline;
 }
 
-.tweet-media img, .tweet-media video {
+.tweet-media img, 
+.tweet-media video,
+.tweet-body img,
+.tweet-body video {
   max-width: 100%;
+  height: auto;
   border-radius: 12px;
   margin-top: 8px;
+  display: block;
 }
 
 /* モーダル */
