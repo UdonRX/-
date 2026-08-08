@@ -24,7 +24,6 @@ const DEFAULT_TWITTER = [];
 let newsFeeds = JSON.parse(localStorage.getItem('newsFeeds')) || DEFAULT_NEWS;
 let twitterFeeds = JSON.parse(localStorage.getItem('twitterFeeds')) || DEFAULT_TWITTER;
 
-// 通信競合防止用のフラグ
 let currentNewsUrl = '';
 
 // 初期化処理
@@ -61,41 +60,49 @@ async function fetchAndParseRSS(feedUrl) {
   }
 
   // RSS 2.0 (<item>) / RSS 1.0 (<item>) / Atom (<entry>) の取得
-  let items = Array.from(xmlDoc.querySelectorAll('item'));
+  let items = Array.from(xmlDoc.getElementsByTagName('item'));
   if (items.length === 0) {
-    items = Array.from(xmlDoc.querySelectorAll('entry'));
+    items = Array.from(xmlDoc.getElementsByTagName('entry'));
   }
 
   return items.map(item => {
-    const title = item.querySelector('title')?.textContent?.trim() || '無題';
+    // タイトル
+    const title = item.getElementsByTagName('title')[0]?.textContent?.trim() || '無題';
 
-    let link = item.querySelector('link')?.textContent?.trim() || '';
+    // リンク
+    let link = item.getElementsByTagName('link')[0]?.textContent?.trim() || '';
     if (!link) {
-      const linkElem = item.querySelector('link');
+      const linkElem = item.getElementsByTagName('link')[0];
       if (linkElem && linkElem.getAttribute('href')) {
         link = linkElem.getAttribute('href');
       }
     }
 
+    // 日時取得 (Nitter/RSS2.0/Atomに対応)
     const pubDateStr = 
-      item.querySelector('pubDate')?.textContent ||
-      item.querySelector('date')?.textContent ||
-      item.querySelector('published')?.textContent ||
-      item.querySelector('updated')?.textContent || '';
+      item.getElementsByTagName('pubDate')[0]?.textContent ||
+      item.getElementsByTagName('dc:date')[0]?.textContent ||
+      item.getElementsByTagName('date')[0]?.textContent ||
+      item.getElementsByTagName('published')[0]?.textContent ||
+      item.getElementsByTagName('updated')[0]?.textContent || '';
 
+    // 本文 (Nitterはdescription内にHTMLが入る)
     const description = 
-      item.querySelector('description')?.textContent ||
-      item.querySelector('content')?.textContent || '';
+      item.getElementsByTagName('description')[0]?.textContent ||
+      item.getElementsByTagName('content')[0]?.textContent || '';
 
+    // 著者
     const author = 
-      item.querySelector('creator')?.textContent ||
-      item.querySelector('author name')?.textContent ||
-      item.querySelector('author')?.textContent || '';
+      item.getElementsByTagName('dc:creator')[0]?.textContent ||
+      item.getElementsByTagName('creator')[0]?.textContent ||
+      item.getElementsByTagName('author')[0]?.textContent || '';
+
+    const parsedDate = pubDateStr ? new Date(pubDateStr) : new Date();
 
     return {
       title,
       link,
-      pubDate: pubDateStr ? new Date(pubDateStr) : new Date(),
+      pubDate: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
       description,
       author
     };
@@ -156,7 +163,6 @@ async function loadNewsContent(url) {
   try {
     const items = await fetchAndParseRSS(url);
     
-    // 非同期通信中に別のタブへ切り替えられた場合は描画をスキップ
     if (currentNewsUrl !== url) return;
 
     if (items.length === 0) {
@@ -168,9 +174,7 @@ async function loadNewsContent(url) {
     items.forEach(item => {
       const newsDiv = document.createElement('div');
       newsDiv.className = 'news-item';
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate) 
-        ? item.pubDate.toLocaleString('ja-JP') 
-        : '';
+      const dateStr = item.pubDate.toLocaleString('ja-JP');
 
       newsDiv.innerHTML = `
         <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
@@ -186,7 +190,7 @@ async function loadNewsContent(url) {
 }
 
 // ----------------------------------------------------
-// 3. Twitter タイムライン一括取得
+// 3. Twitter (Nitter) タイムライン一括取得
 // ----------------------------------------------------
 function initTwitter() {
   loadAllTwitterContent();
@@ -208,7 +212,8 @@ async function loadAllTwitterContent() {
         const items = await fetchAndParseRSS(feed.url);
         return items.map(item => ({
           ...item,
-          accountName: feed.name
+          accountName: feed.name,
+          baseUrl: new URL(feed.url).origin // 相対パス画像などを補完するためのベースドメイン
         }));
       } catch (err) {
         console.error(`Failed to fetch feed for ${feed.name}:`, err);
@@ -224,6 +229,7 @@ async function loadAllTwitterContent() {
       return;
     }
 
+    // 時系列（新しい順）にソート
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
@@ -231,18 +237,26 @@ async function loadAllTwitterContent() {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
       
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-        ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : '';
+      const dateStr = item.pubDate.toLocaleString('ja-JP', { 
+        month: 'numeric', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
 
       const author = item.author || item.accountName;
+
+      // Nitterの本文HTML内の相対URL（/pic/m...など）を絶対URLに補完
+      let cleanDescription = item.description
+        .replace(/href="\/([^"]+)"/g, `href="${item.baseUrl}/$1" target="_blank" rel="noopener"`)
+        .replace(/src="\/([^"]+)"/g, `src="${item.baseUrl}/$1"`);
 
       tweetDiv.innerHTML = `
         <div class="tweet-header">
           <span class="tweet-account">👤 ${author}</span>
           <span class="tweet-time">${dateStr}</span>
         </div>
-        <div class="tweet-body">${item.description}</div>
+        <div class="tweet-body">${cleanDescription}</div>
       `;
       container.appendChild(tweetDiv);
     });
