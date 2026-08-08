@@ -583,7 +583,6 @@ function initModals() {
 
   const closeModal = () => {
     cleanupExtraButtons();
-    purgeYouTubeButtons();
     modal.classList.add('hidden');
   };
   
