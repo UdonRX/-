@@ -385,6 +385,189 @@ function renderTabs(containerId, feeds, onClickCallback) {
   });
 }
 
+// ==========================================
+// YouTube 機能定義
+// ==========================================
+
+// ご自身の Google Cloud で取得した YouTube Data API v3 キーを入力してください
+const YOUTUBE_API_KEY = 'AIzaSyCIu3TLMlWdKLjjU7mDsuhY8Rmdp-lSxWM';
+
+const DEFAULT_YOUTUBE = [];
+let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
+
+// APIからの動画データ取得処理
+async function fetchYouTubeVideos(channelId) {
+  if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === 'YOUR_YOUTUBE_API_KEY') {
+    throw new Error('APIキー未設定');
+  }
+  const url = `https://www.googleapis.com/youtube/v3/search?key=${YOUTUBE_API_KEY}&channelId=${channelId}&part=snippet,id&order=date&maxResults=5&type=video`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('取得エラー');
+  const data = await response.json();
+  
+  return data.items.map(item => ({
+    title: item.snippet.title,
+    link: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+    pubDate: new Date(item.snippet.publishedAt),
+    channelTitle: item.snippet.channelTitle, // チャンネル正式名称
+    thumbnail: item.snippet.thumbnails.medium ? item.snippet.thumbnails.medium.url : '' // 動画アイコン（サムネイル）
+  }));
+}
+
+// 画面描画処理
+async function loadAllYouTubeContent() {
+  const container = document.getElementById('youtube-content');
+  if (!container) return;
+
+  if (youtubeFeeds.length === 0) {
+    container.innerHTML = '<div class="loading">登録チャンネルがありません。「追加」から設定してください。</div>';
+    return;
+  }
+
+  container.innerHTML = '<div class="loading">最新動画を読み込み中...</div>';
+
+  try {
+    const fetchPromises = youtubeFeeds.map(async (feed) => {
+      try {
+        return await fetchYouTubeVideos(feed.channelId);
+      } catch (err) {
+        console.error(`Fetch error for ${feed.name}:`, err);
+        return [];
+      }
+    });
+
+    const results = await Promise.all(fetchPromises);
+    let allVideos = results.flat();
+
+    if (allVideos.length === 0) {
+      container.innerHTML = '<div class="loading">動画を取得できませんでした</div>';
+      return;
+    }
+
+    // 新しい順に並べ替え
+    allVideos.sort((a, b) => b.pubDate - a.pubDate);
+
+    container.innerHTML = '';
+    allVideos.forEach(item => {
+      const videoDiv = document.createElement('div');
+      videoDiv.className = 'youtube-item';
+
+      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+        ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : '';
+
+      videoDiv.innerHTML = `
+        <a href="${item.link}" target="_blank" rel="noopener" class="youtube-link">
+          <img src="${item.thumbnail}" alt="${item.title}" class="youtube-thumb">
+          <div class="youtube-info">
+            <div class="youtube-title">${item.title}</div>
+            <div class="youtube-meta">
+              <span class="youtube-channel">${item.channelTitle}</span>
+              <span class="youtube-time">${dateStr}</span>
+            </div>
+          </div>
+        </a>
+      `;
+      container.appendChild(videoDiv);
+    });
+
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = '<div class="loading">動画の取得中にエラーが発生しました</div>';
+  }
+}
+
+// 入力行追加用ヘルパー
+function addYouTubeInputRow() {
+  const row = document.createElement('div');
+  row.className = 'modal-input-group';
+  row.style.marginBottom = '12px';
+  row.innerHTML = `
+    <input type="text" class="input-name" placeholder="配信先（チャンネル名）" style="margin-bottom:6px;">
+    <input type="text" class="input-id" placeholder="チャンネルID (UC...)">
+  `;
+  modalInputs.appendChild(row);
+}
+
+// 追加モーダルセットアップ処理
+function setupYouTubeAddModal() {
+  cleanupExtraButtons();
+  modalTitle.textContent = 'YouTube チャンネルを追加';
+  modalInputs.innerHTML = '';
+
+  addYouTubeInputRow();
+
+  // 「+ 入力欄を追加」ボタン
+  const addRowBtn = document.createElement('button');
+  addRowBtn.id = 'modal-add-row-btn';
+  addRowBtn.className = 'btn';
+  addRowBtn.textContent = '+ 入力欄を追加';
+  addRowBtn.onclick = () => addYouTubeInputRow();
+  modalActions.prepend(addRowBtn);
+
+  // 「YouTube」リンクボタン
+  const youtubeLinkBtn = document.createElement('button');
+  youtubeLinkBtn.id = 'modal-youtube-link-btn';
+  youtubeLinkBtn.className = 'btn';
+  youtubeLinkBtn.textContent = 'YouTube';
+  youtubeLinkBtn.onclick = () => {
+    window.open('https://m.youtube.com/?ra=m', '_blank');
+  };
+  modalActions.insertBefore(youtubeLinkBtn, cancelBtn);
+
+  // 保存ボタン押下処理
+  submitBtn.onclick = () => {
+    const rows = modalInputs.querySelectorAll('.modal-input-group');
+    const newItems = [];
+    rows.forEach(row => {
+      const name = row.querySelector('.input-name').value.trim();
+      const channelId = row.querySelector('.input-id').value.trim();
+      if (name && channelId) {
+        newItems.push({ name, channelId });
+      }
+    });
+
+    if (newItems.length > 0) {
+      youtubeFeeds.push(...newItems);
+      saveStoredFeeds('youtubeFeeds', youtubeFeeds);
+      loadAllYouTubeContent();
+    }
+    closeModal();
+  };
+
+  modal.classList.remove('hidden');
+}
+
+// イベントバインドの初期化（DOMContentLoaded内などに追記）
+function initYouTubeEvents() {
+  const addYouTubeBtn = document.getElementById('add-youtube-btn');
+  if (addYouTubeBtn) {
+    addYouTubeBtn.onclick = () => setupYouTubeAddModal();
+  }
+
+  const delYouTubeBtn = document.getElementById('del-youtube-btn');
+  if (delYouTubeBtn) {
+    delYouTubeBtn.onclick = () => {
+      cleanupExtraButtons();
+      modalTitle.textContent = 'YouTube チャンネルの管理';
+      renderManageList(youtubeFeeds, (newFeeds) => {
+        youtubeFeeds = newFeeds;
+        saveStoredFeeds('youtubeFeeds', youtubeFeeds);
+        loadAllYouTubeContent();
+      });
+      submitBtn.onclick = closeModal;
+      modal.classList.remove('hidden');
+    };
+  }
+
+  loadAllYouTubeContent();
+}
+
+// DOMContentLoaded 完了時に実行
+document.addEventListener('DOMContentLoaded', () => {
+  initYouTubeEvents();
+});
+
 // --- モーダル制御 ---
 function initModals() {
   const modal = document.getElementById('modal');
