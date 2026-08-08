@@ -142,6 +142,8 @@ async function fetchTwitterRSS(feedUrl) {
     throw new Error('Twitter RSS解析エラー');
   }
 
+  const feedTitle = data.feed ? data.feed.title : '';
+
   return data.items.map(item => {
     let parsedDate = new Date(item.pubDate);
     if (isNaN(parsedDate.getTime())) {
@@ -153,7 +155,8 @@ async function fetchTwitterRSS(feedUrl) {
       link: item.link || '',
       pubDate: parsedDate,
       description: item.description || item.content || item.title || '',
-      author: item.author || (data.feed ? data.feed.title : '')
+      author: item.author || feedTitle,
+      feedTitle: feedTitle
     };
   });
 }
@@ -247,6 +250,14 @@ function initTwitter() {
   loadAllTwitterContent();
 }
 
+// <title> や author から @ハンドル名 を除外し、ユーザー名のみを取り出す関数
+function extractUsername(rawText) {
+  if (!rawText) return '無題';
+  // "ユーザー名 (@handle)" や "ユーザー名 / @handle" などから @ 以降をカット
+  let cleaned = rawText.split(/[\(@\/]/)[0].trim();
+  return cleaned || rawText;
+}
+
 async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
   
@@ -290,14 +301,22 @@ async function loadAllTwitterContent() {
         ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
         : '';
 
-      const author = item.author || item.accountName;
+      // RSSの title / feedTitle / author から @の付いていないユーザー名部分を抽出
+      const rawTitle = item.feedTitle || item.author || item.title;
+      const author = extractUsername(rawTitle);
+
+      // 本文から不要な横棒（<hr/>）や「リンク」「<b>リンク</b>」などを除去
+      let cleanDescription = item.description
+        .replace(/<hr\s*\/?>/gi, '')
+        .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
+        .replace(/(リンク|Link)<br\s*\/?>/gi, '');
 
       tweetDiv.innerHTML = `
         <div class="tweet-header">
-          <span class="tweet-account">👤 ${author}</span>
+          <span class="tweet-account">${author}</span>
           <span class="tweet-time">${dateStr}</span>
         </div>
-        <div class="tweet-body">${item.description}</div>
+        <div class="tweet-body">${cleanDescription}</div>
       `;
       container.appendChild(tweetDiv);
     });
@@ -338,11 +357,21 @@ function initModals() {
   const cancelBtn = document.getElementById('modal-cancel-btn');
   const submitBtn = document.getElementById('modal-submit-btn');
 
-  const closeModal = () => modal.classList.add('hidden');
+  const cleanupExtraButtons = () => {
+    const extraBtn = document.getElementById('modal-nitter-btn');
+    if (extraBtn) extraBtn.remove();
+  };
+
+  const closeModal = () => {
+    cleanupExtraButtons();
+    modal.classList.add('hidden');
+  };
+  
   cancelBtn.onclick = closeModal;
 
   // ニュース追加
   document.getElementById('add-news-btn').onclick = () => {
+    cleanupExtraButtons();
     modalTitle.textContent = 'ニュースRSSを追加';
     modalBody.innerHTML = `
       <input type="text" id="input-name" placeholder="配信先（例: Yahoo!ニュース）">
@@ -363,6 +392,7 @@ function initModals() {
 
   // ニュース削除
   document.getElementById('del-news-btn').onclick = () => {
+    cleanupExtraButtons();
     modalTitle.textContent = 'ニュース配信先の削除';
     renderDeleteList(newsFeeds, (newFeeds) => {
       newsFeeds = newFeeds;
@@ -375,11 +405,24 @@ function initModals() {
 
   // Twitter追加
   document.getElementById('add-twitter-btn').onclick = () => {
+    cleanupExtraButtons();
     modalTitle.textContent = 'Twitter RSSを追加';
     modalBody.innerHTML = `
-      <input type="text" id="input-name" placeholder="アカウント名">
+      <input type="text" id="input-name" placeholder="管理用メモ・名前">
       <input type="url" id="input-url" placeholder="Nitter RSS URL">
     `;
+
+    // 保存ボタンの右側に Nitter ボタンを追加
+    const nitterBtn = document.createElement('button');
+    nitterBtn.id = 'modal-nitter-btn';
+    nitterBtn.className = 'btn';
+    nitterBtn.style.marginLeft = '8px';
+    nitterBtn.textContent = 'Nitter';
+    nitterBtn.onclick = () => {
+      window.open('https://nitter.net', '_blank', 'noopener,noreferrer');
+    };
+    submitBtn.parentNode.insertBefore(nitterBtn, submitBtn.nextSibling);
+
     submitBtn.onclick = () => {
       const name = document.getElementById('input-name').value.trim();
       const url = document.getElementById('input-url').value.trim();
@@ -395,6 +438,7 @@ function initModals() {
 
   // Twitter削除
   document.getElementById('del-twitter-btn').onclick = () => {
+    cleanupExtraButtons();
     modalTitle.textContent = 'Twitterアカウントの削除';
     renderDeleteList(twitterFeeds, (newFeeds) => {
       twitterFeeds = newFeeds;
