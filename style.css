@@ -240,6 +240,46 @@ h2 {
   margin-top: 8px;
   display: block;
 }
+/* Tweetヘッダーとアイコン表示 */
+.tweet-header {
+  display: flex;
+  align-items: center; /* 垂直中央揃え */
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.tweet-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0; /* 文字あふれ防止 */
+}
+
+/* プロフィールアイコン（円形） */
+.tweet-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%; /* 完全な丸型 */
+  object-fit: cover;
+  background-color: var(--border-color);
+  flex-shrink: 0;
+}
+
+/* アイコンが無い場合のデフォルト表示（イニシャルアイコンなど） */
+.tweet-avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #e1e8ed;
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
 
 /* モーダル */
 .modal {
