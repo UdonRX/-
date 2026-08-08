@@ -316,7 +316,7 @@ async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
   
   if (twitterFeeds.length === 0) {
-    container.innerHTML = '<div class="loading">配信先を追加してください</div>';
+    container.innerHTML = '<div class="loading">アカウントが登録されていません。「+ 追加」から登録してください。</div>';
     return;
   }
 
@@ -400,7 +400,7 @@ function renderTabs(containerId, feeds, onClickCallback) {
 }
 
 // ----------------------------------------------------
-// モーダル管理（追加・並べ替え・削除機能）
+// モーダル管理（複数動的追加・並べ替え・削除機能）
 // ----------------------------------------------------
 function initModals() {
   const modal = document.getElementById('modal');
@@ -412,6 +412,8 @@ function initModals() {
   const cleanupExtraButtons = () => {
     const extraBtn = document.getElementById('modal-nitter-btn');
     if (extraBtn) extraBtn.remove();
+    const addRowBtn = document.getElementById('modal-add-row-btn');
+    if (addRowBtn) addRowBtn.remove();
   };
 
   const closeModal = () => {
@@ -421,28 +423,83 @@ function initModals() {
   
   cancelBtn.onclick = closeModal;
 
-  // ニュース追加
-  document.getElementById('add-news-btn').onclick = () => {
-    cleanupExtraButtons();
-    modalTitle.textContent = 'ニュースRSSを追加';
-    modalBody.innerHTML = `
-      <input type="text" id="input-name" placeholder="配信先（例: Yahoo!ニュース）">
-      <input type="url" id="input-url" placeholder="RSS URL">
+  // 動的に入力行を生成する共通関数
+  const createInputRow = (placeholderName, placeholderUrl) => {
+    const row = document.createElement('div');
+    row.className = 'modal-input-row';
+    row.style.display = 'flex';
+    row.style.gap = '8px';
+    row.style.marginBottom = '8px';
+    row.style.alignItems = 'center';
+
+    row.innerHTML = `
+      <input type="text" class="input-name" placeholder="${placeholderName}" style="flex: 1;">
+      <input type="url" class="input-url" placeholder="${placeholderUrl}" style="flex: 2;">
+      <button class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
     `;
+
+    // 個別削除ボタンの動作（最初の1行は削除不可にするためチェック）
+    row.querySelector('.remove-row-btn').onclick = () => {
+      if (modalBody.querySelectorAll('.modal-input-row').length > 1) {
+        row.remove();
+      }
+    };
+
+    return row;
+  };
+
+  // 複数追加フォームを初期化するセットアップ関数
+  const setupMultiAddModal = (title, placeholderName, placeholderUrl, onSave) => {
+    cleanupExtraButtons();
+    modalTitle.textContent = title;
+    modalBody.innerHTML = '';
+
+    // 最初の1行目を追加
+    modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
+
+    // 「+ 行を追加」ボタンをモーダル下部（ボタン領域）に配置
+    const addRowBtn = document.createElement('button');
+    addRowBtn.id = 'modal-add-row-btn';
+    addRowBtn.className = 'btn';
+    addRowBtn.textContent = '+ 入力欄を追加';
+    addRowBtn.style.marginRight = 'auto'; // 左寄せる
+    addRowBtn.onclick = () => {
+      modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
+    };
+
+    cancelBtn.parentNode.insertBefore(addRowBtn, cancelBtn);
+
     submitBtn.onclick = () => {
-      const name = document.getElementById('input-name').value.trim();
-      const url = document.getElementById('input-url').value.trim();
-      if (name && url) {
-        newsFeeds.push({ name, url });
-        localStorage.setItem('newsFeeds', JSON.stringify(newsFeeds));
-        initNews();
+      const rows = modalBody.querySelectorAll('.modal-input-row');
+      const newItems = [];
+
+      rows.forEach(row => {
+        const name = row.querySelector('.input-name').value.trim();
+        const url = row.querySelector('.input-url').value.trim();
+        if (name && url) {
+          newItems.push({ name, url });
+        }
+      });
+
+      if (newItems.length > 0) {
+        onSave(newItems);
         closeModal();
       }
     };
+
     modal.classList.remove('hidden');
   };
 
-  // ニュース管理（並べ替え・削除）
+  // 1. ニュース追加
+  document.getElementById('add-news-btn').onclick = () => {
+    setupMultiAddModal('ニュースRSSをまとめて追加', '配信先（例: Yahoo!ニュース）', 'RSS URL', (newItems) => {
+      newsFeeds.push(...newItems);
+      localStorage.setItem('newsFeeds', JSON.stringify(newsFeeds));
+      initNews();
+    });
+  };
+
+  // 2. ニュース管理（並べ替え・削除）
   document.getElementById('del-news-btn').onclick = () => {
     cleanupExtraButtons();
     modalTitle.textContent = 'ニュース配信先の管理';
@@ -455,28 +512,16 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  // 知識追加
+  // 3. 知識追加
   document.getElementById('add-knowledge-btn').onclick = () => {
-    cleanupExtraButtons();
-    modalTitle.textContent = '知識RSSを追加';
-    modalBody.innerHTML = `
-      <input type="text" id="input-name" placeholder="配信先（例: Qiita）">
-      <input type="url" id="input-url" placeholder="RSS URL">
-    `;
-    submitBtn.onclick = () => {
-      const name = document.getElementById('input-name').value.trim();
-      const url = document.getElementById('input-url').value.trim();
-      if (name && url) {
-        knowledgeFeeds.push({ name, url });
-        localStorage.setItem('knowledgeFeeds', JSON.stringify(knowledgeFeeds));
-        initKnowledge();
-        closeModal();
-      }
-    };
-    modal.classList.remove('hidden');
+    setupMultiAddModal('知識RSSをまとめて追加', '配信先（例: Qiita）', 'RSS URL', (newItems) => {
+      knowledgeFeeds.push(...newItems);
+      localStorage.setItem('knowledgeFeeds', JSON.stringify(knowledgeFeeds));
+      initKnowledge();
+    });
   };
 
-  // 知識管理（並べ替え・削除）
+  // 4. 知識管理（並べ替え・削除）
   document.getElementById('del-knowledge-btn').onclick = () => {
     cleanupExtraButtons();
     modalTitle.textContent = '知識配信先の管理';
@@ -489,16 +534,15 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  // Twitter追加
+  // 5. Twitter追加
   document.getElementById('add-twitter-btn').onclick = () => {
-    cleanupExtraButtons();
-    modalTitle.textContent = 'Twitter RSSを追加';
-    modalBody.innerHTML = `
-      <input type="text" id="input-name" placeholder="配信元">
-      <input type="url" id="input-url" placeholder="Nitter RSS URL">
-    `;
+    setupMultiAddModal('Twitter RSSをまとめて追加', '配信元', 'Nitter RSS URL', (newItems) => {
+      twitterFeeds.push(...newItems);
+      localStorage.setItem('twitterFeeds', JSON.stringify(twitterFeeds));
+      initTwitter();
+    });
 
-    // キャンセルボタンと保存ボタンの間に Nitter ボタンを挿入（配置: キャンセル Nitter 保存）
+    // Twitter特有の Nitter ボタンを挿入
     const nitterBtn = document.createElement('button');
     nitterBtn.id = 'modal-nitter-btn';
     nitterBtn.className = 'btn';
@@ -508,24 +552,12 @@ function initModals() {
       window.open('https://nitter.net', '_blank', 'noopener,noreferrer');
     };
     cancelBtn.parentNode.insertBefore(nitterBtn, cancelBtn.nextSibling);
-
-    submitBtn.onclick = () => {
-      const name = document.getElementById('input-name').value.trim();
-      const url = document.getElementById('input-url').value.trim();
-      if (name && url) {
-        twitterFeeds.push({ name, url });
-        localStorage.setItem('twitterFeeds', JSON.stringify(twitterFeeds));
-        initTwitter();
-        closeModal();
-      }
-    };
-    modal.classList.remove('hidden');
   };
 
-  // Twitter削除
+  // 6. Twitter管理（削除）
   document.getElementById('del-twitter-btn').onclick = () => {
     cleanupExtraButtons();
-    modalTitle.textContent = 'Twitterアカウントの削除';
+    modalTitle.textContent = 'Twitterアカウントの管理';
     renderManageList(twitterFeeds, (newFeeds) => {
       twitterFeeds = newFeeds;
       localStorage.setItem('twitterFeeds', JSON.stringify(twitterFeeds));
@@ -535,7 +567,6 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 }
-
 // 配信先の並べ替え・削除用リスト描画関数
 function renderManageList(feeds, saveCallback) {
   const modalBody = document.getElementById('modal-body');
