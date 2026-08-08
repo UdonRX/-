@@ -476,14 +476,28 @@ async function loadAllYouTubeContent() {
   }
 }
 
+// モーダル内の動的追加入力ボタン・追加リンクボタンの削除処理
+function removeExtraModalButtons() {
+  const extraBtns = document.querySelectorAll('#modal-add-row-btn, #modal-youtube-link-btn, #modal-nitter-btn');
+  extraBtns.forEach(btn => btn.remove());
+}
+
+// 他のカード（ニュース・知識・Twitterなど）のボタンを押した時にも
+// YouTube用ボタンが残らないように既存のクリーンアップ関数があれば拡張
+const originalCleanup = window.cleanupExtraButtons;
+window.cleanupExtraButtons = function() {
+  if (typeof originalCleanup === 'function') originalCleanup();
+  removeExtraModalButtons();
+};
+
 // YouTube用 入力行追加処理
 function addYouTubeInputRow(container) {
   const row = document.createElement('div');
-  row.className = 'modal-input-group';
+  row.className = 'modal-input-group youtube-input-row';
   row.style.marginBottom = '12px';
   row.innerHTML = `
-    <input type="text" class="input-name" placeholder="配信先（チャンネル名）" style="margin-bottom:6px;">
-    <input type="text" class="input-id" placeholder="チャンネルID (UC...)">
+    <input type="text" class="input-name" placeholder="配信先（チャンネル名）" style="margin-bottom:6px; width:100%; box-sizing:border-box;">
+    <input type="text" class="input-id" placeholder="チャンネルID (UC...)" style="width:100%; box-sizing:border-box;">
   `;
   container.appendChild(row);
 }
@@ -499,52 +513,70 @@ function initYouTubeEvents() {
   // 追加ボタン処理
   const addYouTubeBtn = document.getElementById('add-youtube-btn');
   if (addYouTubeBtn) {
-    addYouTubeBtn.onclick = () => {
-      if (typeof cleanupExtraButtons === 'function') {
-        cleanupExtraButtons();
+    addYouTubeBtn.onclick = (e) => {
+      e.preventDefault();
+      
+      // 他のボタン等のゴミを全削除
+      if (typeof window.cleanupExtraButtons === 'function') {
+        window.cleanupExtraButtons();
       } else {
-        const extraBtns = modalActions.querySelectorAll('#modal-add-row-btn, #modal-youtube-link-btn, #modal-nitter-btn');
-        extraBtns.forEach(btn => btn.remove());
+        removeExtraModalButtons();
       }
 
       if (modalTitle) modalTitle.textContent = 'YouTube チャンネルを追加';
+      
       if (modalInputs) {
         modalInputs.innerHTML = '';
         addYouTubeInputRow(modalInputs);
       }
 
-      // 「+ 入力欄を追加」ボタン生成
+      // 「+ 入力欄を追加」ボタン生成（イベント引数を直接 modalInputs に渡す）
       const addRowBtn = document.createElement('button');
       addRowBtn.id = 'modal-add-row-btn';
+      addRowBtn.type = 'button';
       addRowBtn.className = 'btn';
       addRowBtn.textContent = '+ 入力欄を追加';
-      addRowBtn.onclick = () => addYouTubeInputRow(modalInputs);
-      modalActions.prepend(addRowBtn);
+      addRowBtn.onclick = (evt) => {
+        evt.preventDefault();
+        const currentInputs = document.querySelector('.modal-content .inputs') || document.querySelector('#modal-inputs');
+        if (currentInputs) addYouTubeInputRow(currentInputs);
+      };
+      if (modalActions) modalActions.prepend(addRowBtn);
 
-      // 「YouTube」リンクボタン生成
+      // 「YouTube」リンクボタン生成（YouTubeカード専用）
       const youtubeLinkBtn = document.createElement('button');
       youtubeLinkBtn.id = 'modal-youtube-link-btn';
+      youtubeLinkBtn.type = 'button';
       youtubeLinkBtn.className = 'btn';
       youtubeLinkBtn.textContent = 'YouTube';
-      youtubeLinkBtn.onclick = () => {
+      youtubeLinkBtn.onclick = (evt) => {
+        evt.preventDefault();
         window.open('https://m.youtube.com/?ra=m', '_blank');
       };
 
       const cancelBtn = document.getElementById('modal-cancel-btn');
-      if (cancelBtn) {
-        modalActions.insertBefore(youtubeLinkBtn, cancelBtn);
-      } else {
-        modalActions.appendChild(youtubeLinkBtn);
+      if (modalActions) {
+        if (cancelBtn) {
+          modalActions.insertBefore(youtubeLinkBtn, cancelBtn);
+        } else {
+          modalActions.appendChild(youtubeLinkBtn);
+        }
       }
 
       // 保存処理
       if (submitBtn) {
-        submitBtn.onclick = () => {
-          const rows = modalInputs.querySelectorAll('.modal-input-group');
+        submitBtn.onclick = (evt) => {
+          evt.preventDefault();
+          const currentInputs = document.querySelector('.modal-content .inputs') || document.querySelector('#modal-inputs');
+          if (!currentInputs) return;
+
+          const rows = currentInputs.querySelectorAll('.youtube-input-row');
           const newItems = [];
           rows.forEach(row => {
-            const name = row.querySelector('.input-name').value.trim();
-            const channelId = row.querySelector('.input-id').value.trim();
+            const nameInput = row.querySelector('.input-name');
+            const idInput = row.querySelector('.input-id');
+            const name = nameInput ? nameInput.value.trim() : '';
+            const channelId = idInput ? idInput.value.trim() : '';
             if (name && channelId) {
               newItems.push({ name, channelId });
             }
@@ -556,6 +588,7 @@ function initYouTubeEvents() {
             loadAllYouTubeContent();
           }
 
+          removeExtraModalButtons();
           if (typeof closeModal === 'function') closeModal();
           else if (modal) modal.classList.add('hidden');
         };
@@ -568,12 +601,13 @@ function initYouTubeEvents() {
   // 編集（削除/順序変更）ボタン処理
   const delYouTubeBtn = document.getElementById('del-youtube-btn');
   if (delYouTubeBtn) {
-    delYouTubeBtn.onclick = () => {
-      if (typeof cleanupExtraButtons === 'function') {
-        cleanupExtraButtons();
+    delYouTubeBtn.onclick = (e) => {
+      e.preventDefault();
+
+      if (typeof window.cleanupExtraButtons === 'function') {
+        window.cleanupExtraButtons();
       } else {
-        const extraBtns = modalActions.querySelectorAll('#modal-add-row-btn, #modal-youtube-link-btn, #modal-nitter-btn');
-        extraBtns.forEach(btn => btn.remove());
+        removeExtraModalButtons();
       }
 
       if (modalTitle) modalTitle.textContent = 'YouTube チャンネルの管理';
@@ -587,7 +621,9 @@ function initYouTubeEvents() {
       }
 
       if (submitBtn) {
-        submitBtn.onclick = () => {
+        submitBtn.onclick = (evt) => {
+          evt.preventDefault();
+          removeExtraModalButtons();
           if (typeof closeModal === 'function') closeModal();
           else if (modal) modal.classList.add('hidden');
         };
