@@ -18,19 +18,27 @@ const DEFAULT_NEWS = [
   { name: "Yahoo!ニュース", url: "https://news.yahoo.co.jp/rss/media/aptsushinv/all.xml" }
 ];
 
+const DEFAULT_KNOWLEDGE = [
+  { name: "Qiita", url: "https://qiita.com/tags/javascript/feed.atom" },
+  { name: "GIGAZINE", url: "https://gigazine.net/news/rss_2.0/" }
+];
+
 const DEFAULT_TWITTER = [];
 
 // localStorage 管理
 let newsFeeds = JSON.parse(localStorage.getItem('newsFeeds')) || DEFAULT_NEWS;
+let knowledgeFeeds = JSON.parse(localStorage.getItem('knowledgeFeeds')) || DEFAULT_KNOWLEDGE;
 let twitterFeeds = JSON.parse(localStorage.getItem('twitterFeeds')) || DEFAULT_TWITTER;
 
 // 通信競合防止用のフラグ
 let currentNewsUrl = '';
+let currentKnowledgeUrl = '';
 
 // 初期化処理
 document.addEventListener('DOMContentLoaded', () => {
   initWeather();
   initNews();
+  initKnowledge();
   initTwitter();
   initModals();
   registerSW();
@@ -44,7 +52,7 @@ function registerSW() {
 }
 
 // ----------------------------------------------------
-// ニュース用：/api/rss を経由してXMLを取得・解析する関数
+// ニュース・知識用：/api/rss を経由してXMLを取得・解析する関数
 // ----------------------------------------------------
 async function fetchNewsRSS(feedUrl) {
   const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
@@ -244,13 +252,60 @@ async function loadNewsContent(url) {
 }
 
 // ----------------------------------------------------
-// 3. Twitter タイムライン一括取得 ( rss2json.com を使用 )
+// 3. 知識 ( /api/rss を使用 )
+// ----------------------------------------------------
+function initKnowledge() {
+  renderTabs('knowledge-tabs', knowledgeFeeds, loadKnowledgeContent);
+  if (knowledgeFeeds.length > 0) {
+    loadKnowledgeContent(knowledgeFeeds[0].url);
+  } else {
+    document.getElementById('knowledge-content').innerHTML = '<div class="loading">配信先を追加してください</div>';
+  }
+}
+
+async function loadKnowledgeContent(url) {
+  currentKnowledgeUrl = url;
+  const container = document.getElementById('knowledge-content');
+  container.innerHTML = '<div class="loading">知識を読み込み中...</div>';
+
+  try {
+    const items = await fetchNewsRSS(url);
+    
+    if (currentKnowledgeUrl !== url) return;
+
+    if (items.length === 0) {
+      container.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    items.forEach(item => {
+      const newsDiv = document.createElement('div');
+      newsDiv.className = 'news-item';
+      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate) 
+        ? item.pubDate.toLocaleString('ja-JP') 
+        : '';
+
+      newsDiv.innerHTML = `
+        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
+        <div class="news-time">${dateStr}</div>
+      `;
+      container.appendChild(newsDiv);
+    });
+  } catch (err) {
+    if (currentKnowledgeUrl !== url) return;
+    console.error(err);
+    container.innerHTML = '<div class="loading">知識の取得に失敗しました</div>';
+  }
+}
+
+// ----------------------------------------------------
+// 4. Twitter タイムライン一括取得 ( rss2json.com を使用 )
 // ----------------------------------------------------
 function initTwitter() {
   loadAllTwitterContent();
 }
 
-// <title> や author から @ハンドル名 を除外し、ユーザー名のみを取り出す関数
 function extractUsername(rawText) {
   if (!rawText) return '無題';
   let cleaned = rawText.split(/[\(@\/]/)[0].trim();
@@ -345,7 +400,7 @@ function renderTabs(containerId, feeds, onClickCallback) {
 }
 
 // ----------------------------------------------------
-// モーダル管理（追加・削除機能）
+// モーダル管理（追加・並べ替え・削除機能）
 // ----------------------------------------------------
 function initModals() {
   const modal = document.getElementById('modal');
@@ -387,14 +442,48 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  // ニュース削除
+  // ニュース管理（並べ替え・削除）
   document.getElementById('del-news-btn').onclick = () => {
     cleanupExtraButtons();
-    modalTitle.textContent = 'ニュース配信先の削除';
-    renderDeleteList(newsFeeds, (newFeeds) => {
+    modalTitle.textContent = 'ニュース配信先の管理';
+    renderManageList(newsFeeds, (newFeeds) => {
       newsFeeds = newFeeds;
       localStorage.setItem('newsFeeds', JSON.stringify(newsFeeds));
       initNews();
+    });
+    submitBtn.onclick = closeModal;
+    modal.classList.remove('hidden');
+  };
+
+  // 知識追加
+  document.getElementById('add-knowledge-btn').onclick = () => {
+    cleanupExtraButtons();
+    modalTitle.textContent = '知識RSSを追加';
+    modalBody.innerHTML = `
+      <input type="text" id="input-name" placeholder="配信先（例: Qiita）">
+      <input type="url" id="input-url" placeholder="RSS URL">
+    `;
+    submitBtn.onclick = () => {
+      const name = document.getElementById('input-name').value.trim();
+      const url = document.getElementById('input-url').value.trim();
+      if (name && url) {
+        knowledgeFeeds.push({ name, url });
+        localStorage.setItem('knowledgeFeeds', JSON.stringify(knowledgeFeeds));
+        initKnowledge();
+        closeModal();
+      }
+    };
+    modal.classList.remove('hidden');
+  };
+
+  // 知識管理（並べ替え・削除）
+  document.getElementById('del-knowledge-btn').onclick = () => {
+    cleanupExtraButtons();
+    modalTitle.textContent = '知識配信先の管理';
+    renderManageList(knowledgeFeeds, (newFeeds) => {
+      knowledgeFeeds = newFeeds;
+      localStorage.setItem('knowledgeFeeds', JSON.stringify(knowledgeFeeds));
+      initKnowledge();
     });
     submitBtn.onclick = closeModal;
     modal.classList.remove('hidden');
@@ -437,7 +526,7 @@ function initModals() {
   document.getElementById('del-twitter-btn').onclick = () => {
     cleanupExtraButtons();
     modalTitle.textContent = 'Twitterアカウントの削除';
-    renderDeleteList(twitterFeeds, (newFeeds) => {
+    renderManageList(twitterFeeds, (newFeeds) => {
       twitterFeeds = newFeeds;
       localStorage.setItem('twitterFeeds', JSON.stringify(twitterFeeds));
       initTwitter();
@@ -447,7 +536,8 @@ function initModals() {
   };
 }
 
-function renderDeleteList(feeds, saveCallback) {
+// 配信先の並べ替え・削除用リスト描画関数
+function renderManageList(feeds, saveCallback) {
   const modalBody = document.getElementById('modal-body');
   modalBody.innerHTML = '';
   
@@ -459,15 +549,64 @@ function renderDeleteList(feeds, saveCallback) {
   feeds.forEach((feed, idx) => {
     const row = document.createElement('div');
     row.className = 'delete-list-item';
-    row.innerHTML = `
-      <span>${feed.name}</span>
-      <button class="btn danger" style="padding:2px 8px;">削除</button>
-    `;
-    row.querySelector('button').onclick = () => {
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.justifyContent = 'space-between';
+    row.style.marginBottom = '8px';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = feed.name;
+    nameSpan.style.flex = '1';
+
+    const btnGroup = document.createElement('div');
+    btnGroup.style.display = 'flex';
+    btnGroup.style.gap = '4px';
+
+    // 上へ移動ボタン
+    const upBtn = document.createElement('button');
+    upBtn.className = 'btn';
+    upBtn.style.padding = '2px 8px';
+    upBtn.textContent = '↑';
+    upBtn.disabled = idx === 0; // 一番上は無効化
+    upBtn.onclick = () => {
+      const temp = feeds[idx];
+      feeds[idx] = feeds[idx - 1];
+      feeds[idx - 1] = temp;
+      saveCallback(feeds);
+      renderManageList(feeds, saveCallback);
+    };
+
+    // 下へ移動ボタン
+    const downBtn = document.createElement('button');
+    downBtn.className = 'btn';
+    downBtn.style.padding = '2px 8px';
+    downBtn.textContent = '↓';
+    downBtn.disabled = idx === feeds.length - 1; // 一番下は無効化
+    downBtn.onclick = () => {
+      const temp = feeds[idx];
+      feeds[idx] = feeds[idx + 1];
+      feeds[idx + 1] = temp;
+      saveCallback(feeds);
+      renderManageList(feeds, saveCallback);
+    };
+
+    // 削除ボタン
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn danger';
+    delBtn.style.padding = '2px 8px';
+    delBtn.textContent = '削除';
+    delBtn.onclick = () => {
       feeds.splice(idx, 1);
       saveCallback(feeds);
-      renderDeleteList(feeds, saveCallback);
+      renderManageList(feeds, saveCallback);
     };
+
+    btnGroup.appendChild(upBtn);
+    btnGroup.appendChild(downBtn);
+    btnGroup.appendChild(delBtn);
+
+    row.appendChild(nameSpan);
+    row.appendChild(btnGroup);
     modalBody.appendChild(row);
   });
 }
