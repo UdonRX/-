@@ -390,7 +390,7 @@ function renderTabs(containerId, feeds, onClickCallback) {
 // ==========================================
 
 // ご自身の API キーを設定してください
-const YOUTUBE_API_KEY = 'YOUR_YOUTUBE_API_KEY';
+const YOUTUBE_API_KEY = 'AIzaSyCIu3TLMlWdKLjjU7mDsuhY8Rmdp-lSxWM';
 
 const DEFAULT_YOUTUBE = [];
 let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
