@@ -1,4 +1,4 @@
-/* iOSのセーフエリア（ノッチ・ホームバー）対応 */
+/* iOSのセーフエリア対応 */
 :root {
   --safe-top: env(safe-area-inset-top, 20px);
   --safe-bottom: env(safe-area-inset-bottom, 20px);
@@ -26,23 +26,14 @@ body {
   padding-bottom: calc(var(--safe-bottom) + 20px);
   padding-left: env(safe-area-inset-left, 12px);
   padding-right: env(safe-area-inset-right, 12px);
-  /* 拡大（ズーム）防止対策 */
   touch-action: manipulation;
-}
-
-header {
-  padding: 16px 8px;
-}
-
-header h1 {
-  font-size: 24px;
-  font-weight: 700;
 }
 
 main {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  margin-top: 8px;
 }
 
 .card {
@@ -69,7 +60,6 @@ h2 {
   gap: 8px;
 }
 
-/* ボタン装飾 */
 .btn {
   border: none;
   background: #e5e5ea;
@@ -91,7 +81,7 @@ h2 {
   color: #fff;
 }
 
-/* スクロールエリア定義 */
+/* スクロールエリア */
 .horizontal-scroll {
   display: flex;
   overflow-x: auto;
@@ -108,7 +98,7 @@ h2 {
   -webkit-overflow-scrolling: touch;
 }
 
-/* 1. 天気スタイル */
+/* 1. 天気 */
 .weather-item {
   display: flex;
   flex-direction: column;
@@ -134,7 +124,7 @@ h2 {
   font-weight: 600;
 }
 
-/* タブスタイル */
+/* タブ */
 .tab-container {
   margin-bottom: 8px;
 }
@@ -214,15 +204,18 @@ h2 {
   word-break: break-word;
 }
 
+/* Nitterの本文内コンテンツの描画崩れ防止 */
 .tweet-body a {
   color: var(--primary-color);
-  text-decoration: underline;
+  text-decoration: none;
 }
 
-.tweet-media img, .tweet-media video {
-  max-width: 100%;
-  border-radius: 12px;
+.tweet-body img, .tweet-body video {
+  max-width: 100% !important;
+  height: auto !important;
+  border-radius: 10px;
   margin-top: 8px;
+  display: block;
 }
 
 /* モーダル */
@@ -255,7 +248,6 @@ h2 {
   margin: 8px 0;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  /* 16px以上にすることでiPhoneの自動ズームを防止 */
   font-size: 16px; 
 }
 
