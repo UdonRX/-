@@ -1,4 +1,4 @@
-/* iOSのセーフエリア対応 */
+/* iOSのセーフエリア（ノッチ・ホームバー）対応 */
 :root {
   --safe-top: env(safe-area-inset-top, 20px);
   --safe-bottom: env(safe-area-inset-bottom, 20px);
@@ -26,14 +26,21 @@ body {
   padding-bottom: calc(var(--safe-bottom) + 20px);
   padding-left: env(safe-area-inset-left, 12px);
   padding-right: env(safe-area-inset-right, 12px);
+  /* 拡大（ズーム）防止対策 */
   touch-action: manipulation;
+}
+
+/* マイ・ダッシュボード非表示化に伴う上部余白調整 */
+header {
+  display: none;
 }
 
 main {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-top: 8px;
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .card {
@@ -43,6 +50,11 @@ main {
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 
+.card:first-child {
+  margin-top: 0;
+}
+
+.card-header,
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -60,6 +72,7 @@ h2 {
   gap: 8px;
 }
 
+/* ボタン装飾 */
 .btn {
   border: none;
   background: #e5e5ea;
@@ -69,6 +82,7 @@ h2 {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap; /* ボタンテキストの折り返し防止 */
 }
 
 .btn.primary {
@@ -81,7 +95,7 @@ h2 {
   color: #fff;
 }
 
-/* スクロールエリア */
+/* スクロールエリア定義 */
 .horizontal-scroll {
   display: flex;
   overflow-x: auto;
@@ -98,7 +112,7 @@ h2 {
   -webkit-overflow-scrolling: touch;
 }
 
-/* 1. 天気 */
+/* 1. 天気スタイル */
 .weather-item {
   display: flex;
   flex-direction: column;
@@ -124,9 +138,14 @@ h2 {
   font-weight: 600;
 }
 
-/* タブ */
-.tab-container {
+/* タブスタイル */
+.tab-container,
+.tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
   margin-bottom: 8px;
+  padding-bottom: 4px;
 }
 
 .tab-btn {
@@ -204,18 +223,15 @@ h2 {
   word-break: break-word;
 }
 
-/* Nitterの本文内コンテンツの描画崩れ防止 */
 .tweet-body a {
   color: var(--primary-color);
-  text-decoration: none;
+  text-decoration: underline;
 }
 
-.tweet-body img, .tweet-body video {
-  max-width: 100% !important;
-  height: auto !important;
-  border-radius: 10px;
+.tweet-media img, .tweet-media video {
+  max-width: 100%;
+  border-radius: 12px;
   margin-top: 8px;
-  display: block;
 }
 
 /* モーダル */
@@ -239,23 +255,39 @@ h2 {
   padding: 20px;
   border-radius: 16px;
   width: 100%;
-  max-width: 340px;
+  max-width: 560px; /* 横幅を拡張して複数ボタンや入力欄が入るスペースを確保 */
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
 }
 
 .modal-content input {
   width: 100%;
   padding: 10px;
-  margin: 8px 0;
+  margin: 4px 0;
   border: 1px solid var(--border-color);
   border-radius: 8px;
+  /* 16px以上にすることでiPhoneの自動ズームを防止 */
   font-size: 16px; 
 }
 
 .modal-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 16px;
+}
+
+/* 動的入力行スタイル */
+.modal-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+/* 左端に置く「+ 入力欄を追加」ボタン用 */
+#modal-add-row-btn {
+  margin-right: auto;
 }
 
 .delete-list-item {
