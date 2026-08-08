@@ -492,7 +492,7 @@ function initModals() {
 
   // 1. ニュース追加
   document.getElementById('add-news-btn').onclick = () => {
-    setupMultiAddModal('ニュースRSSをまとめて追加', '配信先（例: Yahoo!ニュース）', 'RSS URL', (newItems) => {
+    setupMultiAddModal('ニュースRSSをまとめて追加', '配信先', 'RSS URL', (newItems) => {
       newsFeeds.push(...newItems);
       localStorage.setItem('newsFeeds', JSON.stringify(newsFeeds));
       initNews();
@@ -514,7 +514,7 @@ function initModals() {
 
   // 3. 知識追加
   document.getElementById('add-knowledge-btn').onclick = () => {
-    setupMultiAddModal('知識RSSをまとめて追加', '配信先（例: Qiita）', 'RSS URL', (newItems) => {
+    setupMultiAddModal('知識RSSをまとめて追加', '配信先', 'RSS URL', (newItems) => {
       knowledgeFeeds.push(...newItems);
       localStorage.setItem('knowledgeFeeds', JSON.stringify(knowledgeFeeds));
       initKnowledge();
@@ -536,7 +536,7 @@ function initModals() {
 
   // 5. Twitter追加
   document.getElementById('add-twitter-btn').onclick = () => {
-    setupMultiAddModal('Twitter RSSをまとめて追加', '配信元', 'Nitter RSS URL', (newItems) => {
+    setupMultiAddModal('Twitter RSSをまとめて追加', '配信先', 'Nitter RSS URL', (newItems) => {
       twitterFeeds.push(...newItems);
       localStorage.setItem('twitterFeeds', JSON.stringify(twitterFeeds));
       initTwitter();
