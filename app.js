@@ -12,7 +12,7 @@ const WEATHER_CODES = {
   90: "🌩️", 91: "⛈️", 92: "⛈️", 93: "⛈️", 94: "⛈️", 95: "⛈️", 96: "⛈️", 97: "⛈️", 98: "🌩️", 99: "⛈️"
 };
 
-// 初期RSSデータ
+// 初期RSSデータ（初回アクセス時のみ使用されるデフォルト値）
 const DEFAULT_NEWS = [
   { name: "朝日新聞(政治)", url: "https://www.asahi.com/rss/asahi/politics.rdf" },
   { name: "Yahoo!ニュース", url: "https://news.yahoo.co.jp/rss/media/aptsushinv/all.xml" }
@@ -25,10 +25,30 @@ const DEFAULT_KNOWLEDGE = [
 
 const DEFAULT_TWITTER = [];
 
-// localStorage 管理
-let newsFeeds = JSON.parse(localStorage.getItem('newsFeeds')) || DEFAULT_NEWS;
-let knowledgeFeeds = JSON.parse(localStorage.getItem('knowledgeFeeds')) || DEFAULT_KNOWLEDGE;
-let twitterFeeds = JSON.parse(localStorage.getItem('twitterFeeds')) || DEFAULT_TWITTER;
+// localStorageから安全に読み込む関数（データがなければデフォルト値を保存して返す）
+function loadStoredFeeds(key, defaultValue) {
+  const stored = localStorage.getItem(key);
+  if (stored !== null) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      console.error(`Failed to parse ${key} from localStorage`, e);
+    }
+  }
+  // 初回訪問時のみデフォルト値をストレージに書き込む
+  localStorage.setItem(key, JSON.stringify(defaultValue));
+  return defaultValue;
+}
+
+// データ保存用ヘルパー関数
+function saveStoredFeeds(key, data) {
+  localStorage.setItem(key, JSON.stringify(data));
+}
+
+// アプリ全体で参照する変数（localStorage優先）
+let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
+let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
+let twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
 
 // 通信競合防止用のフラグ
 let currentNewsUrl = '';
@@ -36,6 +56,11 @@ let currentKnowledgeUrl = '';
 
 // 初期化処理
 document.addEventListener('DOMContentLoaded', () => {
+  // 最新のlocalStorageの状態を再取得して確実に同期
+  newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
+  knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
+  twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
+
   initWeather();
   initNews();
   initKnowledge();
@@ -490,83 +515,73 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  // 1. ニュース追加
-  document.getElementById('add-news-btn').onclick = () => {
-    setupMultiAddModal('ニュースRSSをまとめて追加', '配信先', 'RSS URL', (newItems) => {
-      newsFeeds.push(...newItems);
-      localStorage.setItem('newsFeeds', JSON.stringify(newsFeeds));
-      initNews();
-    });
-  };
+// 1. ニュース追加
+document.getElementById('add-news-btn').onclick = () => {
+  setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
+    newsFeeds.push(...newItems);
+    saveStoredFeeds('newsFeeds', newsFeeds); // 変更
+    initNews();
+  });
+};
 
-  // 2. ニュース管理（並べ替え・削除）
-  document.getElementById('del-news-btn').onclick = () => {
-    cleanupExtraButtons();
-    modalTitle.textContent = 'ニュース配信先の管理';
-    renderManageList(newsFeeds, (newFeeds) => {
-      newsFeeds = newFeeds;
-      localStorage.setItem('newsFeeds', JSON.stringify(newsFeeds));
-      initNews();
-    });
-    submitBtn.onclick = closeModal;
-    modal.classList.remove('hidden');
-  };
+// 2. ニュース管理
+document.getElementById('del-news-btn').onclick = () => {
+  cleanupExtraButtons();
+  modalTitle.textContent = 'ニュース配信先の管理';
+  renderManageList(newsFeeds, (newFeeds) => {
+    newsFeeds = newFeeds;
+    saveStoredFeeds('newsFeeds', newsFeeds); // 変更
+    initNews();
+  });
+  submitBtn.onclick = closeModal;
+  modal.classList.remove('hidden');
+};
 
-  // 3. 知識追加
-  document.getElementById('add-knowledge-btn').onclick = () => {
-    setupMultiAddModal('知識RSSを追加', '配信先', 'RSS URL', (newItems) => {
-      knowledgeFeeds.push(...newItems);
-      localStorage.setItem('knowledgeFeeds', JSON.stringify(knowledgeFeeds));
-      initKnowledge();
-    });
-  };
+// 3. 知識追加
+document.getElementById('add-knowledge-btn').onclick = () => {
+  setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
+    knowledgeFeeds.push(...newItems);
+    saveStoredFeeds('knowledgeFeeds', knowledgeFeeds); // 変更
+    initKnowledge();
+  });
+};
 
-  // 4. 知識管理（並べ替え・削除）
-  document.getElementById('del-knowledge-btn').onclick = () => {
-    cleanupExtraButtons();
-    modalTitle.textContent = '知識配信先の管理';
-    renderManageList(knowledgeFeeds, (newFeeds) => {
-      knowledgeFeeds = newFeeds;
-      localStorage.setItem('knowledgeFeeds', JSON.stringify(knowledgeFeeds));
-      initKnowledge();
-    });
-    submitBtn.onclick = closeModal;
-    modal.classList.remove('hidden');
-  };
+// 4. 知識管理
+document.getElementById('del-knowledge-btn').onclick = () => {
+  cleanupExtraButtons();
+  modalTitle.textContent = '知識配信先の管理';
+  renderManageList(knowledgeFeeds, (newFeeds) => {
+    knowledgeFeeds = newFeeds;
+    saveStoredFeeds('knowledgeFeeds', knowledgeFeeds); // 変更
+    initKnowledge();
+  });
+  submitBtn.onclick = closeModal;
+  modal.classList.remove('hidden');
+};
 
-  // 5. Twitter追加
-  document.getElementById('add-twitter-btn').onclick = () => {
-    setupMultiAddModal('Twitter RSSを追加', '配信先', 'Nitter RSS URL', (newItems) => {
-      twitterFeeds.push(...newItems);
-      localStorage.setItem('twitterFeeds', JSON.stringify(twitterFeeds));
-      initTwitter();
-    });
+// 5. Twitter追加
+document.getElementById('add-twitter-btn').onclick = () => {
+  setupMultiAddModal('RSSを追加', '配信先', 'Nitter', (newItems) => {
+    twitterFeeds.push(...newItems);
+    saveStoredFeeds('twitterFeeds', twitterFeeds); // 変更
+    initTwitter();
+  });
+  // ... (省略)
+};
 
-    // Twitter特有の Nitter ボタンを挿入
-    const nitterBtn = document.createElement('button');
-    nitterBtn.id = 'modal-nitter-btn';
-    nitterBtn.className = 'btn';
-    nitterBtn.style.marginRight = '8px';
-    nitterBtn.textContent = 'Nitter';
-    nitterBtn.onclick = () => {
-      window.open('https://nitter.net', '_blank', 'noopener,noreferrer');
-    };
-    cancelBtn.parentNode.insertBefore(nitterBtn, cancelBtn.nextSibling);
-  };
-
-  // 6. Twitter管理（削除）
-  document.getElementById('del-twitter-btn').onclick = () => {
-    cleanupExtraButtons();
-    modalTitle.textContent = 'Twitterアカウントの管理';
-    renderManageList(twitterFeeds, (newFeeds) => {
-      twitterFeeds = newFeeds;
-      localStorage.setItem('twitterFeeds', JSON.stringify(twitterFeeds));
-      initTwitter();
-    });
-    submitBtn.onclick = closeModal;
-    modal.classList.remove('hidden');
-  };
-}
+// 6. Twitter管理
+document.getElementById('del-twitter-btn').onclick = () => {
+  cleanupExtraButtons();
+  modalTitle.textContent = 'Twitterアカウントの管理';
+  renderManageList(twitterFeeds, (newFeeds) => {
+    twitterFeeds = newFeeds;
+    saveStoredFeeds('twitterFeeds', twitterFeeds); // 変更
+    initTwitter();
+  });
+  submitBtn.onclick = closeModal;
+  modal.classList.remove('hidden');
+};
+  
 // 配信先の並べ替え・削除用リスト描画関数
 function renderManageList(feeds, saveCallback) {
   const modalBody = document.getElementById('modal-body');
