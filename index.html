@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>ダッシュボード</title>
+  
+  <!-- PWA & iOS 設定 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#f2f2f7">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ダッシュボード">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>マイ ダッシュボード</h1>
+  </header>
+
+  <main>
+    <!-- 1. 今日の天気 -->
+    <section class="card">
+      <h2>今日の天気 (1時間ごと)</h2>
+      <div id="weather-container" class="horizontal-scroll">
+        <div class="loading">天気データを読み込み中...</div>
+      </div>
+    </section>
+
+    <!-- 2. 今日のニュース -->
+    <section class="card">
+      <div class="section-header">
+        <h2>今日のニュース</h2>
+        <div class="action-buttons">
+          <button id="add-news-btn" class="btn primary">+ 追加</button>
+          <button id="del-news-btn" class="btn danger">削除</button>
+        </div>
+      </div>
+      <div id="news-tabs" class="tab-container horizontal-scroll"></div>
+      <div id="news-content" class="vertical-scroll">
+        <div class="loading">ニュースを選択してください</div>
+      </div>
+    </section>
+
+<!-- 3. Twitter (Nitter) -->
+    <section class="card">
+      <div class="section-header">
+        <h2>Twitter (Nitter)</h2>
+        <div class="action-buttons">
+          <button id="add-twitter-btn" class="btn primary">+ 追加</button>
+          <button id="del-twitter-btn" class="btn danger">削除</button>
+        </div>
+      </div>
+      <!-- タブを廃止し、タイムラインを一括表示 -->
+      <div id="twitter-content" class="vertical-scroll">
+        <div class="loading">ツイートを読み込み中...</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 汎用モーダルダイアログ -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="modal-title">項目を追加</h3>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button id="modal-cancel-btn" class="btn">キャンセル</button>
+        <button id="modal-submit-btn" class="btn primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
