@@ -44,7 +44,7 @@ function registerSW() {
 }
 
 // ----------------------------------------------------
-// Vercel Serverless Function経由でRSSを取得・解析する関数（日本語タグ・日付拡張版）
+// Vercel Serverless Function経由でRSSを取得・解析する関数（カタカナXML完全対応版）
 // ----------------------------------------------------
 async function fetchAndParseRSS(feedUrl) {
   const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
@@ -60,56 +60,80 @@ async function fetchAndParseRSS(feedUrl) {
     throw new Error('XMLパースエラー');
   }
 
-  // item, entry, アイテム (日本語表記) のいずれも取得できるように対応
+  // item / entry / アイテム のいずれも取得
   let items = Array.from(xmlDoc.querySelectorAll('item, entry, アイテム'));
 
-  return items.map(item => {
-    const title = item.querySelector('title')?.textContent?.trim() || '無題';
+  // 万が一要素が取れない場合は、直下の全子要素から探す
+  if (items.length === 0) {
+    const channel = xmlDoc.querySelector('channel, チャンネル') || xmlDoc;
+    items = Array.from(channel.children).filter(node => 
+      ['item', 'entry', 'アイテム'].includes(node.tagName.toLowerCase())
+    );
+  }
 
-    let link = item.querySelector('link')?.textContent?.trim() || '';
+  // タグ名に揺らぎ（日本語・英語）があっても要素テキストを取得するヘルパー関数
+  const getTagText = (parent, selectors) => {
+    for (const selector of selectors) {
+      const elem = parent.querySelector(selector);
+      if (elem && elem.textContent) {
+        return elem.textContent.trim();
+      }
+    }
+    return '';
+  };
+
+  // 日本語形式の日付を安全に Date オブジェクトへ変換する関数
+  const parseCustomDate = (dateStr) => {
+    if (!dateStr) return new Date();
+    
+    // "2026 年 8 月 8 日土曜日 09:16:00 GMT" などの日本語表現をハイフン/スラッシュ区切りへ正規化
+    const cleaned = dateStr
+      .replace(/年|月/g, '/')
+      .replace(/日/g, '')
+      .replace(/（.*?）|土曜日|日曜日|月曜日|火曜日|水曜日|木曜日|金曜日/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const parsedDate = new Date(cleaned);
+    return isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  };
+
+  return items.map(item => {
+    // 1. タイトル取得
+    const title = getTagText(item, ['title', 'タイトル']) || '無題';
+
+    // 2. リンク取得 (属性 href もチェック)
+    let link = getTagText(item, ['link', 'リンク', 'url', 'URL']);
     if (!link) {
-      const linkElem = item.querySelector('link');
+      const linkElem = item.querySelector('link, リンク');
       if (linkElem && linkElem.getAttribute('href')) {
         link = linkElem.getAttribute('href');
       }
     }
 
-    const pubDateRaw = 
-      item.querySelector('pubDate')?.textContent ||
-      item.querySelector('date')?.textContent ||
-      item.querySelector('published')?.textContent ||
-      item.querySelector('updated')?.textContent || '';
+    // 3. 日付取得
+    const pubDateRaw = getTagText(item, [
+      'pubDate', 'date', 'published', 'updated', 
+      '公開日時', '投稿日時', '日付', '発行日時'
+    ]);
 
-    const description = 
-      item.querySelector('description')?.textContent ||
-      item.querySelector('content')?.textContent || '';
+    // 4. 本文・概要取得
+    const description = getTagText(item, [
+      'description', 'content', 'encoded', 
+      '詳細', '概要', '内容', '本文'
+    ]);
 
-    const author = 
-      item.querySelector('creator')?.textContent ||
-      item.querySelector('author name')?.textContent ||
-      item.querySelector('author')?.textContent || '';
-
-    // 日本語形式の日付を parse 可能な文字列へ補正する関数
-    const parseCustomDate = (dateStr) => {
-      if (!dateStr) return new Date();
-      
-      // "2026 年 8 月 8 日（土）09:12:00 GMT" や "2026 年 8 月 8 日土曜日 09:12:00 GMT" を標準形式へ変換
-      const cleaned = dateStr
-        .replace(/年|月/g, '/')
-        .replace(/日/g, '')
-        .replace(/（.*?）|土曜日|日曜日|月曜日|火曜日|水曜日|木曜日|金曜日/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const parsedDate = new Date(cleaned);
-      return isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
-    };
+    // 5. 投稿者取得
+    const author = getTagText(item, [
+      'creator', 'dc\\:creator', 'author name', 'author', 
+      '製作者', '投稿者', '作者'
+    ]);
 
     return {
       title,
       link,
       pubDate: parseCustomDate(pubDateRaw),
-      description,
+      description: description || title, // 本文が空ならタイトルで代用
       author
     };
   });
