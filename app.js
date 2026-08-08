@@ -15,7 +15,7 @@ const WEATHER_CODES = {
 // 初期RSSデータ
 const DEFAULT_NEWS = [
   { name: "朝日新聞(政治)", url: "https://www.asahi.com/rss/asahi/politics.rdf" },
-  { name: "Yahoo!ニュース", url: "https://news.yahoo.co.jp/rss/media/zdn_n/all.xml" }
+  { name: "Yahoo!ニュース", url: "https://news.yahoo.co.jp/rss/media/aptsushinv/all.xml" }
 ];
 
 const DEFAULT_TWITTER = [];
@@ -23,9 +23,6 @@ const DEFAULT_TWITTER = [];
 // localStorage 管理
 let newsFeeds = JSON.parse(localStorage.getItem('newsFeeds')) || DEFAULT_NEWS;
 let twitterFeeds = JSON.parse(localStorage.getItem('twitterFeeds')) || DEFAULT_TWITTER;
-
-// RSS取得用API (CORS制限回避)
-const RSS2JSON_API = "https://api.rss2json.com/v1/api.json?rss_url=";
 
 // 初期化処理
 document.addEventListener('DOMContentLoaded', () => {
@@ -41,6 +38,71 @@ function registerSW() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(err => console.log(err));
   }
+}
+
+// ----------------------------------------------------
+// 自前RSS (XML / RDF / Atom) パース関数
+// ----------------------------------------------------
+async function fetchAndParseRSS(feedUrl) {
+  // CORS回避用プロキシ（生データ取得）
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
+  
+  const response = await fetch(proxyUrl);
+  if (!response.ok) throw new Error('ネットワーク応答エラー');
+  const xmlText = await response.text();
+
+  // ブラウザ標準機能でXMLをパース
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+
+  const parseError = xmlDoc.querySelector('parsererror');
+  if (parseError) throw new Error('XML形式のエラー');
+
+  // RSS 1.0 / 2.0 (<item>) または Atom (<entry>) を取得
+  let items = Array.from(xmlDoc.querySelectorAll('item'));
+  if (items.length === 0) {
+    items = Array.from(xmlDoc.querySelectorAll('entry'));
+  }
+
+  return items.map(item => {
+    // タイトル
+    const title = item.querySelector('title')?.textContent?.trim() || '無題';
+
+    // リンク (RSS: <link>, Atom: <link href="...">)
+    let link = item.querySelector('link')?.textContent?.trim() || '';
+    if (!link) {
+      const linkElem = item.querySelector('link');
+      if (linkElem && linkElem.getAttribute('href')) {
+        link = linkElem.getAttribute('href');
+      }
+    }
+
+    // 投稿日時 (pubDate, dc:date, updated, published等に対応)
+    const pubDateStr = 
+      item.querySelector('pubDate')?.textContent ||
+      item.querySelector('date')?.textContent ||
+      item.querySelector('published')?.textContent ||
+      item.querySelector('updated')?.textContent || '';
+
+    // 本文・概要
+    const description = 
+      item.querySelector('description')?.textContent ||
+      item.querySelector('content')?.textContent || '';
+
+    // 著者・投稿者
+    const author = 
+      item.querySelector('creator')?.textContent ||
+      item.querySelector('author name')?.textContent ||
+      item.querySelector('author')?.textContent || '';
+
+    return {
+      title,
+      link,
+      pubDate: pubDateStr ? new Date(pubDateStr) : new Date(),
+      description,
+      author
+    };
+  });
 }
 
 // ----------------------------------------------------
@@ -90,45 +152,32 @@ async function loadNewsContent(url) {
   container.innerHTML = '<div class="loading">ニュースを読み込み中...</div>';
 
   try {
-    const res = await fetch(RSS2JSON_API + encodeURIComponent(url));
-    const data = await res.json();
+    const items = await fetchAndParseRSS(url);
     
-    if (data.status !== 'ok') throw new Error();
+    if (items.length === 0) {
+      container.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
+      return;
+    }
 
     container.innerHTML = '';
-    data.items.forEach(item => {
+    items.forEach(item => {
       const newsDiv = document.createElement('div');
       newsDiv.className = 'news-item';
-      const date = new Date(item.pubDate).toLocaleString('ja-JP');
+      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate) 
+        ? item.pubDate.toLocaleString('ja-JP') 
+        : '';
+
       newsDiv.innerHTML = `
         <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${date}</div>
+        <div class="news-time">${dateStr}</div>
       `;
       container.appendChild(newsDiv);
     });
   } catch (err) {
+    console.error(err);
     container.innerHTML = '<div class="loading">ニュースの取得に失敗しました</div>';
   }
 }
-
-// Yahoo!ニュースを取得して表示する関数例
-async function fetchNews(rssUrl) {
-  try {
-    // 自身の Vercel API を経由して取得
-    const response = await fetch(`/api/news?url=${encodeURIComponent(rssUrl)}`);
-    const data = await response.json();
-
-    if (data.items) {
-      console.log('ニュース一覧:', data.items);
-      // ここで HTML (index.html) にニュースを描画する処理を書く
-    }
-  } catch (error) {
-    console.error('ニュースの取得に失敗:', error);
-  }
-}
-
-// 実行例（Yahoo!ニュース主要トピックス）
-fetchNews('https://news.yahoo.co.jp/rss/topics/top-picks.xml');
 
 // ----------------------------------------------------
 // 3. Twitter (Nitter) タイムライン一括取得・時系列表示
@@ -148,27 +197,20 @@ async function loadAllTwitterContent() {
   container.innerHTML = '<div class="loading">すべてのツイートを読み込み中...</div>';
 
   try {
-    // 登録されている全アカウントのRSSを並行して一括取得
     const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
-        const res = await fetch(RSS2JSON_API + encodeURIComponent(feed.url));
-        const data = await res.json();
-        if (data.status === 'ok') {
-          // 各ツイートに「アカウント名」の情報を紐付けて返す
-          return data.items.map(item => ({
-            ...item,
-            accountName: feed.name
-          }));
-        }
+        const items = await fetchAndParseRSS(feed.url);
+        return items.map(item => ({
+          ...item,
+          accountName: feed.name
+        }));
       } catch (err) {
         console.error(`Failed to fetch feed for ${feed.name}:`, err);
+        return [];
       }
-      return [];
     });
 
     const results = await Promise.all(fetchPromises);
-    
-    // 全アカウントのツイートを1つの配列にフラット化
     let allTweets = results.flat();
 
     if (allTweets.length === 0) {
@@ -176,30 +218,24 @@ async function loadAllTwitterContent() {
       return;
     }
 
-    // 日付順（新しい順）にソート
-    allTweets.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+    // 時系列順（新しい順）に並べ替え
+    allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
-    
-    // 描画処理
     allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
       
-      const date = new Date(item.pubDate).toLocaleString('ja-JP', {
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+        ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : '';
 
-      // RSSから取得できる投稿者名（無ければ登録アカウント名を使用）
       const author = item.author || item.accountName;
 
       tweetDiv.innerHTML = `
         <div class="tweet-header">
           <span class="tweet-account">👤 ${author}</span>
-          <span class="tweet-time">${date}</span>
+          <span class="tweet-time">${dateStr}</span>
         </div>
         <div class="tweet-body">${item.description}</div>
       `;
@@ -207,9 +243,11 @@ async function loadAllTwitterContent() {
     });
 
   } catch (err) {
+    console.error(err);
     container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました</div>';
   }
 }
+
 // ----------------------------------------------------
 // タブレンダリング共通処理
 // ----------------------------------------------------
@@ -247,7 +285,7 @@ function initModals() {
   document.getElementById('add-news-btn').onclick = () => {
     modalTitle.textContent = 'ニュースRSSを追加';
     modalBody.innerHTML = `
-      <input type="text" id="input-name" placeholder="配信先（例: 朝日新聞）">
+      <input type="text" id="input-name" placeholder="配信先（例: Yahoo!ニュース）">
       <input type="url" id="input-url" placeholder="RSS URL">
     `;
     submitBtn.onclick = () => {
