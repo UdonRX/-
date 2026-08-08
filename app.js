@@ -44,21 +44,105 @@ function registerSW() {
 }
 
 // ----------------------------------------------------
-// RSSを取得・解析する関数（rss2jsonプロキシ利用版）
+// ニュース用：/api/rss を経由してXMLを取得・解析する関数
 // ----------------------------------------------------
-async function fetchAndParseRSS(feedUrl) {
+async function fetchNewsRSS(feedUrl) {
+  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
+  
+  const response = await fetch(apiUrl);
+  if (!response.ok) throw new Error('RSS取得エラー');
+  const xmlText = await response.text();
+
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+
+  if (xmlDoc.querySelector('parsererror')) {
+    throw new Error('XMLパースエラー');
+  }
+
+  let items = Array.from(xmlDoc.querySelectorAll('item, entry, アイテム'));
+
+  if (items.length === 0) {
+    const channel = xmlDoc.querySelector('channel, チャンネル') || xmlDoc;
+    items = Array.from(channel.children).filter(node => 
+      ['item', 'entry', 'アイテム'].includes(node.tagName.toLowerCase())
+    );
+  }
+
+  const getTagText = (parent, selectors) => {
+    for (const selector of selectors) {
+      const elem = parent.querySelector(selector);
+      if (elem && elem.textContent) {
+        return elem.textContent.trim();
+      }
+    }
+    return '';
+  };
+
+  const parseCustomDate = (dateStr) => {
+    if (!dateStr) return new Date();
+    const cleaned = dateStr
+      .replace(/年|月/g, '/')
+      .replace(/日/g, '')
+      .replace(/（.*?）|土曜日|日曜日|月曜日|火曜日|水曜日|木曜日|金曜日/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const parsedDate = new Date(cleaned);
+    return isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  };
+
+  return items.map(item => {
+    const title = getTagText(item, ['title', 'タイトル']) || '無題';
+
+    let link = getTagText(item, ['link', 'リンク', 'url', 'URL']);
+    if (!link) {
+      const linkElem = item.querySelector('link, リンク');
+      if (linkElem && linkElem.getAttribute('href')) {
+        link = linkElem.getAttribute('href');
+      }
+    }
+
+    const pubDateRaw = getTagText(item, [
+      'pubDate', 'date', 'published', 'updated', 
+      '公開日時', '投稿日時', '日付', '発行日時'
+    ]);
+
+    const description = getTagText(item, [
+      'description', 'content', 'encoded', 
+      '詳細', '概要', '内容', '本文'
+    ]);
+
+    const author = getTagText(item, [
+      'creator', 'dc\\:creator', 'author name', 'author', 
+      '製作者', '投稿者', '作者'
+    ]);
+
+    return {
+      title,
+      link,
+      pubDate: parseCustomDate(pubDateRaw),
+      description: description || title,
+      author
+    };
+  });
+}
+
+// ----------------------------------------------------
+// Twitter用：rss2json.com を経由して取得する関数
+// ----------------------------------------------------
+async function fetchTwitterRSS(feedUrl) {
   const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
   
   const response = await fetch(apiUrl);
-  if (!response.ok) throw new Error('RSS取得通信エラー');
+  if (!response.ok) throw new Error('Twitter RSS取得エラー');
   
   const data = await response.json();
   if (data.status !== 'ok' || !Array.isArray(data.items)) {
-    throw new Error('RSS解析エラー');
+    throw new Error('Twitter RSS解析エラー');
   }
 
   return data.items.map(item => {
-    // 日付のパース (不正な日付の場合は現在日時をセット)
     let parsedDate = new Date(item.pubDate);
     if (isNaN(parsedDate.getTime())) {
       parsedDate = new Date();
@@ -68,13 +152,12 @@ async function fetchAndParseRSS(feedUrl) {
       title: item.title || '無題',
       link: item.link || '',
       pubDate: parsedDate,
-      // 本文・概要 (ツイート本文など)
       description: item.description || item.content || item.title || '',
-      // 投稿者情報 (作者名またはフィードタイトル)
       author: item.author || (data.feed ? data.feed.title : '')
     };
   });
 }
+
 // ----------------------------------------------------
 // 1. 今日の天気
 // ----------------------------------------------------
@@ -110,7 +193,7 @@ async function initWeather() {
 }
 
 // ----------------------------------------------------
-// 2. 今日のニュース
+// 2. 今日のニュース ( /api/rss を使用 )
 // ----------------------------------------------------
 function initNews() {
   renderTabs('news-tabs', newsFeeds, loadNewsContent);
@@ -127,9 +210,8 @@ async function loadNewsContent(url) {
   container.innerHTML = '<div class="loading">ニュースを読み込み中...</div>';
 
   try {
-    const items = await fetchAndParseRSS(url);
+    const items = await fetchNewsRSS(url);
     
-    // 非同期通信中に別のタブへ切り替えられた場合は描画をスキップ
     if (currentNewsUrl !== url) return;
 
     if (items.length === 0) {
@@ -159,7 +241,7 @@ async function loadNewsContent(url) {
 }
 
 // ----------------------------------------------------
-// 3. Twitter タイムライン一括取得
+// 3. Twitter タイムライン一括取得 ( rss2json.com を使用 )
 // ----------------------------------------------------
 function initTwitter() {
   loadAllTwitterContent();
@@ -178,7 +260,7 @@ async function loadAllTwitterContent() {
   try {
     const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
-        const items = await fetchAndParseRSS(feed.url);
+        const items = await fetchTwitterRSS(feed.url);
         return items.map(item => ({
           ...item,
           accountName: feed.name
