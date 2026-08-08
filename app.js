@@ -12,7 +12,7 @@ const WEATHER_CODES = {
   90: "🌩️", 91: "⛈️", 92: "⛈️", 93: "⛈️", 94: "⛈️", 95: "⛈️", 96: "⛈️", 97: "⛈️", 98: "🌩️", 99: "⛈️"
 };
 
-// 初期RSSデータ（初回アクセス時のみ適用）
+// 初期データ
 const DEFAULT_NEWS = [
   { name: "朝日新聞(政治)", url: "https://www.asahi.com/rss/asahi/politics.rdf" },
   { name: "Yahoo!ニュース", url: "https://news.yahoo.co.jp/rss/media/aptsushinv/all.xml" }
@@ -24,6 +24,7 @@ const DEFAULT_KNOWLEDGE = [
 ];
 
 const DEFAULT_TWITTER = [];
+const DEFAULT_YOUTUBE = [];
 
 // --- Storage 管理関数 ---
 function loadStoredFeeds(key, defaultValue) {
@@ -47,6 +48,7 @@ function saveStoredFeeds(key, data) {
 let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
 let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
 let twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
+let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 
 let currentNewsUrl = '';
 let currentKnowledgeUrl = '';
@@ -56,11 +58,13 @@ document.addEventListener('DOMContentLoaded', () => {
   newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
   knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
   twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
+  youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 
   initWeather();
   initNews();
   initKnowledge();
   initTwitter();
+  initYoutube();
   initModals();
   registerSW();
 });
@@ -160,6 +164,44 @@ async function fetchTwitterRSS(feedUrl) {
       description: item.description || item.content || item.title || '',
       author: item.author || feedTitle,
       feedTitle: feedTitle
+    };
+  });
+}
+
+async function fetchYoutubeRSS(channelId) {
+  const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
+  const response = await fetch(apiUrl);
+  if (!response.ok) throw new Error('YouTube RSS取得エラー');
+  const xmlText = await response.text();
+
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+
+  if (xmlDoc.querySelector('parsererror')) {
+    throw new Error('XMLパースエラー');
+  }
+
+  const authorName = xmlDoc.querySelector('author > name')?.textContent?.trim() || '';
+  const entries = Array.from(xmlDoc.querySelectorAll('entry'));
+
+  return entries.map(entry => {
+    const videoId = entry.querySelector('yt\\:videoId, videoId')?.textContent?.trim() || '';
+    const title = entry.querySelector('title')?.textContent?.trim() || '無題';
+    const link = entry.querySelector('link')?.getAttribute('href') || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '#');
+    const published = entry.querySelector('published')?.textContent?.trim() || '';
+    const channelName = authorName || entry.querySelector('author > name')?.textContent?.trim() || '不明なチャンネル';
+    const thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '';
+
+    let pubDate = new Date(published);
+    if (isNaN(pubDate.getTime())) pubDate = new Date();
+
+    return {
+      title,
+      link,
+      pubDate,
+      channelName,
+      thumbnail
     };
   });
 }
@@ -367,6 +409,72 @@ async function loadAllTwitterContent() {
   }
 }
 
+function initYoutube() {
+  loadAllYoutubeContent();
+}
+
+async function loadAllYoutubeContent() {
+  const container = document.getElementById('youtube-content');
+  if (!container) return;
+
+  if (youtubeFeeds.length === 0) {
+    container.innerHTML = '<div class="loading">配信先を追加してください。</div>';
+    return;
+  }
+
+  container.innerHTML = '<div class="loading">動画を読み込み中...</div>';
+
+  try {
+    const fetchPromises = youtubeFeeds.map(async (feed) => {
+      try {
+        const items = await fetchYoutubeRSS(feed.url); // feed.url に channelId が格納されます
+        return items.map(item => ({
+          ...item,
+          displayName: feed.name || item.channelName
+        }));
+      } catch (err) {
+        console.error(`Failed to fetch YouTube feed for ${feed.name}:`, err);
+        return [];
+      }
+    });
+
+    const results = await Promise.all(fetchPromises);
+    let allVideos = results.flat();
+
+    if (allVideos.length === 0) {
+      container.innerHTML = '<div class="loading">動画を取得できませんでした</div>';
+      return;
+    }
+
+    // 時系列順にソート
+    allVideos.sort((a, b) => b.pubDate - a.pubDate);
+
+    container.innerHTML = '';
+    allVideos.forEach(item => {
+      const itemDiv = document.createElement('div');
+      itemDiv.className = 'youtube-item';
+
+      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+        ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : '';
+
+      itemDiv.innerHTML = `
+        ${item.thumbnail ? `<img src="${item.thumbnail}" class="youtube-thumbnail" alt="thumbnail" loading="lazy">` : ''}
+        <div class="youtube-info">
+          <div class="youtube-channel">${item.displayName}</div>
+          <a href="${item.link}" target="_blank" rel="noopener" class="youtube-link">${item.title}</a>
+          <div class="youtube-time">${dateStr}</div>
+        </div>
+      `;
+      container.appendChild(itemDiv);
+    });
+
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = '<div class="loading">YouTube情報の取得中にエラーが発生しました</div>';
+  }
+}
+
 function renderTabs(containerId, feeds, onClickCallback) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -384,266 +492,6 @@ function renderTabs(containerId, feeds, onClickCallback) {
     container.appendChild(btn);
   });
 }
-
-// ==========================================
-// YouTube 機能定義
-// ==========================================
-
-// ご自身の Google Cloud で取得した YouTube Data API v3 キーを入力してください
-const YOUTUBE_API_KEY = 'AIzaSyCIu3TLMlWdKLjjU7mDsuhY8Rmdp-lSxWM';
-
-const DEFAULT_YOUTUBE = [];
-let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
-
-// APIからの動画データ取得処理
-async function fetchYouTubeVideos(channelId) {
-  if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === 'YOUR_YOUTUBE_API_KEY') {
-    throw new Error('APIキー未設定');
-  }
-  const url = `https://www.googleapis.com/youtube/v3/search?key=${YOUTUBE_API_KEY}&channelId=${channelId}&part=snippet,id&order=date&maxResults=5&type=video`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('取得エラー');
-  const data = await response.json();
-  
-  return data.items.map(item => ({
-    title: item.snippet.title,
-    link: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-    pubDate: new Date(item.snippet.publishedAt),
-    channelTitle: item.snippet.channelTitle,
-    thumbnail: item.snippet.thumbnails && item.snippet.thumbnails.medium ? item.snippet.thumbnails.medium.url : ''
-  }));
-}
-
-// 画面描画処理
-async function loadAllYouTubeContent() {
-  const container = document.getElementById('youtube-content');
-  if (!container) return;
-
-  if (youtubeFeeds.length === 0) {
-    container.innerHTML = '<div class="loading">登録チャンネルがありません。「追加」から設定してください。</div>';
-    return;
-  }
-
-  container.innerHTML = '<div class="loading">最新動画を読み込み中...</div>';
-
-  try {
-    const fetchPromises = youtubeFeeds.map(async (feed) => {
-      try {
-        return await fetchYouTubeVideos(feed.channelId);
-      } catch (err) {
-        console.error(`Fetch error for ${feed.name}:`, err);
-        return [];
-      }
-    });
-
-    const results = await Promise.all(fetchPromises);
-    let allVideos = results.flat();
-
-    if (allVideos.length === 0) {
-      container.innerHTML = '<div class="loading">動画を取得できませんでした</div>';
-      return;
-    }
-
-    allVideos.sort((a, b) => b.pubDate - a.pubDate);
-
-    container.innerHTML = '';
-    allVideos.forEach(item => {
-      const videoDiv = document.createElement('div');
-      videoDiv.className = 'youtube-item';
-
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-        ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : '';
-
-      videoDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="youtube-link">
-          <img src="${item.thumbnail}" alt="${item.title}" class="youtube-thumb">
-          <div class="youtube-info">
-            <div class="youtube-title">${item.title}</div>
-            <div class="youtube-meta">
-              <span class="youtube-channel">${item.channelTitle}</span>
-              <span class="youtube-time">${dateStr}</span>
-            </div>
-          </div>
-        </a>
-      `;
-      container.appendChild(videoDiv);
-    });
-
-  } catch (err) {
-    console.error(err);
-    container.innerHTML = '<div class="loading">動画の取得中にエラーが発生しました</div>';
-  }
-}
-
-// ------------------------------------------
-// 既存の cleanupExtraButtons をフックして
-// Nitterボタンと同様に #modal-youtube-link-btn も確実に全削除する
-// ------------------------------------------
-if (typeof window.cleanupExtraButtons === 'function') {
-  const originalCleanup = window.cleanupExtraButtons;
-  window.cleanupExtraButtons = function() {
-    originalCleanup();
-    const ytBtn = document.getElementById('modal-youtube-link-btn');
-    if (ytBtn) ytBtn.remove();
-  };
-} else {
-  window.cleanupExtraButtons = function() {
-    const extraBtns = document.querySelectorAll('#modal-add-row-btn, #modal-youtube-link-btn, #modal-nitter-btn');
-    extraBtns.forEach(btn => btn.remove());
-  };
-}
-
-// ------------------------------------------
-// イベントバインド処理
-// ------------------------------------------
-function initYouTubeEvents() {
-  const modalInputs = document.getElementById('modal-inputs') || document.querySelector('.modal .inputs');
-  const modalActions = document.querySelector('.modal-actions');
-  const cancelBtn = document.getElementById('modal-cancel-btn');
-
-  // --- 追加ボタン ---
-  const addYouTubeBtn = document.getElementById('add-youtube-btn');
-  if (addYouTubeBtn) {
-    addYouTubeBtn.onclick = () => {
-      // 1. 他カードの追加ボタンと同様に、まず既存ボタンのクリーンアップを実行
-      window.cleanupExtraButtons();
-
-      // 2. タイトル設定と入力欄初期化
-      const modalTitle = document.getElementById('modal-title') || document.querySelector('.modal h3');
-      if (modalTitle) modalTitle.textContent = 'YouTube チャンネルを追加';
-
-      if (modalInputs) {
-        modalInputs.innerHTML = '';
-        // 最初の1行を追加 (既存機能の input-group クラス構造と完全同一にする)
-        addYouTubeRow(modalInputs);
-      }
-
-      if (modalActions) {
-        // 3. 「+ 入力欄を追加」ボタンを配置（Click時にYouTube専用の行を追加するイベントを紐付ける）
-        const addRowBtn = document.createElement('button');
-        addRowBtn.id = 'modal-add-row-btn';
-        addRowBtn.type = 'button';
-        addRowBtn.className = 'btn';
-        addRowBtn.textContent = '+ 入力欄を追加';
-        addRowBtn.onclick = () => {
-          if (modalInputs) addYouTubeRow(modalInputs);
-        };
-        modalActions.prepend(addRowBtn);
-
-        // 4. 「YouTube」ボタンを配置（TwitterのNitterボタンと同一の配置ロジック）
-        const youtubeLinkBtn = document.createElement('button');
-        youtubeLinkBtn.id = 'modal-youtube-link-btn';
-        youtubeLinkBtn.type = 'button';
-        youtubeLinkBtn.className = 'btn';
-        youtubeLinkBtn.textContent = 'YouTube';
-        youtubeLinkBtn.onclick = () => {
-          window.open('https://m.youtube.com/?ra=m', '_blank');
-        };
-
-        if (cancelBtn) {
-          modalActions.insertBefore(youtubeLinkBtn, cancelBtn);
-        } else {
-          modalActions.appendChild(youtubeLinkBtn);
-        }
-      }
-
-      // 5. 保存ボタンに保存ロジックをバインド（他機能と同じ入力値取得ロジック）
-      const submitBtn = document.getElementById('modal-submit-btn');
-      if (submitBtn) {
-        submitBtn.onclick = () => {
-          if (modalInputs) {
-            const rows = modalInputs.querySelectorAll('.modal-input-group');
-            const newItems = [];
-            rows.forEach(row => {
-              const nameInput = row.querySelector('.input-name');
-              const urlInput = row.querySelector('.input-url') || row.querySelector('.input-id');
-              const name = nameInput ? nameInput.value.trim() : '';
-              const channelId = urlInput ? urlInput.value.trim() : '';
-              if (name && channelId) {
-                newItems.push({ name, channelId });
-              }
-            });
-
-            if (newItems.length > 0) {
-              youtubeFeeds.push(...newItems);
-              saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-              loadAllYouTubeContent();
-            }
-          }
-
-          // 保存後に掃除して閉じる
-          window.cleanupExtraButtons();
-          if (typeof closeModal === 'function') {
-            closeModal();
-          } else {
-            const modal = document.querySelector('.modal');
-            if (modal) modal.classList.add('hidden');
-          }
-        };
-      }
-
-      // モーダルを表示
-      const modal = document.querySelector('.modal');
-      if (modal) modal.classList.remove('hidden');
-    };
-  }
-
-  // --- 編集（削除・並び替え）ボタン ---
-  const delYouTubeBtn = document.getElementById('del-youtube-btn');
-  if (delYouTubeBtn) {
-    delYouTubeBtn.onclick = () => {
-      window.cleanupExtraButtons();
-
-      const modalTitle = document.getElementById('modal-title') || document.querySelector('.modal h3');
-      if (modalTitle) modalTitle.textContent = 'YouTube チャンネルの管理';
-
-      if (typeof renderManageList === 'function') {
-        renderManageList(youtubeFeeds, (newFeeds) => {
-          youtubeFeeds = newFeeds;
-          saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-          loadAllYouTubeContent();
-        });
-      }
-
-      const submitBtn = document.getElementById('modal-submit-btn');
-      if (submitBtn) {
-        submitBtn.onclick = () => {
-          window.cleanupExtraButtons();
-          if (typeof closeModal === 'function') {
-            closeModal();
-          } else {
-            const modal = document.querySelector('.modal');
-            if (modal) modal.classList.add('hidden');
-          }
-        };
-      }
-
-      const modal = document.querySelector('.modal');
-      if (modal) modal.classList.remove('hidden');
-    };
-  }
-
-  // 初期読み込み
-  loadAllYouTubeContent();
-}
-
-// 行追加ヘルパー（Twitter・ニュースの生成HTML要素クラスと完全に統一）
-function addYouTubeRow(container) {
-  const row = document.createElement('div');
-  row.className = 'modal-input-group';
-  row.style.marginBottom = '12px';
-  row.innerHTML = `
-    <input type="text" class="input-name" placeholder="配信先（チャンネル名）" style="width:100%; margin-bottom:6px; box-sizing:border-box;">
-    <input type="text" class="input-url" placeholder="チャンネルID (UC...)" style="width:100%; box-sizing:border-box;">
-  `;
-  container.appendChild(row);
-}
-
-// DOMロード完了時に実行
-document.addEventListener('DOMContentLoaded', () => {
-  initYouTubeEvents();
-});
 
 // --- モーダル制御 ---
 function initModals() {
@@ -679,7 +527,7 @@ function initModals() {
 
     row.innerHTML = `
       <input type="text" class="input-name" placeholder="${placeholderName}" style="flex: 1;">
-      <input type="url" class="input-url" placeholder="${placeholderUrl}" style="flex: 2;">
+      <input type="text" class="input-url" placeholder="${placeholderUrl}" style="flex: 2;">
       <button class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
     `;
 
@@ -703,7 +551,6 @@ function initModals() {
     addRowBtn.id = 'modal-add-row-btn';
     addRowBtn.className = 'btn';
     addRowBtn.textContent = '+ 入力欄を追加';
-    addRowBtn.style.marginRight = 'auto';
     addRowBtn.onclick = () => {
       modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
     };
@@ -734,7 +581,7 @@ function initModals() {
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
     addNewsBtn.onclick = () => {
-      setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
+      setupMultiAddModal('ニュースRSSをまとめて追加', '配信先', 'RSS URL', (newItems) => {
         newsFeeds.push(...newItems);
         saveStoredFeeds('newsFeeds', newsFeeds);
         initNews();
@@ -760,7 +607,7 @@ function initModals() {
   const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
   if (addKnowledgeBtn) {
     addKnowledgeBtn.onclick = () => {
-      setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
+      setupMultiAddModal('知識RSSを追加', '配信先', 'RSS URL', (newItems) => {
         knowledgeFeeds.push(...newItems);
         saveStoredFeeds('knowledgeFeeds', knowledgeFeeds);
         initKnowledge();
@@ -786,7 +633,7 @@ function initModals() {
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn) {
     addTwitterBtn.onclick = () => {
-      setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
+      setupMultiAddModal('Twitter RSSを追加', '配信先', 'Nitter RSS URL', (newItems) => {
         twitterFeeds.push(...newItems);
         saveStoredFeeds('twitterFeeds', twitterFeeds);
         initTwitter();
@@ -795,12 +642,11 @@ function initModals() {
       const nitterBtn = document.createElement('button');
       nitterBtn.id = 'modal-nitter-btn';
       nitterBtn.className = 'btn';
-      nitterBtn.style.marginRight = '8px';
       nitterBtn.textContent = 'Nitter';
       nitterBtn.onclick = () => {
         window.open('https://nitter.net', '_blank', 'noopener,noreferrer');
       };
-      cancelBtn.parentNode.insertBefore(nitterBtn, cancelBtn.nextSibling);
+      cancelBtn.parentNode.insertBefore(nitterBtn, cancelBtn);
     };
   }
 
@@ -813,6 +659,41 @@ function initModals() {
         twitterFeeds = newFeeds;
         saveStoredFeeds('twitterFeeds', twitterFeeds);
         initTwitter();
+      });
+      submitBtn.onclick = closeModal;
+      modal.classList.remove('hidden');
+    };
+  }
+
+  const addYoutubeBtn = document.getElementById('add-youtube-btn');
+  if (addYoutubeBtn) {
+    addYoutubeBtn.onclick = () => {
+      setupMultiAddModal('YouTubeチャンネルを追加', '配信先', 'チャンネルID', (newItems) => {
+        youtubeFeeds.push(...newItems);
+        saveStoredFeeds('youtubeFeeds', youtubeFeeds);
+        initYoutube();
+      });
+
+      const youtubeExternalBtn = document.createElement('button');
+      youtubeExternalBtn.id = 'modal-nitter-btn'; // Twitterと同じボタン配置・スタイルを適用
+      youtubeExternalBtn.className = 'btn';
+      youtubeExternalBtn.textContent = 'YouTube';
+      youtubeExternalBtn.onclick = () => {
+        window.open('https://m.youtube.com/?ra=m', '_blank', 'noopener,noreferrer');
+      };
+      cancelBtn.parentNode.insertBefore(youtubeExternalBtn, cancelBtn);
+    };
+  }
+
+  const delYoutubeBtn = document.getElementById('del-youtube-btn');
+  if (delYoutubeBtn) {
+    delYoutubeBtn.onclick = () => {
+      cleanupExtraButtons();
+      modalTitle.textContent = 'YouTubeチャンネルの管理';
+      renderManageList(youtubeFeeds, (newFeeds) => {
+        youtubeFeeds = newFeeds;
+        saveStoredFeeds('youtubeFeeds', youtubeFeeds);
+        initYoutube();
       });
       submitBtn.onclick = closeModal;
       modal.classList.remove('hidden');
