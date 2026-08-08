@@ -255,8 +255,9 @@ h2 {
   padding: 20px;
   border-radius: 16px;
   width: 100%;
-  max-width: 560px; /* 横幅を拡張して複数ボタンや入力欄が入るスペースを確保 */
+  max-width: 560px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  box-sizing: border-box; /* 内側の余白計算を固定 */
 }
 
 .modal-content input {
@@ -265,16 +266,29 @@ h2 {
   margin: 4px 0;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  /* 16px以上にすることでiPhoneの自動ズームを防止 */
   font-size: 16px; 
 }
 
+/* ボタンエリア：左右両端の間隔を揃えて配置 */
 .modal-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between; /* 左側の「+追加」と右側のボタン群を両端揃えにする */
   gap: 8px;
   margin-top: 16px;
+  width: 100%;
+}
+
+/* 右側のボタン（キャンセル・Nitter・保存）をグループ化 */
+.modal-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ボタンの余白調整 */
+#modal-add-row-btn {
+  margin-right: 0; /* マージン指定をクリア */
 }
 
 /* 動的入力行スタイル */
