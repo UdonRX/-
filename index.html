@@ -71,21 +71,20 @@
     </section>
   </main>
 
-<!-- YouTube Card -->
-<section class="card">
-  <div class="card-header">
+<!-- Twitter / Nitter カードのすぐ下に配置 -->
+<div class="card">
+  <div class="section-header">
     <h2>YouTube</h2>
     <div class="action-buttons">
-      <button id="add-youtube-btn" class="btn primary">追加</button>
-      <!-- クラスに primary や danger などの強調クラスを追加 -->
-      <button id="del-youtube-btn" class="btn danger">編集</button>
+      <button class="btn primary" id="add-youtube-btn">追加</button>
+      <button class="btn danger" id="del-youtube-btn">削除</button>
     </div>
   </div>
   <div id="youtube-content" class="vertical-scroll">
-    <div class="loading">動画を読み込み中...</div>
+    <div class="loading">配信先を追加してください。</div>
   </div>
-</section>
-
+</div>
+  
   <!-- 汎用モーダルダイアログ -->
   <div id="modal" class="modal hidden">
     <div class="modal-content">
