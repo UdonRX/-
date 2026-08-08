@@ -111,6 +111,25 @@ async function loadNewsContent(url) {
   }
 }
 
+// Yahoo!ニュースを取得して表示する関数例
+async function fetchNews(rssUrl) {
+  try {
+    // 自身の Vercel API を経由して取得
+    const response = await fetch(`/api/news?url=${encodeURIComponent(rssUrl)}`);
+    const data = await response.json();
+
+    if (data.items) {
+      console.log('ニュース一覧:', data.items);
+      // ここで HTML (index.html) にニュースを描画する処理を書く
+    }
+  } catch (error) {
+    console.error('ニュースの取得に失敗:', error);
+  }
+}
+
+// 実行例（Yahoo!ニュース主要トピックス）
+fetchNews('https://news.yahoo.co.jp/rss/topics/top-picks.xml');
+
 // ----------------------------------------------------
 // 3. Twitter (Nitter) タイムライン一括取得・時系列表示
 // ----------------------------------------------------
