@@ -476,57 +476,124 @@ async function loadAllYouTubeContent() {
   }
 }
 
+// YouTube用 入力行追加処理
+function addYouTubeInputRow(container) {
+  const row = document.createElement('div');
+  row.className = 'modal-input-group';
+  row.style.marginBottom = '12px';
+  row.innerHTML = `
+    <input type="text" class="input-name" placeholder="配信先（チャンネル名）" style="margin-bottom:6px;">
+    <input type="text" class="input-id" placeholder="チャンネルID (UC...)">
+  `;
+  container.appendChild(row);
+}
+
 // YouTube イベントバインド処理
 function initYouTubeEvents() {
+  const modal = document.querySelector('.modal');
+  const modalTitle = document.querySelector('.modal-content h3') || document.querySelector('#modal-title');
+  const modalInputs = document.querySelector('.modal-content .inputs') || document.querySelector('#modal-inputs');
+  const modalActions = document.querySelector('.modal-actions');
+  const submitBtn = document.getElementById('modal-submit-btn');
+
+  // 追加ボタン処理
   const addYouTubeBtn = document.getElementById('add-youtube-btn');
   if (addYouTubeBtn) {
     addYouTubeBtn.onclick = () => {
-      // 既存のモーダル生成共通関数を利用
-      setupMultiAddModal('YouTube チャンネルを追加', '配信先（チャンネル名）', 'チャンネルID (UC...)', (newItems) => {
-        const formatted = newItems.map(item => ({ name: item.name, channelId: item.url }));
-        youtubeFeeds.push(...formatted);
-        saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-        loadAllYouTubeContent();
-      });
-
-      // 追加で YouTube リンクボタンを設置
-      const modalActionsEl = document.querySelector('.modal-actions');
-      const cancelBtnEl = document.getElementById('modal-cancel-btn');
-      if (modalActionsEl && cancelBtnEl && !document.getElementById('modal-youtube-link-btn')) {
-        const youtubeLinkBtn = document.createElement('button');
-        youtubeLinkBtn.id = 'modal-youtube-link-btn';
-        youtubeLinkBtn.className = 'btn';
-        youtubeLinkBtn.textContent = 'YouTube';
-        youtubeLinkBtn.onclick = () => {
-          window.open('https://m.youtube.com/?ra=m', '_blank');
-        };
-        modalActionsEl.insertBefore(youtubeLinkBtn, cancelBtnEl);
+      if (typeof cleanupExtraButtons === 'function') {
+        cleanupExtraButtons();
+      } else {
+        const extraBtns = modalActions.querySelectorAll('#modal-add-row-btn, #modal-youtube-link-btn, #modal-nitter-btn');
+        extraBtns.forEach(btn => btn.remove());
       }
+
+      if (modalTitle) modalTitle.textContent = 'YouTube チャンネルを追加';
+      if (modalInputs) {
+        modalInputs.innerHTML = '';
+        addYouTubeInputRow(modalInputs);
+      }
+
+      // 「+ 入力欄を追加」ボタン生成
+      const addRowBtn = document.createElement('button');
+      addRowBtn.id = 'modal-add-row-btn';
+      addRowBtn.className = 'btn';
+      addRowBtn.textContent = '+ 入力欄を追加';
+      addRowBtn.onclick = () => addYouTubeInputRow(modalInputs);
+      modalActions.prepend(addRowBtn);
+
+      // 「YouTube」リンクボタン生成
+      const youtubeLinkBtn = document.createElement('button');
+      youtubeLinkBtn.id = 'modal-youtube-link-btn';
+      youtubeLinkBtn.className = 'btn';
+      youtubeLinkBtn.textContent = 'YouTube';
+      youtubeLinkBtn.onclick = () => {
+        window.open('https://m.youtube.com/?ra=m', '_blank');
+      };
+
+      const cancelBtn = document.getElementById('modal-cancel-btn');
+      if (cancelBtn) {
+        modalActions.insertBefore(youtubeLinkBtn, cancelBtn);
+      } else {
+        modalActions.appendChild(youtubeLinkBtn);
+      }
+
+      // 保存処理
+      if (submitBtn) {
+        submitBtn.onclick = () => {
+          const rows = modalInputs.querySelectorAll('.modal-input-group');
+          const newItems = [];
+          rows.forEach(row => {
+            const name = row.querySelector('.input-name').value.trim();
+            const channelId = row.querySelector('.input-id').value.trim();
+            if (name && channelId) {
+              newItems.push({ name, channelId });
+            }
+          });
+
+          if (newItems.length > 0) {
+            youtubeFeeds.push(...newItems);
+            saveStoredFeeds('youtubeFeeds', youtubeFeeds);
+            loadAllYouTubeContent();
+          }
+
+          if (typeof closeModal === 'function') closeModal();
+          else if (modal) modal.classList.add('hidden');
+        };
+      }
+
+      if (modal) modal.classList.remove('hidden');
     };
   }
 
+  // 編集（削除/順序変更）ボタン処理
   const delYouTubeBtn = document.getElementById('del-youtube-btn');
   if (delYouTubeBtn) {
     delYouTubeBtn.onclick = () => {
-      if (typeof cleanupExtraButtons === 'function') cleanupExtraButtons();
-      const modalTitleEl = document.querySelector('.modal-content h3, #modal-title');
-      if (modalTitleEl) modalTitleEl.textContent = 'YouTube チャンネルの管理';
+      if (typeof cleanupExtraButtons === 'function') {
+        cleanupExtraButtons();
+      } else {
+        const extraBtns = modalActions.querySelectorAll('#modal-add-row-btn, #modal-youtube-link-btn, #modal-nitter-btn');
+        extraBtns.forEach(btn => btn.remove());
+      }
 
-      renderManageList(youtubeFeeds, (newFeeds) => {
-        youtubeFeeds = newFeeds;
-        saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-        loadAllYouTubeContent();
-      });
+      if (modalTitle) modalTitle.textContent = 'YouTube チャンネルの管理';
 
-      const modalEl = document.querySelector('.modal');
-      const submitBtnEl = document.getElementById('modal-submit-btn');
-      if (submitBtnEl) {
-        submitBtnEl.onclick = () => {
+      if (typeof renderManageList === 'function') {
+        renderManageList(youtubeFeeds, (newFeeds) => {
+          youtubeFeeds = newFeeds;
+          saveStoredFeeds('youtubeFeeds', youtubeFeeds);
+          loadAllYouTubeContent();
+        });
+      }
+
+      if (submitBtn) {
+        submitBtn.onclick = () => {
           if (typeof closeModal === 'function') closeModal();
-          else if (modalEl) modalEl.classList.add('hidden');
+          else if (modal) modal.classList.add('hidden');
         };
       }
-      if (modalEl) modalEl.classList.remove('hidden');
+
+      if (modal) modal.classList.remove('hidden');
     };
   }
 
