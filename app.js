@@ -24,6 +24,9 @@ const DEFAULT_TWITTER = [];
 let newsFeeds = JSON.parse(localStorage.getItem('newsFeeds')) || DEFAULT_NEWS;
 let twitterFeeds = JSON.parse(localStorage.getItem('twitterFeeds')) || DEFAULT_TWITTER;
 
+// 通信競合防止用のフラグ
+let currentNewsUrl = '';
+
 // 初期化処理
 document.addEventListener('DOMContentLoaded', () => {
   initWeather();
@@ -41,34 +44,31 @@ function registerSW() {
 }
 
 // ----------------------------------------------------
-// 自前RSS (XML / RDF / Atom) パース関数
+// Vercel Serverless Function経由でRSSを取得・解析する関数
 // ----------------------------------------------------
 async function fetchAndParseRSS(feedUrl) {
-  // CORS回避用プロキシ（生データ取得）
-  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
+  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
   
-  const response = await fetch(proxyUrl);
-  if (!response.ok) throw new Error('ネットワーク応答エラー');
+  const response = await fetch(apiUrl);
+  if (!response.ok) throw new Error('RSS取得エラー');
   const xmlText = await response.text();
 
-  // ブラウザ標準機能でXMLをパース
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
 
-  const parseError = xmlDoc.querySelector('parsererror');
-  if (parseError) throw new Error('XML形式のエラー');
+  if (xmlDoc.querySelector('parsererror')) {
+    throw new Error('XMLパースエラー');
+  }
 
-  // RSS 1.0 / 2.0 (<item>) または Atom (<entry>) を取得
+  // RSS 2.0 (<item>) / RSS 1.0 (<item>) / Atom (<entry>) の取得
   let items = Array.from(xmlDoc.querySelectorAll('item'));
   if (items.length === 0) {
     items = Array.from(xmlDoc.querySelectorAll('entry'));
   }
 
   return items.map(item => {
-    // タイトル
     const title = item.querySelector('title')?.textContent?.trim() || '無題';
 
-    // リンク (RSS: <link>, Atom: <link href="...">)
     let link = item.querySelector('link')?.textContent?.trim() || '';
     if (!link) {
       const linkElem = item.querySelector('link');
@@ -77,19 +77,16 @@ async function fetchAndParseRSS(feedUrl) {
       }
     }
 
-    // 投稿日時 (pubDate, dc:date, updated, published等に対応)
     const pubDateStr = 
       item.querySelector('pubDate')?.textContent ||
       item.querySelector('date')?.textContent ||
       item.querySelector('published')?.textContent ||
       item.querySelector('updated')?.textContent || '';
 
-    // 本文・概要
     const description = 
       item.querySelector('description')?.textContent ||
       item.querySelector('content')?.textContent || '';
 
-    // 著者・投稿者
     const author = 
       item.querySelector('creator')?.textContent ||
       item.querySelector('author name')?.textContent ||
@@ -144,16 +141,24 @@ async function initWeather() {
 // ----------------------------------------------------
 function initNews() {
   renderTabs('news-tabs', newsFeeds, loadNewsContent);
-  if (newsFeeds.length > 0) loadNewsContent(newsFeeds[0].url);
+  if (newsFeeds.length > 0) {
+    loadNewsContent(newsFeeds[0].url);
+  } else {
+    document.getElementById('news-content').innerHTML = '<div class="loading">配信先を追加してください</div>';
+  }
 }
 
 async function loadNewsContent(url) {
+  currentNewsUrl = url;
   const container = document.getElementById('news-content');
   container.innerHTML = '<div class="loading">ニュースを読み込み中...</div>';
 
   try {
     const items = await fetchAndParseRSS(url);
     
+    // 非同期通信中に別のタブへ切り替えられた場合は描画をスキップ
+    if (currentNewsUrl !== url) return;
+
     if (items.length === 0) {
       container.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
       return;
@@ -174,13 +179,14 @@ async function loadNewsContent(url) {
       container.appendChild(newsDiv);
     });
   } catch (err) {
+    if (currentNewsUrl !== url) return;
     console.error(err);
     container.innerHTML = '<div class="loading">ニュースの取得に失敗しました</div>';
   }
 }
 
 // ----------------------------------------------------
-// 3. Twitter (Nitter) タイムライン一括取得・時系列表示
+// 3. Twitter タイムライン一括取得
 // ----------------------------------------------------
 function initTwitter() {
   loadAllTwitterContent();
@@ -218,7 +224,6 @@ async function loadAllTwitterContent() {
       return;
     }
 
-    // 時系列順（新しい順）に並べ替え
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
