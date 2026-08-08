@@ -152,10 +152,15 @@ async function fetchTwitterRSS(feedUrl) {
   }
 
   const feedTitle = data.feed ? data.feed.title : '';
+  // feed.image や feed.avatar からアイコンを取得（存在しない場合は空文字）
+  const feedAvatar = data.feed?.image || data.feed?.avatar || '';
 
   return data.items.map(item => {
     let parsedDate = new Date(item.pubDate);
     if (isNaN(parsedDate.getTime())) parsedDate = new Date();
+
+    // アイコンURLの取得（アイテム固有のサムネイル、またはフィード全体画像）
+    let avatarUrl = item.thumbnail || item.enclosure?.link || feedAvatar;
 
     return {
       title: item.title || '無題',
@@ -163,7 +168,8 @@ async function fetchTwitterRSS(feedUrl) {
       pubDate: parsedDate,
       description: item.description || item.content || item.title || '',
       author: item.author || feedTitle,
-      feedTitle: feedTitle
+      feedTitle: feedTitle,
+      avatarUrl: avatarUrl
     };
   });
 }
@@ -376,7 +382,7 @@ async function loadAllTwitterContent() {
 
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
-    container.innerHTML = '';
+container.innerHTML = '';
     allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
@@ -388,6 +394,11 @@ async function loadAllTwitterContent() {
       const rawTitle = item.feedTitle || item.author || item.title;
       const author = extractUsername(rawTitle);
 
+      // アイコン要素の生成（画像があれば<img>、無ければ頭文字のダミーアイコン）
+      const avatarHtml = item.avatarUrl
+        ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
+        : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
+
       let cleanDescription = item.description
         .replace(/<hr\s*\/?>/gi, '')
         .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
@@ -395,7 +406,10 @@ async function loadAllTwitterContent() {
 
       tweetDiv.innerHTML = `
         <div class="tweet-header">
-          <span class="tweet-account">${author}</span>
+          <div class="tweet-user-info">
+            ${avatarHtml}
+            <span class="tweet-account">${author}</span>
+          </div>
           <span class="tweet-time">${dateStr}</span>
         </div>
         <div class="tweet-body">${cleanDescription}</div>
