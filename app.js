@@ -316,7 +316,7 @@ async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
   
   if (twitterFeeds.length === 0) {
-    container.innerHTML = '<div class="loading">アカウントが登録されていません。「+ 追加」から登録してください。</div>';
+    container.innerHTML = '<div class="loading">配信先を追加してください。</div>';
     return;
   }
 
@@ -514,7 +514,7 @@ function initModals() {
 
   // 3. 知識追加
   document.getElementById('add-knowledge-btn').onclick = () => {
-    setupMultiAddModal('知識RSSをまとめて追加', '配信先', 'RSS URL', (newItems) => {
+    setupMultiAddModal('知識RSSを追加', '配信先', 'RSS URL', (newItems) => {
       knowledgeFeeds.push(...newItems);
       localStorage.setItem('knowledgeFeeds', JSON.stringify(knowledgeFeeds));
       initKnowledge();
@@ -536,7 +536,7 @@ function initModals() {
 
   // 5. Twitter追加
   document.getElementById('add-twitter-btn').onclick = () => {
-    setupMultiAddModal('Twitter RSSをまとめて追加', '配信先', 'Nitter RSS URL', (newItems) => {
+    setupMultiAddModal('Twitter RSSを追加', '配信先', 'Nitter RSS URL', (newItems) => {
       twitterFeeds.push(...newItems);
       localStorage.setItem('twitterFeeds', JSON.stringify(twitterFeeds));
       initTwitter();
