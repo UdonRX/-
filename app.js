@@ -316,7 +316,7 @@ async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
   
   if (twitterFeeds.length === 0) {
-    container.innerHTML = '<div class="loading">アカウントが登録されていません。「+ 追加」から登録してください。</div>';
+    container.innerHTML = '<div class="loading">配信先を追加してください</div>';
     return;
   }
 
