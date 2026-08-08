@@ -253,7 +253,6 @@ function initTwitter() {
 // <title> や author から @ハンドル名 を除外し、ユーザー名のみを取り出す関数
 function extractUsername(rawText) {
   if (!rawText) return '無題';
-  // "ユーザー名 (@handle)" や "ユーザー名 / @handle" などから @ 以降をカット
   let cleaned = rawText.split(/[\(@\/]/)[0].trim();
   return cleaned || rawText;
 }
@@ -301,11 +300,9 @@ async function loadAllTwitterContent() {
         ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
         : '';
 
-      // RSSの title / feedTitle / author から @の付いていないユーザー名部分を抽出
       const rawTitle = item.feedTitle || item.author || item.title;
       const author = extractUsername(rawTitle);
 
-      // 本文から不要な横棒（<hr/>）や「リンク」「<b>リンク</b>」などを除去
       let cleanDescription = item.description
         .replace(/<hr\s*\/?>/gi, '')
         .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
@@ -408,20 +405,20 @@ function initModals() {
     cleanupExtraButtons();
     modalTitle.textContent = 'Twitter RSSを追加';
     modalBody.innerHTML = `
-      <input type="text" id="input-name" placeholder="管理用メモ・名前">
+      <input type="text" id="input-name" placeholder="配信元">
       <input type="url" id="input-url" placeholder="Nitter RSS URL">
     `;
 
-    // 保存ボタンの右側に Nitter ボタンを追加
+    // キャンセルボタンと保存ボタンの間に Nitter ボタンを挿入（配置: キャンセル Nitter 保存）
     const nitterBtn = document.createElement('button');
     nitterBtn.id = 'modal-nitter-btn';
     nitterBtn.className = 'btn';
-    nitterBtn.style.marginLeft = '8px';
+    nitterBtn.style.marginRight = '8px';
     nitterBtn.textContent = 'Nitter';
     nitterBtn.onclick = () => {
       window.open('https://nitter.net', '_blank', 'noopener,noreferrer');
     };
-    submitBtn.parentNode.insertBefore(nitterBtn, submitBtn.nextSibling);
+    cancelBtn.parentNode.insertBefore(nitterBtn, cancelBtn.nextSibling);
 
     submitBtn.onclick = () => {
       const name = document.getElementById('input-name').value.trim();
