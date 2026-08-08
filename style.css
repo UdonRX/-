@@ -243,7 +243,7 @@ h2 {
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
+  padding: 16px;
 }
 
 .modal.hidden {
@@ -255,9 +255,9 @@ h2 {
   padding: 20px;
   border-radius: 16px;
   width: 100%;
-  max-width: 560px;
+  max-width: 520px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-  box-sizing: border-box; /* 内側の余白計算を固定 */
+  box-sizing: border-box;
 }
 
 .modal-content input {
@@ -269,39 +269,34 @@ h2 {
   font-size: 16px; 
 }
 
-/* ボタンエリア：左右両端の間隔を揃えて配置 */
+/* ボタンエリア：スマホでの折り返し（2段表示）に対応 */
 .modal-actions {
   display: flex;
+  flex-wrap: wrap; /* 幅が足りない場合に自然に折り返す */
   align-items: center;
-  justify-content: space-between; /* 左側の「+追加」と右側のボタン群を両端揃えにする */
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px 8px; /* 縦の隙間10px, 横の隙間8px */
   margin-top: 16px;
   width: 100%;
 }
 
-/* 右側のボタン（キャンセル・Nitter・保存）をグループ化 */
-.modal-actions-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* ボタンの余白調整 */
+/* 「+ 入力欄を追加」ボタン */
 #modal-add-row-btn {
-  margin-right: 0; /* マージン指定をクリア */
+  margin-right: auto; /* 折り返した際も左側に配置 */
+  padding: 8px 12px;
 }
 
-/* 動的入力行スタイル */
-.modal-input-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-  align-items: center;
+/* 右側のボタン群（キャンセル・Nitter・保存）の折り返し位置調整 */
+.modal-actions .btn {
+  font-size: 13px;
+  padding: 8px 12px; /* タップしやすいよう上下パディングを少し拡大 */
 }
 
-/* 左端に置く「+ 入力欄を追加」ボタン用 */
-#modal-add-row-btn {
-  margin-right: auto;
+/* Nitter・キャンセル・保存が右端に詰まって並ぶように調整 */
+#modal-nitter-btn,
+#modal-cancel-btn,
+#modal-submit-btn {
+  margin: 0 !important;
 }
 
 .delete-list-item {
