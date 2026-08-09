@@ -152,14 +152,21 @@ async function fetchTwitterRSS(feedUrl) {
   }
 
   const feedTitle = data.feed ? data.feed.title : '';
-  // feed.image や feed.avatar からアイコンを取得（存在しない場合は空文字）
   const feedAvatar = data.feed?.image || data.feed?.avatar || '';
 
-  return data.items.map(item => {
+  // 1. リツイート（タイトルが "RT by " や "RT @" 等で始まるもの）を除外フィルタリング
+  const originalTweets = data.items.filter(item => {
+    const title = item.title || '';
+    // 先頭が "RT " または "RT by" で始まる場合はリツイートと判定して除外
+    const isRetweet = /^RT\s/i.test(title.trim()) || /^RT\s+by\s/i.test(title.trim());
+    return !isRetweet;
+  });
+
+  // 2. リツイートを除外したデータのみを整形して返す
+  return originalTweets.map(item => {
     let parsedDate = new Date(item.pubDate);
     if (isNaN(parsedDate.getTime())) parsedDate = new Date();
 
-    // アイコンURLの取得（アイテム固有のサムネイル、またはフィード全体画像）
     let avatarUrl = item.thumbnail || item.enclosure?.link || feedAvatar;
 
     return {
