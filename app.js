@@ -141,16 +141,42 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
-async function fetchTwitterRSS(feedUrl) {
-  // 422エラー回避のため &count パラメータを除去
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
-  const response = await fetch(apiUrl);
-  if (!response.ok) throw new Error('Twitter RSS取得エラー');
-  
-  const data = await response.json();
-  if (data.status !== 'ok' || !Array.isArray(data.items)) {
-    throw new Error('Twitter RSS解析エラー');
+async function fetchTwitterRSS(rssUrl, retries = 2) {
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const response = await fetch(apiUrl);
+
+      // 429エラー（アクセス制限）の場合は1.5秒待って再試行
+      if (response.status === 429) {
+        if (i < retries) {
+          console.warn(`[429制限] 1.5秒待機後に再試行します... (${i + 1}/${retries})`);
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          continue;
+        }
+        throw new Error('APIの利用制限(429)が発生しました。');
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.status !== 'ok' || !Array.isArray(data.items)) {
+        throw new Error('Twitter RSS取得エラー');
+      }
+
+      return data.items.map(item => ({
+        ...item,
+        pubDate: new Date(item.pubDate),
+        feedTitle: data.feed ? data.feed.title : ''
+      }));
+    } catch (err) {
+      if (i === retries) throw err;
+    }
   }
+}
 
   const feedTitle = data.feed ? data.feed.title : '';
   const feedAvatar = data.feed?.image || data.feed?.avatar || '';
@@ -370,7 +396,7 @@ function extractUsername(rawText) {
   return cleaned || rawText;
 }
 
-// 一定時間待機するためのヘルパー関数
+// 通信間のウェイト用ヘルパー
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function loadAllTwitterContent() {
@@ -391,43 +417,58 @@ async function loadAllTwitterContent() {
   container.innerHTML = '<div class="loading">最新ツイートを取得中...</div>';
 
   try {
-    // 基準となる日付を設定（例：今日の00:00:00以降のツイートのみを取得対象とする場合）
-    // ※「直近24時間以内」にしたい場合は `const targetTime = Date.now() - (24 * 60 * 60 * 1000);` を使用
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+    let allTweets = [];
+    let failedAccounts = [];
 
-    const fetchPromises = twitterFeeds.map(async (feed) => {
+    // 【重要】Promise.all ではなく for...of で1件ずつ順番に取得
+    for (const feed of twitterFeeds) {
       try {
         const items = await fetchTwitterRSS(feed.url);
         
-        // 1. 各アカウントから取得したツイートのうち、「本日以降」のものだけを抽出
-        // 2. 1アカウントあたりの件数が多すぎないよう上位10件程度に絞る
+        // 直近24時間以内のツイートを抽出
         const filteredItems = items
-          .filter(item => item.pubDate.getTime() >= todayStart)
+          .filter(item => item.pubDate && !isNaN(item.pubDate.getTime()) && item.pubDate.getTime() >= twentyFourHoursAgo)
           .slice(0, 10);
 
-        return filteredItems.map(item => ({
+        const mappedItems = filteredItems.map(item => ({
           ...item,
           accountName: feed.name
         }));
+
+        allTweets.push(...mappedItems);
       } catch (err) {
         console.error(`Failed to fetch feed for ${feed.name}:`, err);
-        return [];
+        failedAccounts.push(feed.name);
       }
-    });
 
-    const results = await Promise.all(fetchPromises);
-    let allTweets = results.flat();
+      // 次のアカウントのリクエスト前に確実に1秒待機する
+      await delay(1000);
+    }
 
     if (allTweets.length === 0) {
-      container.innerHTML = '<div class="loading">本日の新着ツイートはありません</div>';
+      const msg = failedAccounts.length > 0 
+        ? `一部のアカウント取得に失敗しました (${failedAccounts.join(', ')})。<br>API制限の可能性があります。時間を置いて再度お試しください。`
+        : '直近24時間以内のツイートはありません';
+      container.innerHTML = `<div class="loading">${msg}</div>`;
       return;
     }
 
-    // 全アカウントのツイートを日付が新しい順（降順）にソート
+    // 日付順（降順）にソート
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
+
+    // 取得失敗したアカウントがあれば通知
+    if (failedAccounts.length > 0) {
+      const alertDiv = document.createElement('div');
+      alertDiv.className = 'loading';
+      alertDiv.style.color = '#e74c3c';
+      alertDiv.style.fontSize = '12px';
+      alertDiv.innerHTML = `⚠️ 以下の<sup></sup>アカウントは取得できませんでした: ${failedAccounts.join(', ')}`;
+      container.appendChild(alertDiv);
+    }
+
     allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
