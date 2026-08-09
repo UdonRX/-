@@ -141,25 +141,32 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
+// 1. delay 関数の定義（ReferenceError 回避のため関数の上部に配置）
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Nitterの生RSS(XML)をCORSプロキシ経由で取得し、DOMParserで解析する関数
  */
 async function fetchTwitterRSS(rssUrl) {
-  // CORSプロキシ (corsproxy.io) を使用して生のXMLテキストを直接取得
-  // クエリパラメータの不具合を防ぐためシンプルにエンコード
-  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rssUrl)}`;
+  // キャッシュ回避用にタイムスタンプを付与
+  const cacheBuster = Date.now();
+  const targetUrl = `${rssUrl}${rssUrl.includes('?') ? '&' : '?'}_cb=${cacheBuster}`;
+  
+  // 403ブロックを受けにくい CORS プロキシ (codetabs) を使用
+  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
 
   const response = await fetch(proxyUrl);
+  
   if (!response.ok) {
     throw new Error(`プロキシ通信エラー: status ${response.status}`);
   }
 
   const xmlText = await response.text();
-  if (!xmlText) {
-    throw new Error('空のRSSデータが返されました');
+  if (!xmlText || xmlText.trim().length === 0) {
+    throw new Error('空のデータが返されました');
   }
 
-  // DOMParser を使って XML 文字列を DOM 構造に変換
+  // DOMParser を使って XML 文字列を解析
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
 
@@ -181,10 +188,8 @@ async function fetchTwitterRSS(rssUrl) {
     const link = item.querySelector('link')?.textContent || '';
     const creator = item.querySelector('dc\\:creator, creator')?.textContent || '';
 
-    // 日付のパース
     const pubDate = pubDateText ? new Date(pubDateText) : new Date(0);
 
-    // Nitterのdescriptionからアバター画像のURLを抽出（存在する場合）
     let avatarUrl = '';
     const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
     if (imgMatch) {
@@ -396,6 +401,9 @@ function extractUsername(rawText) {
   return cleaned || rawText;
 }
 
+/**
+ * 全アカウントのツイートを取得・描画するメイン関数
+ */
 async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
   const refreshBtn = document.getElementById('refresh-twitter-btn');
@@ -414,18 +422,16 @@ async function loadAllTwitterContent() {
   container.innerHTML = '<div class="loading">最新ツイートを取得中...</div>';
 
   try {
-    // 直近24時間（24 * 60 * 60 * 1000 ms）
     const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
     let allTweets = [];
     let failedAccounts = [];
 
-    // 1アカウントずつ直列で順番に取得処理を行う
     for (const feed of twitterFeeds) {
       console.log(`[DOMParser取得] ${feed.name}`);
       try {
         const items = await fetchTwitterRSS(feed.url);
         
-        // 直近24時間以内のツイートを抽出し、1アカウント最大10件まで絞り込む
+        // 直近24時間以内のツイートを抽出（最大10件）
         const filteredItems = items
           .filter(item => item.pubDate && !isNaN(item.pubDate.getTime()) && item.pubDate.getTime() >= twentyFourHoursAgo)
           .slice(0, 10);
@@ -441,24 +447,23 @@ async function loadAllTwitterContent() {
         failedAccounts.push(feed.name);
       }
 
-      // プロキシ負荷軽減のため、アカウント毎に 500ms の間隔を空ける
-      await delay(500);
+      // 次のアカウントのリクエスト前に1秒待機
+      await delay(1000);
     }
 
     if (allTweets.length === 0) {
       const msg = failedAccounts.length > 0 
-        ? `一部のアカウント取得に失敗しました (${failedAccounts.join(', ')})。<br>Nitterサーバーの状態を確認してください。`
+        ? `一部のアカウント取得に失敗しました (${failedAccounts.join(', ')})。<br>Nitterサーバーまたはプロキシ制限の可能性があります。`
         : '直近24時間以内のツイートはありません';
       container.innerHTML = `<div class="loading">${msg}</div>`;
       return;
     }
 
-    // 日付順（降順：新しい順）にソート
+    // 新しい順に並べ替え
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
 
-    // 取得に失敗したアカウントがあれば上部に警告を表示
     if (failedAccounts.length > 0) {
       const alertDiv = document.createElement('div');
       alertDiv.className = 'loading';
@@ -469,7 +474,6 @@ async function loadAllTwitterContent() {
       container.appendChild(alertDiv);
     }
 
-    // ツイート一覧のHTML描画
     allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
