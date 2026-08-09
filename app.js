@@ -147,93 +147,62 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 /**
  * 複数のCORSプロキシをフォールバックしながらRSSを取得・解析する関数
  */
+// 通信間隔用の delay 関数
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * rss2json API を使用して RSS を取得する関数（エラー調査ログ付き）
+ */
 async function fetchTwitterRSS(rssUrl) {
   const cacheBuster = Date.now();
-  const targetUrl = `${rssUrl}${rssUrl.includes('?') ? '&' : '?'}_cb=${cacheBuster}`;
+  // rss2json API の URL 構築
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&_cb=${cacheBuster}`;
 
-  // 試行するプロキシのリスト（上から順に試す）
-  const proxyEndpoints = [
-    // 1. AllOrigins (JSON経由)
-    async () => {
-      const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      const data = await res.json();
-      if (!data.contents) throw new Error('Empty response');
-      return data.contents;
-    },
-    // 2. Corsproxy.io (直接テキスト)
-    async () => {
-      const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      return await res.text();
-    },
-    // 3. CodeTabs (直接テキスト)
-    async () => {
-      const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`);
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      return await res.text();
-    }
-  ];
+  console.log(`[rss2json リクエスト送信]: ${apiUrl}`);
 
-  let rawXml = null;
-  let lastError = null;
-
-  // 成功するプロキシが見つかるまで順番に試す
-  for (const getProxyContent of proxyEndpoints) {
-    try {
-      rawXml = await getProxyContent();
-      if (rawXml) break;
-    } catch (err) {
-      lastError = err;
-      console.warn('プロキシ試行失敗、次のプロキシへ切替:', err.message);
-    }
+  const response = await fetch(apiUrl);
+  
+  // レスポンスのHTTPステータスチェック
+  if (!response.ok) {
+    throw new Error(`HTTPエラー: status ${response.status}`);
   }
 
-  if (!rawXml) {
-    throw new Error(`すべてのプロキシで取得失敗: ${lastError?.message || '不明なエラー'}`);
+  const data = await response.json();
+  console.log(`[rss2json レスポンス受信]:`, data);
+
+  // rss2json 内部のステータスチェック（APIキー制限やURL取得失敗など）
+  if (data.status !== 'ok') {
+    throw new Error(`rss2json エラー (message: "${data.message}")`);
   }
 
-  // XMLの文字列解析
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(rawXml, 'text/xml');
-
-  const parserError = xmlDoc.querySelector('parsererror');
-  if (parserError) {
-    throw new Error('XMLパースエラー');
+  if (!data.items || data.items.length === 0) {
+    console.warn(`[rss2json 警告]: 記事が0件です。`, data);
   }
 
-  const items = xmlDoc.querySelectorAll('item');
-  const feedTitleEl = xmlDoc.querySelector('channel > title');
-  const feedTitle = feedTitleEl ? feedTitleEl.textContent : '';
+  // 取得したデータを整形
+  return data.items.map(item => {
+    // 日付パース
+    const pubDate = item.pubDate ? new Date(item.pubDate.replace(/-/g, '/')) : new Date(0);
 
-  const parsedItems = [];
-  items.forEach(item => {
-    const title = item.querySelector('title')?.textContent || '';
-    const description = item.querySelector('description')?.textContent || '';
-    const pubDateText = item.querySelector('pubDate')?.textContent || '';
-    const link = item.querySelector('link')?.textContent || '';
-    const creator = item.querySelector('dc\\:creator, creator')?.textContent || '';
-
-    const pubDate = pubDateText ? new Date(pubDateText) : new Date(0);
-
+    // アバター画像の抽出（description 内の img タグから）
     let avatarUrl = '';
-    const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
-    if (imgMatch) {
-      avatarUrl = imgMatch[1];
+    if (item.description) {
+      const imgMatch = item.description.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (imgMatch) {
+        avatarUrl = imgMatch[1];
+      }
     }
 
-    parsedItems.push({
-      title,
-      description,
-      pubDate,
-      link,
-      author: creator || feedTitle,
-      feedTitle,
-      avatarUrl
-    });
+    return {
+      title: item.title || '',
+      description: item.description || '',
+      pubDate: pubDate,
+      link: item.link || '',
+      author: item.author || data.feed?.title || '',
+      feedTitle: data.feed?.title || '',
+      avatarUrl: avatarUrl
+    };
   });
-
-  return parsedItems;
 }
 
 async function fetchYoutubeRSS(channelId) {
@@ -434,9 +403,9 @@ async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
   const refreshBtn = document.getElementById('refresh-twitter-btn');
   if (!container) return;
-  
-  if (twitterFeeds.length === 0) {
-    container.innerHTML = '<div class="loading">配信先を追加してください。</div>';
+
+  if (typeof twitterFeeds === 'undefined' || twitterFeeds.length === 0) {
+    container.innerHTML = '<div class="loading">配信先が登録されていません。</div>';
     return;
   }
 
@@ -453,11 +422,11 @@ async function loadAllTwitterContent() {
     let failedAccounts = [];
 
     for (const feed of twitterFeeds) {
-      console.log(`[DOMParser取得] ${feed.name}`);
+      console.log(`--- [取得開始] ${feed.name} (${feed.url}) ---`);
       try {
         const items = await fetchTwitterRSS(feed.url);
-        
-        // 直近24時間以内のツイートを抽出（最大10件）
+
+        // 直近24時間以内のツイートを抽出
         const filteredItems = items
           .filter(item => item.pubDate && !isNaN(item.pubDate.getTime()) && item.pubDate.getTime() >= twentyFourHoursAgo)
           .slice(0, 10);
@@ -469,23 +438,24 @@ async function loadAllTwitterContent() {
 
         allTweets.push(...mappedItems);
       } catch (err) {
-        console.error(`Failed to fetch feed for ${feed.name}:`, err);
-        failedAccounts.push(feed.name);
+        console.error(`❌ [取得失敗] ${feed.name}:`, err);
+        failedAccounts.push({ name: feed.name, reason: err.message });
       }
 
-      // 次のアカウントのリクエスト前に1秒待機
+      // レート制限回避のため 1 秒待機
       await delay(1000);
     }
 
     if (allTweets.length === 0) {
+      const errorDetails = failedAccounts.map(f => `${f.name}: ${f.reason}`).join('<br>');
       const msg = failedAccounts.length > 0 
-        ? `一部のアカウント取得に失敗しました (${failedAccounts.join(', ')})。<br>Nitterサーバーまたはプロキシ制限の可能性があります。`
-        : '直近24時間以内のツイートはありません';
+        ? `ツイートを取得できませんでした。<br><small style="color:#e74c3c;">${errorDetails}</small>`
+        : '直近24時間以内のツイートはありません。';
       container.innerHTML = `<div class="loading">${msg}</div>`;
       return;
     }
 
-    // 新しい順に並べ替え
+    // 日付順にソート
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
@@ -496,14 +466,14 @@ async function loadAllTwitterContent() {
       alertDiv.style.color = '#e74c3c';
       alertDiv.style.fontSize = '12px';
       alertDiv.style.marginBottom = '10px';
-      alertDiv.innerHTML = `⚠️ 以下の<sup></sup>アカウントは取得できませんでした: ${failedAccounts.join(', ')}`;
+      alertDiv.innerHTML = `⚠️ 一部取得失敗: ${failedAccounts.map(f => f.name).join(', ')}`;
       container.appendChild(alertDiv);
     }
 
     allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
-      
+
       const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
         ? item.pubDate.toLocaleString('ja-JP', { 
             timeZone: 'Asia/Tokyo',
@@ -514,8 +484,7 @@ async function loadAllTwitterContent() {
           })
         : '';
 
-      const rawTitle = item.feedTitle || item.author || item.title;
-      const author = typeof extractUsername === 'function' ? extractUsername(rawTitle) : rawTitle;
+      const author = item.feedTitle || item.author || item.accountName;
 
       const avatarHtml = item.avatarUrl
         ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
@@ -540,7 +509,7 @@ async function loadAllTwitterContent() {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error('全体エラー:', err);
     container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました</div>';
   } finally {
     if (refreshBtn) {
