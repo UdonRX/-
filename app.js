@@ -370,6 +370,9 @@ function extractUsername(rawText) {
   return cleaned || rawText;
 }
 
+// 一定時間待機するためのヘルパー関数
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
   const refreshBtn = document.getElementById('refresh-twitter-btn');
@@ -385,30 +388,46 @@ async function loadAllTwitterContent() {
     refreshBtn.style.opacity = '0.5';
   }
 
-  container.innerHTML = '<div class="loading">すべてのツイートを読み込み中...</div>';
+  container.innerHTML = '<div class="loading">最新ツイートを取得中...</div>';
 
   try {
-    const fetchPromises = twitterFeeds.map(async (feed) => {
+    // 直近24時間（ミリ秒計算）
+    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+    let allTweets = [];
+
+    // API負荷を減らすため、1アカウントずつ順番に取得（直列処理）
+    for (let i = 0; i < twitterFeeds.length; i++) {
+      const feed = twitterFeeds[i];
       try {
         const items = await fetchTwitterRSS(feed.url);
-        return items.map(item => ({
+        
+        // 直近24時間以内のツイートのみ抽出（各アカウント最大10件まで）
+        const filteredItems = items
+          .filter(item => item.pubDate && item.pubDate.getTime() >= twentyFourHoursAgo)
+          .slice(0, 10);
+
+        const mappedItems = filteredItems.map(item => ({
           ...item,
           accountName: feed.name
         }));
+
+        allTweets.push(...mappedItems);
       } catch (err) {
         console.error(`Failed to fetch feed for ${feed.name}:`, err);
-        return [];
       }
-    });
 
-    const results = await Promise.all(fetchPromises);
-    let allTweets = results.flat();
+      // 次のリクエストまでに 200ms の間隔を空けてAPI制限を回避
+      if (i < twitterFeeds.length - 1) {
+        await delay(200);
+      }
+    }
 
     if (allTweets.length === 0) {
-      container.innerHTML = '<div class="loading">ツイートを取得できませんでした</div>';
+      container.innerHTML = '<div class="loading">直近24時間以内のツイートはありません</div>';
       return;
     }
 
+    // 全アカウントのツイートを新しい順（降順）に並べ替え
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
