@@ -141,68 +141,74 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
-async function fetchTwitterRSS(rssUrl, retries = 2) {
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+// 一定時間待機用
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const response = await fetch(apiUrl);
+/**
+ * Nitterの生RSS(XML)をCORSプロキシ経由で取得し、DOMParserで解析する関数
+ */
+async function fetchTwitterRSS(rssUrl) {
+  // キャッシュを回避するためにタイムスタンプを付与
+  const cacheBuster = Date.now();
+  const urlWithCb = `${rssUrl}${rssUrl.includes('?') ? '&' : '?'}_cb=${cacheBuster}`;
+  
+  // CORS制限を回避して生のXMLを取得するためのプロキシAPI (allorigins)
+  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlWithCb)}`;
 
-      // 429エラー（アクセス制限）の場合は1.5秒待って再試行
-      if (response.status === 429) {
-        if (i < retries) {
-          console.warn(`[429制限] 1.5秒待機後に再試行します... (${i + 1}/${retries})`);
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          continue;
-        }
-        throw new Error('APIの利用制限(429)が発生しました。');
-      }
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.status !== 'ok' || !Array.isArray(data.items)) {
-        throw new Error('Twitter RSS取得エラー');
-      }
-
-      return data.items.map(item => ({
-        ...item,
-        pubDate: new Date(item.pubDate),
-        feedTitle: data.feed ? data.feed.title : ''
-      }));
-    } catch (err) {
-      if (i === retries) throw err;
-    }
+  const response = await fetch(proxyUrl);
+  if (!response.ok) {
+    throw new Error(`プロキシ通信エラー: ${response.status}`);
   }
-}
 
-  const feedTitle = data.feed ? data.feed.title : '';
-  const feedAvatar = data.feed?.image || data.feed?.avatar || '';
+  const data = await response.json();
+  if (!data.contents) {
+    throw new Error('RSSデータの取得に失敗しました');
+  }
 
-  // RTフィルタなしですべてのアイテムを取得
-  return data.items.map(item => {
-    let rawDateStr = item.pubDate;
-    if (typeof rawDateStr === 'string' && !rawDateStr.endsWith('Z') && !rawDateStr.includes('+')) {
-      rawDateStr = rawDateStr.replace(' ', 'T') + 'Z';
+  // DOMParser を使って XML 文字列を DOM 構造に変換
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(data.contents, 'text/xml');
+
+  // XML解析エラーのチェック
+  const parserError = xmlDoc.querySelector('parsererror');
+  if (parserError) {
+    throw new Error('XMLのパースエラーが発生しました');
+  }
+
+  const items = xmlDoc.querySelectorAll('item');
+  const feedTitleEl = xmlDoc.querySelector('channel > title');
+  const feedTitle = feedTitleEl ? feedTitleEl.textContent : '';
+
+  const parsedItems = [];
+  items.forEach(item => {
+    const title = item.querySelector('title')?.textContent || '';
+    const description = item.querySelector('description')?.textContent || '';
+    const pubDateText = item.querySelector('pubDate')?.textContent || '';
+    const link = item.querySelector('link')?.textContent || '';
+    const creator = item.querySelector('dc\\:creator, creator')?.textContent || '';
+
+    // 日付のパース
+    const pubDate = pubDateText ? new Date(pubDateText) : new Date(0);
+
+    // Nitterのdescriptionからアバター画像のURLを抽出（存在する場合）
+    let avatarUrl = '';
+    const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (imgMatch) {
+      avatarUrl = imgMatch[1];
     }
 
-    let parsedDate = new Date(rawDateStr);
-    if (isNaN(parsedDate.getTime())) parsedDate = new Date(item.pubDate);
-
-    let avatarUrl = item.thumbnail || item.enclosure?.link || feedAvatar;
-
-    return {
-      title: item.title || '無題',
-      link: item.link || '',
-      pubDate: parsedDate,
-      description: item.description || item.content || item.title || '',
-      author: item.author || feedTitle,
-      feedTitle: feedTitle,
-      avatarUrl: avatarUrl
-    };
+    parsedItems.push({
+      title,
+      description,
+      pubDate,
+      link,
+      author: creator || feedTitle,
+      feedTitle,
+      avatarUrl
+    });
   });
+
+  return parsedItems;
 }
 
 async function fetchYoutubeRSS(channelId) {
@@ -396,9 +402,6 @@ function extractUsername(rawText) {
   return cleaned || rawText;
 }
 
-// 通信間のウェイト用ヘルパー
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
   const refreshBtn = document.getElementById('refresh-twitter-btn');
@@ -417,16 +420,18 @@ async function loadAllTwitterContent() {
   container.innerHTML = '<div class="loading">最新ツイートを取得中...</div>';
 
   try {
+    // 直近24時間（24 * 60 * 60 * 1000 ms）
     const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
     let allTweets = [];
     let failedAccounts = [];
 
-    // 【重要】Promise.all ではなく for...of で1件ずつ順番に取得
+    // 1アカウントずつ直列で順番に取得処理を行う
     for (const feed of twitterFeeds) {
+      console.log(`[DOMParser取得] ${feed.name}`);
       try {
         const items = await fetchTwitterRSS(feed.url);
         
-        // 直近24時間以内のツイートを抽出
+        // 直近24時間以内のツイートを抽出し、1アカウント最大10件まで絞り込む
         const filteredItems = items
           .filter(item => item.pubDate && !isNaN(item.pubDate.getTime()) && item.pubDate.getTime() >= twentyFourHoursAgo)
           .slice(0, 10);
@@ -442,33 +447,35 @@ async function loadAllTwitterContent() {
         failedAccounts.push(feed.name);
       }
 
-      // 次のアカウントのリクエスト前に確実に1秒待機する
-      await delay(1000);
+      // プロキシ負荷軽減のため、アカウント毎に 500ms の間隔を空ける
+      await delay(500);
     }
 
     if (allTweets.length === 0) {
       const msg = failedAccounts.length > 0 
-        ? `一部のアカウント取得に失敗しました (${failedAccounts.join(', ')})。<br>API制限の可能性があります。時間を置いて再度お試しください。`
+        ? `一部のアカウント取得に失敗しました (${failedAccounts.join(', ')})。<br>Nitterサーバーの状態を確認してください。`
         : '直近24時間以内のツイートはありません';
       container.innerHTML = `<div class="loading">${msg}</div>`;
       return;
     }
 
-    // 日付順（降順）にソート
+    // 日付順（降順：新しい順）にソート
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
 
-    // 取得失敗したアカウントがあれば通知
+    // 取得に失敗したアカウントがあれば上部に警告を表示
     if (failedAccounts.length > 0) {
       const alertDiv = document.createElement('div');
       alertDiv.className = 'loading';
       alertDiv.style.color = '#e74c3c';
       alertDiv.style.fontSize = '12px';
+      alertDiv.style.marginBottom = '10px';
       alertDiv.innerHTML = `⚠️ 以下の<sup></sup>アカウントは取得できませんでした: ${failedAccounts.join(', ')}`;
       container.appendChild(alertDiv);
     }
 
+    // ツイート一覧のHTML描画
     allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
@@ -484,7 +491,7 @@ async function loadAllTwitterContent() {
         : '';
 
       const rawTitle = item.feedTitle || item.author || item.title;
-      const author = extractUsername(rawTitle);
+      const author = typeof extractUsername === 'function' ? extractUsername(rawTitle) : rawTitle;
 
       const avatarHtml = item.avatarUrl
         ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
