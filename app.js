@@ -615,7 +615,7 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  const setupManageModal = (title, feeds, onSave, onRefresh) => {
+  const setupManageModal = (title, feeds, onSave, onRefresh, isTwitter = false) => {
     cleanupExtraButtons();
     modalTitle.textContent = title;
     
@@ -646,7 +646,8 @@ function initModals() {
             },
             () => {
               renderList();
-            }
+            },
+            isTwitter
           );
         }
       );
@@ -708,7 +709,11 @@ function initModals() {
     addTwitterBtn.onclick = () => {
       setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーID', (newItems) => {
         const formattedItems = newItems.map(item => {
-          const cleanUserId = item.url.replace(/^@/, '').trim();
+          let cleanUrl = item.url.trim();
+          if (cleanUrl.startsWith('https://nitter.net')) {
+            return { name: item.name, url: cleanUrl };
+          }
+          const cleanUserId = cleanUrl.replace(/^@/, '');
           return {
             name: item.name,
             url: `https://nitter.net/${cleanUserId}/rss`
@@ -739,7 +744,7 @@ function initModals() {
       setupManageModal('Twitterアカウントの管理', twitterFeeds, (updated) => {
         twitterFeeds = updated;
         saveStoredFeeds('twitterFeeds', twitterFeeds);
-      }, initTwitter);
+      }, initTwitter, true);
     };
   }
 
@@ -876,7 +881,7 @@ function renderManageList(feeds, saveCallback, onEdit) {
 }
 
 // 変更（上書き）用ダイアログを表示する関数
-function showEditModal(feed, onOverwrite, onCancel) {
+function showEditModal(feed, onOverwrite, onCancel, isTwitter = false) {
   const modalTitle = document.getElementById('modal-title');
   const modalBody = document.getElementById('modal-body');
   const cancelBtn = document.getElementById('modal-cancel-btn');
@@ -919,14 +924,28 @@ function showEditModal(feed, onOverwrite, onCancel) {
     submitBtn.textContent = '上書き';
     submitBtn.onclick = () => {
       const newName = document.getElementById('edit-name-input').value.trim();
-      const newUrl = document.getElementById('edit-url-input').value.trim();
+      let newUrl = document.getElementById('edit-url-input').value.trim();
 
       if (!newName) {
         alert('名前を入力してください');
         return;
       }
 
-      const finalUrl = newUrl || feed.url;
+      let finalUrl = feed.url;
+
+      if (newUrl) {
+        if (isTwitter) {
+          if (newUrl.startsWith('https://nitter.net')) {
+            finalUrl = newUrl;
+          } else {
+            const cleanUserId = newUrl.replace(/^@/, '');
+            finalUrl = `https://nitter.net/${cleanUserId}/rss`;
+          }
+        } else {
+          finalUrl = newUrl;
+        }
+      }
+
       onOverwrite({ ...feed, name: newName, url: finalUrl, isError: false });
     };
   }
