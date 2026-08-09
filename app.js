@@ -142,8 +142,8 @@ async function fetchNewsRSS(feedUrl) {
 }
 
 async function fetchTwitterRSS(feedUrl) {
-  // count=50 を指定して最大50件まで取得
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&count=50`;
+  // 422エラー回避のため &count パラメータを除去
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
   const response = await fetch(apiUrl);
   if (!response.ok) throw new Error('Twitter RSS取得エラー');
   
@@ -155,7 +155,7 @@ async function fetchTwitterRSS(feedUrl) {
   const feedTitle = data.feed ? data.feed.title : '';
   const feedAvatar = data.feed?.image || data.feed?.avatar || '';
 
-  // RTフィルタを排除し、取得されたすべてのアイテムを返す
+  // RTフィルタなしですべてのアイテムを取得
   return data.items.map(item => {
     let rawDateStr = item.pubDate;
     if (typeof rawDateStr === 'string' && !rawDateStr.endsWith('Z') && !rawDateStr.includes('+')) {
