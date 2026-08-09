@@ -438,3 +438,75 @@ h2 {
   font-size: 11px;
   color: var(--text-sub);
 }
+
+/* --- セクション間の余白統一 --- */
+.section,
+#news-section,
+#knowledge-section,
+#twitter-section,
+#youtube-section {
+  margin-bottom: 24px; /* 各項目の隙間を均一に設定 */
+}
+
+/* --- モーダル内のスクロール対応（スマホ画面対策） --- */
+.modal-content {
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#modal-body {
+  overflow-y: auto;
+  max-height: 60vh;
+  padding-right: 4px;
+  margin-bottom: 12px;
+}
+
+/* --- Twitter投稿カード用スタイル --- */
+.tweet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.tweet-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tweet-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.tweet-avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #e1e8ed;
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.tweet-media img, 
+.tweet-media video,
+.tweet-body img,
+.tweet-body video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  margin-top: 8px;
+  display: block;
+}
