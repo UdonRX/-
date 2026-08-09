@@ -154,7 +154,6 @@ async function fetchTwitterRSS(feedUrl) {
   const feedTitle = data.feed ? data.feed.title : '';
   const feedAvatar = data.feed?.image || data.feed?.avatar || '';
 
-  // リツイートを除外
   const originalTweets = data.items.filter(item => {
     const title = item.title || '';
     const isRetweet = /^RT\s/i.test(title.trim()) || /^RT\s+by\s/i.test(title.trim());
@@ -162,7 +161,6 @@ async function fetchTwitterRSS(feedUrl) {
   });
 
   return originalTweets.map(item => {
-    // RSSの時刻文字列（UTC）をISO形式またはUTCとして明示的にDateオブジェクト化
     let rawDateStr = item.pubDate;
     if (typeof rawDateStr === 'string' && !rawDateStr.endsWith('Z') && !rawDateStr.includes('+')) {
       rawDateStr = rawDateStr.replace(' ', 'T') + 'Z';
@@ -540,15 +538,11 @@ function initModals() {
   };
 
   const closeModal = () => {
-    const inputs = modalBody.querySelectorAll('input');
-    inputs.forEach(input => {
-      input.value = '';
-    });
-
     cleanupExtraButtons();
     modalBody.innerHTML = '';
-    if (submitBtn) submitBtn.textContent = '保存';
-    if (cancelBtn) cancelBtn.style.display = 'inline-block';
+    submitBtn.textContent = '保存';
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.style.display = 'inline-block';
     modal.classList.add('hidden');
   };
   
@@ -567,11 +561,6 @@ function initModals() {
       <input type="text" class="input-url" placeholder="${placeholderUrl}" autocomplete="off" autocorrect="off" autocapitalize="off" style="flex: 2;">
       <button type="button" class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
     `;
-
-    const nameInput = row.querySelector('.input-name');
-    const urlInput = row.querySelector('.input-url');
-    nameInput.value = '';
-    urlInput.value = '';
 
     row.querySelector('.remove-row-btn').onclick = () => {
       if (modalBody.querySelectorAll('.modal-input-row').length > 1) {
@@ -602,6 +591,8 @@ function initModals() {
 
     cancelBtn.parentNode.insertBefore(addRowBtn, cancelBtn);
 
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.onclick = closeModal;
     submitBtn.textContent = '保存';
     submitBtn.onclick = () => {
       const rows = modalBody.querySelectorAll('.modal-input-row');
@@ -629,12 +620,20 @@ function initModals() {
     modalTitle.textContent = title;
     
     const renderList = () => {
+      modalTitle.textContent = title;
+      submitBtn.textContent = '完了';
+      cancelBtn.textContent = 'キャンセル';
+      cancelBtn.style.display = 'none'; // 管理画面一覧では「完了」ボタンのみ使用
+      cancelBtn.onclick = closeModal;
+      submitBtn.onclick = closeModal;
+
       renderManageList(
         feeds, 
         (updatedFeeds) => {
           feeds = updatedFeeds;
           onSave(feeds);
           onRefresh();
+          renderList();
         },
         (feed, idx) => {
           showEditModal(
@@ -654,8 +653,6 @@ function initModals() {
     };
 
     renderList();
-    submitBtn.textContent = '完了';
-    submitBtn.onclick = closeModal;
     modal.classList.remove('hidden');
   };
 
@@ -671,7 +668,7 @@ function initModals() {
     };
   }
 
-  // 2. ニュース削除ボタン
+  // 2. ニュース削除（管理）ボタン
   const delNewsBtn = document.getElementById('del-news-btn');
   if (delNewsBtn) {
     delNewsBtn.onclick = () => {
@@ -694,7 +691,7 @@ function initModals() {
     };
   }
 
-  // 4. 知識削除ボタン
+  // 4. 知識削除（管理）ボタン
   const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
@@ -735,7 +732,7 @@ function initModals() {
     };
   }
 
-  // 6. Twitter削除ボタン
+  // 6. Twitter削除（管理）ボタン
   const delTwitterBtn = document.getElementById('del-twitter-btn');
   if (delTwitterBtn) {
     delTwitterBtn.onclick = () => {
@@ -768,7 +765,7 @@ function initModals() {
     };
   }
 
-  // 8. YouTube削除ボタン
+  // 8. YouTube削除（管理）ボタン
   const delYoutubeBtn = document.getElementById('del-youtube-btn');
   if (delYoutubeBtn) {
     delYoutubeBtn.onclick = () => {
@@ -910,25 +907,27 @@ function showEditModal(feed, onOverwrite, onCancel) {
 
   modalBody.appendChild(editForm);
 
-  if (cancelBtn) cancelBtn.style.display = 'inline-block';
-  if (submitBtn) submitBtn.textContent = '上書き';
-
-  submitBtn.onclick = () => {
-    const newName = document.getElementById('edit-name-input').value.trim();
-    const newUrl = document.getElementById('edit-url-input').value.trim();
-
-    if (!newName) {
-      alert('名前を入力してください');
-      return;
-    }
-
-    const finalUrl = newUrl || feed.url;
-    onOverwrite({ ...feed, name: newName, url: finalUrl, isError: false });
-  };
-
   if (cancelBtn) {
+    cancelBtn.style.display = 'inline-block';
+    cancelBtn.textContent = 'キャンセル';
     cancelBtn.onclick = () => {
       onCancel();
+    };
+  }
+
+  if (submitBtn) {
+    submitBtn.textContent = '上書き';
+    submitBtn.onclick = () => {
+      const newName = document.getElementById('edit-name-input').value.trim();
+      const newUrl = document.getElementById('edit-url-input').value.trim();
+
+      if (!newName) {
+        alert('名前を入力してください');
+        return;
+      }
+
+      const finalUrl = newUrl || feed.url;
+      onOverwrite({ ...feed, name: newName, url: finalUrl, isError: false });
     };
   }
 }
