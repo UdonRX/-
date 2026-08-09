@@ -603,7 +603,7 @@ function initModals() {
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
     addNewsBtn.onclick = () => {
-      setupMultiAddModal('ニュースRSSをまとめて追加', '配信先', 'RSS URL', (newItems) => {
+      setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
         newsFeeds.push(...newItems);
         saveStoredFeeds('newsFeeds', newsFeeds);
         initNews();
@@ -631,7 +631,7 @@ function initModals() {
   const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
   if (addKnowledgeBtn) {
     addKnowledgeBtn.onclick = () => {
-      setupMultiAddModal('知識RSSを追加', '配信先', 'RSS URL', (newItems) => {
+      setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
         knowledgeFeeds.push(...newItems);
         saveStoredFeeds('knowledgeFeeds', knowledgeFeeds);
         initKnowledge();
@@ -644,7 +644,7 @@ function initModals() {
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
       cleanupExtraButtons();
-      modalTitle.textContent = '知識配信先の管理';
+      modalTitle.textContent = '配信先の管理';
       renderManageList(knowledgeFeeds, (newFeeds) => {
         knowledgeFeeds = newFeeds;
         saveStoredFeeds('knowledgeFeeds', knowledgeFeeds);
@@ -655,12 +655,25 @@ function initModals() {
     };
   }
 
-  // 5. Twitter追加ボタン
+ // 5. Twitter追加ボタン
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn) {
     addTwitterBtn.onclick = () => {
-      setupMultiAddModal('Twitter RSSを追加', '配信先', 'Nitter RSS URL', (newItems) => {
-        twitterFeeds.push(...newItems);
+      // プレースホルダーを「ユーザーID」に変更
+      setupMultiAddModal('RSSを追加', '配信先', 'ユーザーID', (newItems) => {
+        // 入力された ユーザーID から Nitter RSS URL へ自動変換
+        const formattedItems = newItems.map(item => {
+          // 先頭の @ を自動除去（例: @username -> username）
+          const cleanUserId = item.url.replace(/^@/, '').trim();
+          const rssUrl = `https://nitter.net/${cleanUserId}/rss`;
+          
+          return {
+            name: item.name,
+            url: rssUrl
+          };
+        });
+
+        twitterFeeds.push(...formattedItems);
         saveStoredFeeds('twitterFeeds', twitterFeeds);
         initTwitter();
       });
