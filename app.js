@@ -409,12 +409,12 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     refreshBtn.style.opacity = '0.5';
   }
 
-  container.innerHTML = '<div class="loading">ツイートを安全に取得中（制限対策モード）...</div>';
+  container.innerHTML = '<div class="loading">ツイートを安全に取得中（1日前まで・制限対策モード）...</div>';
 
   try {
     let allTweets = [];
-    const twoDaysAgo = new Date();
-    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2); // 2日前を計算
+    const oneDayAgo = new Date();
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1); // 1日前を計算
 
     // 60アカウント分の同時リクエストによる Too Many Requests (429) を防ぐため、1件ずつ順番に取得する
     for (let i = 0; i < twitterFeeds.length; i++) {
@@ -426,10 +426,10 @@ async function loadAllTwitterContent(isManualRefresh = false) {
         
         const items = await fetchTwitterRSS(fetchUrl);
         
-        // 2日前までのツイートだけにフィルタリング
+        // 1日前までのツイートだけにフィルタリング
         const filteredItems = items.filter(item => {
           const itemDate = new Date(item.pubDate);
-          return !isNaN(itemDate) && itemDate >= twoDaysAgo;
+          return !isNaN(itemDate) && itemDate >= oneDayAgo;
         });
 
         const mapped = filteredItems.map(item => ({
@@ -449,7 +449,7 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     }
 
     if (allTweets.length === 0) {
-      container.innerHTML = '<div class="loading">有効なツイートを取得できませんでした（API制限または2日以内のツイートがない可能性があります）</div>';
+      container.innerHTML = '<div class="loading">有効なツイートを取得できませんでした（API制限または1日以内のツイートがない可能性があります）</div>';
       return;
     }
 
