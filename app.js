@@ -655,21 +655,19 @@ function initModals() {
     };
   }
 
- // 5. Twitter追加ボタン
+// 5. Twitter追加ボタン
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn) {
     addTwitterBtn.onclick = () => {
-      // プレースホルダーを「ユーザーID」に変更
-      setupMultiAddModal('RSSを追加', '配信先', 'ユーザーID', (newItems) => {
-        // 入力された ユーザーID から Nitter RSS URL へ自動変換
+      // プレースホルダーを「配信先」「ユーザーID」にして共通関数を呼出
+      // (内部で createInputRow が空のボックス value="" を生成します)
+      setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーID', (newItems) => {
+        // 入力された「ユーザーID」を https://nitter.net/ユーザーID/rss に変換して保存
         const formattedItems = newItems.map(item => {
-          // 先頭の @ を自動除去（例: @username -> username）
           const cleanUserId = item.url.replace(/^@/, '').trim();
-          const rssUrl = `https://nitter.net/${cleanUserId}/rss`;
-          
           return {
             name: item.name,
-            url: rssUrl
+            url: `https://nitter.net/${cleanUserId}/rss`
           };
         });
 
@@ -678,6 +676,7 @@ function initModals() {
         initTwitter();
       });
 
+      // Nitter ボタンの生成・追加
       const nitterBtn = document.createElement('button');
       nitterBtn.id = 'modal-nitter-btn';
       nitterBtn.className = 'btn';
