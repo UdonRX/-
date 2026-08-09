@@ -347,7 +347,6 @@ async function loadKnowledgeContent(url) {
   }
 }
 
-// --- Twitter機能（キャッシュ＆制限対策版） ---
 function initTwitter() {
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn && !document.getElementById('refresh-twitter-btn')) {
@@ -364,10 +363,17 @@ function initTwitter() {
     refreshBtn.title = '最新のツイートを取得';
     refreshBtn.onclick = () => loadAllTwitterContent(true);
     
+    // 追加ボタンの「左側（直前）」に更新ボタンを設置
     addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
   }
 
   loadAllTwitterContent(false);
+}
+
+function extractUsername(rawText) {
+  if (!rawText) return '無題';
+  let cleaned = rawText.split(/[\(@\/]/)[0].trim();
+  return cleaned || rawText;
 }
 
 async function loadAllTwitterContent(isManualRefresh = false) {
@@ -391,7 +397,6 @@ async function loadAllTwitterContent(isManualRefresh = false) {
   if (!isManualRefresh && cachedData && cachedTime && (now - cachedTime < CACHE_VALID_MINUTES * 60 * 1000)) {
     try {
       const allTweets = JSON.parse(cachedData);
-      // 日付文字列をDateオブジェクトに復元
       allTweets.forEach(t => t.pubDate = new Date(t.pubDate));
       renderTweets(allTweets, container);
       return;
@@ -408,8 +413,6 @@ async function loadAllTwitterContent(isManualRefresh = false) {
   container.innerHTML = '<div class="loading">すべてのツイートを読み込み中（制限対策モード）...</div>';
 
   try {
-    // 60アカウントある場合を考慮し、サーバー（API）へ負荷をかけすぎないよう順番、またはチャンクに分けて取得することも可能ですが、
-    // ここではPromise.allで一括取得しつつ、失敗時に制限エラーを検知できるようにしています。
     const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
         const fetchUrl = isManualRefresh 
