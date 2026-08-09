@@ -186,6 +186,20 @@ async function fetchRssAppFeed(feedUrl) {
     const descriptionHtml = item.querySelector('description')?.textContent?.trim() || '';
     const creator = item.querySelector('dc\\:creator, creator')?.textContent?.trim() || feedTitle;
 
+    // ご提示いただいた <media:content medium="image" url="..." /> から画像URLを抽出
+    let mediaImgUrl = '';
+    const mediaContent = item.querySelector('media\\:content, content');
+    if (mediaContent) {
+      mediaImgUrl = mediaContent.getAttribute('url') || '';
+    }
+    // もし media:content が無い場合は enclosure も確認
+    if (!mediaImgUrl) {
+      const enclosure = item.querySelector('enclosure');
+      if (enclosure && enclosure.getAttribute('type')?.startsWith('image')) {
+        mediaImgUrl = enclosure.getAttribute('url') || '';
+      }
+    }
+
     let parsedDate = new Date(pubDateStr);
     if (isNaN(parsedDate.getTime())) parsedDate = new Date();
 
@@ -196,7 +210,8 @@ async function fetchRssAppFeed(feedUrl) {
       description: descriptionHtml,
       author: creator,
       feedTitle: feedTitle,
-      avatarUrl: channelImageUrl // アイコン画像に設定
+      avatarUrl: channelImageUrl, // アイコン画像
+      mediaUrl: mediaImgUrl        // ツイートごとの独立した画像
     };
   });
 }
@@ -481,7 +496,7 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
-    allTweets.forEach(item => {
+   allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
       
@@ -502,14 +517,23 @@ async function loadAllTwitterContent(isManualRefresh = false) {
         ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
         : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
 
-      // description 内の HTML から余分な要素の削除および画像タグの整形
+      // description 内の不要なHTMLを整理
       let cleanDescription = item.description
         .replace(/<hr\s*\/?>/gi, '')
         .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
         .replace(/(リンク|Link)<br\s*\/?>/gi, '');
 
-      // 画像タグにスタイルを適応して表示崩れを防ぐ処理
+      // description内に含まれる画像タグを安全に装飾
       cleanDescription = cleanDescription.replace(/<img\s+/gi, '<img style="max-width:100%; height:auto; border-radius:8px; margin-top:8px;" ');
+
+      // <media:content> から取得した画像がある場合、本文の下に追加で埋め込む
+      let mediaImageHtml = '';
+      if (item.mediaUrl) {
+        // description内に同じ画像が含まれていない場合のみ追加表示する
+        if (!cleanDescription.includes(item.mediaUrl)) {
+          mediaImageHtml = `<div style="margin-top: 8px;"><img src="${item.mediaUrl}" style="max-width:100%; height:auto; border-radius:8px;" alt="tweet image" loading="lazy"></div>`;
+        }
+      }
 
       tweetDiv.innerHTML = `
         <div class="tweet-header">
@@ -519,7 +543,7 @@ async function loadAllTwitterContent(isManualRefresh = false) {
           </div>
           <span class="tweet-time">${dateStr}</span>
         </div>
-        <div class="tweet-body">${cleanDescription}</div>
+        <div class="tweet-body">${cleanDescription}${mediaImageHtml}</div>
       `;
       container.appendChild(tweetDiv);
     });
