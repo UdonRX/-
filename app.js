@@ -780,13 +780,13 @@ function initModals() {
   }
 }
 
-function renderManageList(feeds, saveCallback) {
+function renderManageList(feeds, saveCallback, onEdit) {
   const modalBody = document.getElementById('modal-body');
   if (!modalBody) return;
   modalBody.innerHTML = '';
   
   if (feeds.length === 0) {
-    modalBody.innerHTML = '<div>登録されていません</div>';
+    modalBody.innerHTML = '<div style="color: var(--text-sub); font-size: 14px;">登録されていません</div>';
     return;
   }
 
@@ -797,16 +797,35 @@ function renderManageList(feeds, saveCallback) {
     row.style.alignItems = 'center';
     row.style.justifyContent = 'space-between';
     row.style.marginBottom = '8px';
+    row.style.padding = '8px 12px';
+    row.style.backgroundColor = 'var(--bg-main)';
+    row.style.borderRadius = '8px';
+    row.style.border = feed.isError ? '1px solid #ff4d4f' : '1px solid var(--border-color)';
 
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = feed.name;
-    nameSpan.style.flex = '1';
+    // ① エラー（!）バッジ
+    const errorBadge = feed.isError 
+      ? `<span title="データを受け取れませんでした。ID/URLが間違っている可能性があります" style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; background-color:#ff4d4f; color:#fff; border-radius:50%; font-weight:bold; font-size:12px; margin-right:8px; flex-shrink:0;">!</span>`
+      : '';
+
+    const nameWrapper = document.createElement('div');
+    nameWrapper.style.display = 'flex';
+    nameWrapper.style.alignItems = 'center';
+    nameWrapper.style.minWidth = '0';
+    nameWrapper.style.flex = '1';
+    nameWrapper.style.marginRight = '8px';
+    nameWrapper.innerHTML = `
+      ${errorBadge}
+      <span style="font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${feed.name}</span>
+    `;
 
     const btnGroup = document.createElement('div');
     btnGroup.style.display = 'flex';
     btnGroup.style.gap = '4px';
+    btnGroup.style.flexShrink = '0';
 
+    // ↑ ボタン
     const upBtn = document.createElement('button');
+    upBtn.type = 'button';
     upBtn.className = 'btn';
     upBtn.style.padding = '2px 8px';
     upBtn.textContent = '↑';
@@ -816,10 +835,12 @@ function renderManageList(feeds, saveCallback) {
       feeds[idx] = feeds[idx - 1];
       feeds[idx - 1] = temp;
       saveCallback(feeds);
-      renderManageList(feeds, saveCallback);
+      renderManageList(feeds, saveCallback, onEdit);
     };
 
+    // ↓ ボタン
     const downBtn = document.createElement('button');
+    downBtn.type = 'button';
     downBtn.className = 'btn';
     downBtn.style.padding = '2px 8px';
     downBtn.textContent = '↓';
@@ -829,24 +850,38 @@ function renderManageList(feeds, saveCallback) {
       feeds[idx] = feeds[idx + 1];
       feeds[idx + 1] = temp;
       saveCallback(feeds);
-      renderManageList(feeds, saveCallback);
+      renderManageList(feeds, saveCallback, onEdit);
     };
 
+    // ② 変更ボタン（↓ と 削除 の間に追加）
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'btn';
+    editBtn.style.padding = '2px 8px';
+    editBtn.textContent = '変更';
+    editBtn.onclick = () => {
+      if (onEdit) onEdit(feed, idx);
+    };
+
+    // 削除ボタン
     const delBtn = document.createElement('button');
+    delBtn.type = 'button';
     delBtn.className = 'btn danger';
     delBtn.style.padding = '2px 8px';
     delBtn.textContent = '削除';
     delBtn.onclick = () => {
       feeds.splice(idx, 1);
       saveCallback(feeds);
-      renderManageList(feeds, saveCallback);
+      renderManageList(feeds, saveCallback, onEdit);
     };
 
+    // ボタン並び順: [ ↑ ] [ ↓ ] [ 変更 ] [ 削除 ]
     btnGroup.appendChild(upBtn);
     btnGroup.appendChild(downBtn);
+    btnGroup.appendChild(editBtn);
     btnGroup.appendChild(delBtn);
 
-    row.appendChild(nameSpan);
+    row.appendChild(nameWrapper);
     row.appendChild(btnGroup);
     modalBody.appendChild(row);
   });
