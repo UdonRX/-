@@ -77,6 +77,7 @@ function registerSW() {
 }
 
 // --- 通信処理 ---
+// --- RSS取得関数 ---
 async function fetchNewsRSS(feedUrl) {
   const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
   const response = await fetch(apiUrl);
@@ -106,9 +107,9 @@ async function fetchNewsRSS(feedUrl) {
     return '';
   };
 
-  // サムネイル画像のURLを取得する関数（改善版）
+  // サムネイル画像のURLを取得する関数
   const getThumbnailUrl = (item, description, contentEncoded) => {
-    // 1. media:thumbnail, media:content などの属性（getElementsByTagNameNSを使用することで確実に取得）
+    // 1. media:thumbnail, media:content などの属性
     const mediaElements = [
       ...Array.from(item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'thumbnail')),
       ...Array.from(item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'content')),
@@ -151,7 +152,7 @@ async function fetchNewsRSS(feedUrl) {
   return items.map(item => {
     const title = getTagText(item, ['title']);
     
-    // リンクの取得（RSS/Atom両対応）
+    // リンクの取得
     let link = getTagText(item, ['link']);
     if (!link) {
       const linkElem = item.querySelector('link[href]');
@@ -176,7 +177,7 @@ async function fetchNewsRSS(feedUrl) {
       thumbnail
     };
   });
-}
+} // ← ここで fetchNewsRSS 関数の閉じカッコを確実に閉じる
 
   const parseCustomDate = (dateStr) => {
     if (!dateStr) return new Date();
