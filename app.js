@@ -527,8 +527,14 @@ function initModals() {
 
   // モーダル閉じる＋内容完全クリア
   const closeModal = () => {
+    // 画面上の全input要素の値を強制クリア（iOS Webアプリのキャッシュ対策）
+    const inputs = modalBody.querySelectorAll('input');
+    inputs.forEach(input => {
+      input.value = '';
+    });
+
     cleanupExtraButtons();
-    modalBody.innerHTML = ''; // 入力要素を完全に破棄・クリア
+    modalBody.innerHTML = ''; // 入力要素をDOMからクリア
     modal.classList.add('hidden');
   };
   
@@ -536,7 +542,6 @@ function initModals() {
 
   /**
    * 完全に新規・空欄の入力行を作成する関数
-   * 既存要素のコピーや値を参照することは一切せず、常に空（value=""）で生成します
    */
   const createInputRow = (placeholderName, placeholderUrl) => {
     const row = document.createElement('div');
@@ -546,12 +551,18 @@ function initModals() {
     row.style.marginBottom = '8px';
     row.style.alignItems = 'center';
 
-    // value属性は空文字列で固定
+    // autocomplete="off" / autocorrect="off" / autocapitalize="off" を追加してiOSの自動補完を停止
     row.innerHTML = `
-      <input type="text" class="input-name" placeholder="${placeholderName}" value="" style="flex: 1;">
-      <input type="text" class="input-url" placeholder="${placeholderUrl}" value="" style="flex: 2;">
+      <input type="text" class="input-name" placeholder="${placeholderName}" autocomplete="off" autocorrect="off" autocapitalize="off" style="flex: 1;">
+      <input type="text" class="input-url" placeholder="${placeholderUrl}" autocomplete="off" autocorrect="off" autocapitalize="off" style="flex: 2;">
       <button type="button" class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
     `;
+
+    // JavaScript経由で明確に空文字を代入して値を初期化
+    const nameInput = row.querySelector('.input-name');
+    const urlInput = row.querySelector('.input-url');
+    nameInput.value = '';
+    urlInput.value = '';
 
     row.querySelector('.remove-row-btn').onclick = () => {
       if (modalBody.querySelectorAll('.modal-input-row').length > 1) {
@@ -568,7 +579,7 @@ function initModals() {
   const setupMultiAddModal = (title, placeholderName, placeholderUrl, onSave) => {
     cleanupExtraButtons();
     modalTitle.textContent = title;
-    modalBody.innerHTML = ''; // 開く前に前回の入力を完全初期化
+    modalBody.innerHTML = ''; // 開く前に要素を初期化
 
     // 最初に1行目の空入力欄を作成
     modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
@@ -580,7 +591,6 @@ function initModals() {
     addRowBtn.className = 'btn';
     addRowBtn.textContent = '+ 入力欄を追加';
     
-    // 追加ボタンを押した際は、常に新しい空の row を生成して追加する
     addRowBtn.onclick = (e) => {
       e.preventDefault();
       modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
@@ -614,7 +624,7 @@ function initModals() {
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
     addNewsBtn.onclick = () => {
-      setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
+      setupMultiAddModal('ニュースRSSをまとめて追加', '配信先', 'RSS URL', (newItems) => {
         newsFeeds.push(...newItems);
         saveStoredFeeds('newsFeeds', newsFeeds);
         initNews();
@@ -642,7 +652,7 @@ function initModals() {
   const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
   if (addKnowledgeBtn) {
     addKnowledgeBtn.onclick = () => {
-      setupMultiAddModal('RSSを追加', '配信先', 'RSS URL', (newItems) => {
+      setupMultiAddModal('知識RSSを追加', '配信先', 'RSS URL', (newItems) => {
         knowledgeFeeds.push(...newItems);
         saveStoredFeeds('knowledgeFeeds', knowledgeFeeds);
         initKnowledge();
@@ -670,7 +680,7 @@ function initModals() {
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn) {
     addTwitterBtn.onclick = () => {
-      setupMultiAddModal('RSSを追加', '配信先', 'ユーザーID', (newItems) => {
+      setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーID', (newItems) => {
         const formattedItems = newItems.map(item => {
           const cleanUserId = item.url.replace(/^@/, '').trim();
           return {
