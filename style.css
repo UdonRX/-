@@ -43,6 +43,15 @@ main {
   padding-top: 0;
 }
 
+/* --- セクション間の余白統一 --- */
+.section,
+#news-section,
+#knowledge-section,
+#twitter-section,
+#youtube-section {
+  margin-bottom: 24px;
+}
+
 .card {
   background: var(--card-bg);
   border-radius: 16px;
@@ -114,7 +123,7 @@ h2 {
   -webkit-overflow-scrolling: touch;
 }
 
-/* 1. 天気スタイル */
+/* 天気スタイル */
 .weather-item {
   display: flex;
   flex-direction: column;
@@ -166,14 +175,23 @@ h2 {
   border-color: var(--primary-color);
 }
 
-/* ニュースリスト */
+/* --- ニュースリスト（左テキスト・右サムネイル対応） --- */
 .news-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border-color);
 }
 
 .news-item:last-child {
   border-bottom: none;
+}
+
+.news-content {
+  flex: 1;
+  min-width: 0; /* テキスト溢れ防止 */
 }
 
 .news-link {
@@ -191,7 +209,16 @@ h2 {
   margin-top: 4px;
 }
 
-/* Twitter/Nitterリスト */
+.news-thumbnail {
+  width: 80px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background-color: #eee;
+}
+
+/* --- Twitter/Nitterリスト --- */
 .tweet-item {
   padding: 12px 0;
   border-bottom: 1px solid var(--border-color);
@@ -203,9 +230,40 @@ h2 {
 
 .tweet-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 6px;
+  gap: 8px;
+}
+
+.tweet-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tweet-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background-color: var(--border-color);
+  flex-shrink: 0;
+}
+
+.tweet-avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #e1e8ed;
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  flex-shrink: 0;
 }
 
 .tweet-account {
@@ -240,153 +298,8 @@ h2 {
   margin-top: 8px;
   display: block;
 }
-/* Tweetヘッダーとアイコン表示 */
-.tweet-header {
-  display: flex;
-  align-items: center; /* 垂直中央揃え */
-  justify-content: space-between;
-  margin-bottom: 6px;
-  gap: 8px;
-}
 
-.tweet-user-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0; /* 文字あふれ防止 */
-}
-
-/* プロフィールアイコン（円形） */
-.tweet-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%; /* 完全な丸型 */
-  object-fit: cover;
-  background-color: var(--border-color);
-  flex-shrink: 0;
-}
-
-/* アイコンが無い場合のデフォルト表示（イニシャルアイコンなど） */
-.tweet-avatar-placeholder {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: #e1e8ed;
-  color: var(--text-sub);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
-/* モーダル */
-.modal {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 16px;
-}
-
-.modal.hidden {
-  display: none;
-}
-
-.modal-content {
-  background: #fff;
-  padding: 20px;
-  border-radius: 16px;
-  width: 100%;
-  max-width: 520px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-  box-sizing: border-box;
-}
-
-.modal-content input {
-  width: 100%;
-  padding: 10px;
-  margin: 4px 0;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 16px; 
-}
-
-/* ボタンエリア：スマホでの折り返し（2段表示）に対応 */
-.modal-actions {
-  display: flex;
-  flex-wrap: wrap; /* 幅が足りない場合に自然に折り返す */
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 8px; /* 縦の隙間10px, 横の隙間8px */
-  margin-top: 16px;
-  width: 100%;
-}
-/* モーダル全体の高さを画面内に収める */
-.modal-content {
-  max-height: 85vh; /* 画面高の85%以内に収める */
-  display: flex;
-  flex-direction: column;
-}
-
-/* モーダルのタイトル・ヘッダー部分 */
-.modal-header {
-  flex-shrink: 0;
-}
-
-/* 入力欄やリストが入るボディ部分をスクロール可能に */
-#modal-body {
-  overflow-y: auto;
-  max-height: 60vh; /* 入力行が増えたらここがスクロールされる */
-  padding-right: 4px; /* スクロールバーとの重なり防止 */
-  margin-bottom: 12px;
-}
-
-/* モーダル下部のボタンエリア（保存・キャンセル等）を固定 */
-.modal-footer,
-#modal .modal-buttons {
-  flex-shrink: 0;
-  margin-top: auto;
-}
-
-/* 「+ 入力欄を追加」ボタン */
-#modal-add-row-btn {
-  margin-right: auto; /* 折り返した際も左側に配置 */
-  padding: 8px 12px;
-}
-
-/* 右側のボタン群（キャンセル・Nitter・保存）の折り返し位置調整 */
-.modal-actions .btn {
-  font-size: 13px;
-  padding: 8px 12px; /* タップしやすいよう上下パディングを少し拡大 */
-}
-
-/* Nitter・キャンセル・保存が右端に詰まって並ぶように調整 */
-#modal-nitter-btn,
-#modal-cancel-btn,
-#modal-submit-btn {
-  margin: 0 !important;
-}
-
-.delete-list-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.loading {
-  font-size: 13px;
-  color: var(--text-sub);
-  padding: 16px;
-  text-align: center;
-}
-/* YouTubeリストスタイル */
+/* --- YouTubeリスト --- */
 .youtube-item {
   display: flex;
   gap: 12px;
@@ -412,7 +325,7 @@ h2 {
   flex-direction: column;
   justify-content: space-between;
   flex: 1;
-  min-width: 0; /* 文字あふれ防止 */
+  min-width: 0;
 }
 
 .youtube-channel {
@@ -439,20 +352,46 @@ h2 {
   color: var(--text-sub);
 }
 
-/* --- セクション間の余白統一 --- */
-.section,
-#news-section,
-#knowledge-section,
-#twitter-section,
-#youtube-section {
-  margin-bottom: 24px; /* 各項目の隙間を均一に設定 */
+/* --- モーダル --- */
+.modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
 }
 
-/* --- モーダル内のスクロール対応（スマホ画面対策） --- */
+.modal.hidden {
+  display: none;
+}
+
 .modal-content {
+  background: #fff;
+  padding: 20px;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
   max-height: 85vh;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+}
+
+.modal-header {
+  flex-shrink: 0;
+}
+
+.modal-content input {
+  width: 100%;
+  padding: 10px;
+  margin: 4px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 16px; 
 }
 
 #modal-body {
@@ -462,51 +401,49 @@ h2 {
   margin-bottom: 12px;
 }
 
-/* --- Twitter投稿カード用スタイル --- */
-.tweet-header {
+.modal-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
-  gap: 8px;
+  gap: 10px 8px;
+  margin-top: 16px;
+  width: 100%;
 }
 
-.tweet-user-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.tweet-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
+.modal-footer,
+#modal .modal-buttons {
   flex-shrink: 0;
+  margin-top: auto;
 }
 
-.tweet-avatar-placeholder {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: #e1e8ed;
+#modal-add-row-btn {
+  margin-right: auto;
+  padding: 8px 12px;
+}
+
+.modal-actions .btn {
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+#modal-nitter-btn,
+#modal-cancel-btn,
+#modal-submit-btn {
+  margin: 0 !important;
+}
+
+.delete-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.loading {
+  font-size: 13px;
   color: var(--text-sub);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
-.tweet-media img, 
-.tweet-media video,
-.tweet-body img,
-.tweet-body video {
-  max-width: 100%;
-  height: auto;
-  border-radius: 12px;
-  margin-top: 8px;
-  display: block;
+  padding: 16px;
+  text-align: center;
 }
