@@ -90,11 +90,11 @@ async function fetchNewsRSS(feedUrl) {
     throw new Error('XMLパースエラー');
   }
 
-  let items = Array.from(xmlDoc.querySelectorAll('item, entry, アイテム'));
+  let items = Array.from(xmlDoc.querySelectorAll('item, entry'));
   if (items.length === 0) {
-    const channel = xmlDoc.querySelector('channel, チャンネル') || xmlDoc;
+    const channel = xmlDoc.querySelector('channel') || xmlDoc;
     items = Array.from(channel.children).filter(node => 
-      ['item', 'entry', 'アイテム'].includes(node.tagName.toLowerCase())
+      ['item', 'entry'].includes(node.tagName.toLowerCase())
     );
   }
 
@@ -105,6 +105,78 @@ async function fetchNewsRSS(feedUrl) {
     }
     return '';
   };
+
+  // サムネイル画像のURLを取得する関数（改善版）
+  const getThumbnailUrl = (item, description, contentEncoded) => {
+    // 1. media:thumbnail, media:content などの属性（getElementsByTagNameNSを使用することで確実に取得）
+    const mediaElements = [
+      ...Array.from(item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'thumbnail')),
+      ...Array.from(item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'content')),
+      ...Array.from(item.querySelectorAll('thumbnail, content'))
+    ];
+    for (const el of mediaElements) {
+      const url = el.getAttribute('url');
+      if (url) return url;
+    }
+
+    // 2. enclosure (RSS2.0)
+    const enclosure = item.querySelector('enclosure');
+    if (enclosure) {
+      const type = enclosure.getAttribute('type') || '';
+      const url = enclosure.getAttribute('url');
+      if (url && (type.startsWith('image/') || !type)) {
+        return url;
+      }
+    }
+
+    // 3. link[rel="enclosure"] または link[type^="image"] (Atomフィード用)
+    const linkImage = item.querySelector('link[rel="enclosure"], link[type^="image/"]');
+    if (linkImage && linkImage.getAttribute('href')) {
+      return linkImage.getAttribute('href');
+    }
+
+    // 4. description や content:encoded 内の <img> タグから src を抽出
+    const fullText = (description || '') + ' ' + (contentEncoded || '');
+    if (fullText) {
+      const imgMatch = fullText.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (imgMatch && imgMatch[1]) {
+        return imgMatch[1];
+      }
+    }
+
+    return '';
+  };
+
+  // 取得した記事データの整形
+  return items.map(item => {
+    const title = getTagText(item, ['title']);
+    
+    // リンクの取得（RSS/Atom両対応）
+    let link = getTagText(item, ['link']);
+    if (!link) {
+      const linkElem = item.querySelector('link[href]');
+      if (linkElem) link = linkElem.getAttribute('href') || '';
+    }
+
+    // 日時の取得
+    const pubDateStr = getTagText(item, ['pubDate', 'published', 'updated', 'dc\\:date']);
+    const pubDate = pubDateStr ? new Date(pubDateStr) : null;
+
+    // 本文テキストの取得
+    const description = getTagText(item, ['description', 'summary']);
+    const contentEncoded = getTagText(item, ['content\\:encoded', 'encoded', 'content']);
+
+    // 画像URLの判定
+    const thumbnail = getThumbnailUrl(item, description, contentEncoded);
+
+    return {
+      title,
+      link,
+      pubDate,
+      thumbnail
+    };
+  });
+}
 
   const parseCustomDate = (dateStr) => {
     if (!dateStr) return new Date();
@@ -130,76 +202,56 @@ async function fetchNewsRSS(feedUrl) {
     const pubDateRaw = getTagText(item, ['pubDate', 'date', 'published', 'updated', '公開日時', '投稿日時', '日付', '発行日時']);
     const description = getTagText(item, ['description', 'content', 'encoded', '詳細', '概要', '内容', '本文']);
     const author = getTagText(item, ['creator', 'dc\\:creator', 'author name', 'author', '製作者', '投稿者', '作者']);
+    const thumbnail = getThumbnailUrl(item, description);
 
     return {
       title,
       link,
       pubDate: parseCustomDate(pubDateRaw),
       description: description || title,
-      author
+      author,
+      thumbnail
     };
   });
 }
 
-// 1. delay 関数の定義（ReferenceError 回避のため関数の上部に配置）
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * 複数のCORSプロキシをフォールバックしながらRSSを取得・解析する関数
- */
-// 通信間隔用の delay 関数
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * rss2json API を使用して RSS を取得する関数（エラー調査ログ付き）
- */
-async function fetchTwitterRSS(rssUrl) {
-  const cacheBuster = Date.now();
-  // rss2json API の URL 構築
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&_cb=${cacheBuster}`;
-
-  console.log(`[rss2json リクエスト送信]: ${apiUrl}`);
-
+async function fetchTwitterRSS(feedUrl) {
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
   const response = await fetch(apiUrl);
+  if (!response.ok) throw new Error('Twitter RSS取得エラー');
   
-  // レスポンスのHTTPステータスチェック
-  if (!response.ok) {
-    throw new Error(`HTTPエラー: status ${response.status}`);
-  }
-
   const data = await response.json();
-  console.log(`[rss2json レスポンス受信]:`, data);
-
-  // rss2json 内部のステータスチェック（APIキー制限やURL取得失敗など）
-  if (data.status !== 'ok') {
-    throw new Error(`rss2json エラー (message: "${data.message}")`);
+  if (data.status !== 'ok' || !Array.isArray(data.items)) {
+    throw new Error('Twitter RSS解析エラー');
   }
 
-  if (!data.items || data.items.length === 0) {
-    console.warn(`[rss2json 警告]: 記事が0件です。`, data);
-  }
+  const feedTitle = data.feed ? data.feed.title : '';
+  const feedAvatar = data.feed?.image || data.feed?.avatar || '';
 
-  // 取得したデータを整形
-  return data.items.map(item => {
-    // 日付パース
-    const pubDate = item.pubDate ? new Date(item.pubDate.replace(/-/g, '/')) : new Date(0);
+  const originalTweets = data.items.filter(item => {
+    const title = item.title || '';
+    const isRetweet = /^RT\s/i.test(title.trim()) || /^RT\s+by\s/i.test(title.trim());
+    return !isRetweet;
+  });
 
-    // アバター画像の抽出（description 内の img タグから）
-    let avatarUrl = '';
-    if (item.description) {
-      const imgMatch = item.description.match(/<img[^>]+src=["']([^"']+)["']/i);
-      if (imgMatch) {
-        avatarUrl = imgMatch[1];
-      }
+  return originalTweets.map(item => {
+    let rawDateStr = item.pubDate;
+    if (typeof rawDateStr === 'string' && !rawDateStr.endsWith('Z') && !rawDateStr.includes('+')) {
+      rawDateStr = rawDateStr.replace(' ', 'T') + 'Z';
     }
 
+    let parsedDate = new Date(rawDateStr);
+    if (isNaN(parsedDate.getTime())) parsedDate = new Date(item.pubDate);
+
+    let avatarUrl = item.thumbnail || item.enclosure?.link || feedAvatar;
+
     return {
-      title: item.title || '',
-      description: item.description || '',
-      pubDate: pubDate,
+      title: item.title || '無題',
       link: item.link || '',
-      author: item.author || data.feed?.title || '',
-      feedTitle: data.feed?.title || '',
+      pubDate: parsedDate,
+      description: item.description || item.content || item.title || '',
+      author: item.author || feedTitle,
+      feedTitle: feedTitle,
       avatarUrl: avatarUrl
     };
   });
@@ -309,9 +361,16 @@ async function loadNewsContent(url) {
         ? item.pubDate.toLocaleString('ja-JP') 
         : '';
 
+      const thumbHtml = item.thumbnail 
+        ? `<img src="${item.thumbnail}" alt="" class="news-thumbnail" loading="lazy" onerror="this.style.display='none';">`
+        : '';
+
       newsDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${dateStr}</div>
+        <div class="news-info">
+          <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
+          <div class="news-time">${dateStr}</div>
+        </div>
+        ${thumbHtml}
       `;
       container.appendChild(newsDiv);
     });
@@ -355,9 +414,16 @@ async function loadKnowledgeContent(url) {
         ? item.pubDate.toLocaleString('ja-JP') 
         : '';
 
+      const thumbHtml = item.thumbnail 
+        ? `<img src="${item.thumbnail}" alt="" class="news-thumbnail" loading="lazy" onerror="this.style.display='none';">`
+        : '';
+
       newsDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${dateStr}</div>
+        <div class="news-info">
+          <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
+          <div class="news-time">${dateStr}</div>
+        </div>
+        ${thumbHtml}
       `;
       container.appendChild(newsDiv);
     });
@@ -382,7 +448,7 @@ function initTwitter() {
     refreshBtn.style.justifyContent = 'center';
     refreshBtn.innerHTML = '<img src="icons/refresh.png" alt="更新" style="width: 16px; height: 16px; display: block;">';
     refreshBtn.title = '最新のツイートを取得';
-    refreshBtn.onclick = () => loadAllTwitterContent();
+    refreshBtn.onclick = () => loadAllTwitterContent(true);
     
     addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
   }
@@ -396,16 +462,13 @@ function extractUsername(rawText) {
   return cleaned || rawText;
 }
 
-/**
- * 全アカウントのツイートを取得・描画するメイン関数
- */
-async function loadAllTwitterContent() {
+async function loadAllTwitterContent(isManualRefresh = false) {
   const container = document.getElementById('twitter-content');
   const refreshBtn = document.getElementById('refresh-twitter-btn');
   if (!container) return;
-
-  if (typeof twitterFeeds === 'undefined' || twitterFeeds.length === 0) {
-    container.innerHTML = '<div class="loading">配信先が登録されていません。</div>';
+  
+  if (twitterFeeds.length === 0) {
+    container.innerHTML = '<div class="loading">配信先を追加してください。</div>';
     return;
   }
 
@@ -414,66 +477,40 @@ async function loadAllTwitterContent() {
     refreshBtn.style.opacity = '0.5';
   }
 
-  container.innerHTML = '<div class="loading">最新ツイートを取得中...</div>';
+  container.innerHTML = '<div class="loading">すべてのツイートを読み込み中...</div>';
 
   try {
-    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
-    let allTweets = [];
-    let failedAccounts = [];
-
-    for (const feed of twitterFeeds) {
-      console.log(`--- [取得開始] ${feed.name} (${feed.url}) ---`);
+    const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
-        const items = await fetchTwitterRSS(feed.url);
-
-        // 直近24時間以内のツイートを抽出
-        const filteredItems = items
-          .filter(item => item.pubDate && !isNaN(item.pubDate.getTime()) && item.pubDate.getTime() >= twentyFourHoursAgo)
-          .slice(0, 10);
-
-        const mappedItems = filteredItems.map(item => ({
+        const fetchUrl = isManualRefresh 
+          ? `${feed.url}${feed.url.includes('?') ? '&' : '?'}_t=${Date.now()}` 
+          : feed.url;
+        const items = await fetchTwitterRSS(fetchUrl);
+        return items.map(item => ({
           ...item,
           accountName: feed.name
         }));
-
-        allTweets.push(...mappedItems);
       } catch (err) {
-        console.error(`❌ [取得失敗] ${feed.name}:`, err);
-        failedAccounts.push({ name: feed.name, reason: err.message });
+        console.error(`Failed to fetch feed for ${feed.name}:`, err);
+        return [];
       }
+    });
 
-      // レート制限回避のため 1 秒待機
-      await delay(1000);
-    }
+    const results = await Promise.all(fetchPromises);
+    let allTweets = results.flat();
 
     if (allTweets.length === 0) {
-      const errorDetails = failedAccounts.map(f => `${f.name}: ${f.reason}`).join('<br>');
-      const msg = failedAccounts.length > 0 
-        ? `ツイートを取得できませんでした。<br><small style="color:#e74c3c;">${errorDetails}</small>`
-        : '直近24時間以内のツイートはありません。';
-      container.innerHTML = `<div class="loading">${msg}</div>`;
+      container.innerHTML = '<div class="loading">ツイートを取得できませんでした</div>';
       return;
     }
 
-    // 日付順にソート
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
-
-    if (failedAccounts.length > 0) {
-      const alertDiv = document.createElement('div');
-      alertDiv.className = 'loading';
-      alertDiv.style.color = '#e74c3c';
-      alertDiv.style.fontSize = '12px';
-      alertDiv.style.marginBottom = '10px';
-      alertDiv.innerHTML = `⚠️ 一部取得失敗: ${failedAccounts.map(f => f.name).join(', ')}`;
-      container.appendChild(alertDiv);
-    }
-
     allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
-
+      
       const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
         ? item.pubDate.toLocaleString('ja-JP', { 
             timeZone: 'Asia/Tokyo',
@@ -484,7 +521,8 @@ async function loadAllTwitterContent() {
           })
         : '';
 
-      const author = item.feedTitle || item.author || item.accountName;
+      const rawTitle = item.feedTitle || item.author || item.title;
+      const author = extractUsername(rawTitle);
 
       const avatarHtml = item.avatarUrl
         ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
@@ -509,7 +547,7 @@ async function loadAllTwitterContent() {
     });
 
   } catch (err) {
-    console.error('全体エラー:', err);
+    console.error(err);
     container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました</div>';
   } finally {
     if (refreshBtn) {
@@ -962,6 +1000,7 @@ function renderManageList(feeds, saveCallback, onEdit) {
   });
 }
 
+// 変更（上書き）用ダイアログを表示する関数
 function showEditModal(feed, onOverwrite, onCancel, isTwitter = false) {
   const modalTitle = document.getElementById('modal-title');
   const modalBody = document.getElementById('modal-body');
