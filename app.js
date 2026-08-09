@@ -524,13 +524,16 @@ function initModals() {
     if (addRowBtn) addRowBtn.remove();
   };
 
+  // モーダル閉じる＋内容完全クリア
   const closeModal = () => {
     cleanupExtraButtons();
+    modalBody.innerHTML = ''; // フォーム要素をクリア
     modal.classList.add('hidden');
   };
   
   cancelBtn.onclick = closeModal;
 
+  // 常に完全な空欄（value=""）の入力行を作成する関数
   const createInputRow = (placeholderName, placeholderUrl) => {
     const row = document.createElement('div');
     row.className = 'modal-input-row';
@@ -540,8 +543,8 @@ function initModals() {
     row.style.alignItems = 'center';
 
     row.innerHTML = `
-      <input type="text" class="input-name" placeholder="${placeholderName}" style="flex: 1;">
-      <input type="text" class="input-url" placeholder="${placeholderUrl}" style="flex: 2;">
+      <input type="text" class="input-name" placeholder="${placeholderName}" value="" style="flex: 1;">
+      <input type="text" class="input-url" placeholder="${placeholderUrl}" value="" style="flex: 2;">
       <button class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
     `;
 
@@ -557,20 +560,24 @@ function initModals() {
   const setupMultiAddModal = (title, placeholderName, placeholderUrl, onSave) => {
     cleanupExtraButtons();
     modalTitle.textContent = title;
-    modalBody.innerHTML = '';
+    modalBody.innerHTML = ''; // 開く前に前回の入力を完全初期化
 
+    // 最初に1行目の空の入力欄を追加
     modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
 
+    // 「+ 入力欄を追加」ボタンの設定
     const addRowBtn = document.createElement('button');
     addRowBtn.id = 'modal-add-row-btn';
     addRowBtn.className = 'btn';
     addRowBtn.textContent = '+ 入力欄を追加';
     addRowBtn.onclick = () => {
+      // 常に空の入力行を追加
       modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
     };
 
     cancelBtn.parentNode.insertBefore(addRowBtn, cancelBtn);
 
+    // 保存処理
     submitBtn.onclick = () => {
       const rows = modalBody.querySelectorAll('.modal-input-row');
       const newItems = [];
@@ -592,6 +599,7 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
+  // 1. ニュース追加ボタン
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
     addNewsBtn.onclick = () => {
@@ -603,6 +611,7 @@ function initModals() {
     };
   }
 
+  // 2. ニュース削除ボタン
   const delNewsBtn = document.getElementById('del-news-btn');
   if (delNewsBtn) {
     delNewsBtn.onclick = () => {
@@ -618,6 +627,7 @@ function initModals() {
     };
   }
 
+  // 3. 知識追加ボタン
   const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
   if (addKnowledgeBtn) {
     addKnowledgeBtn.onclick = () => {
@@ -629,6 +639,7 @@ function initModals() {
     };
   }
 
+  // 4. 知識削除ボタン
   const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
@@ -644,6 +655,7 @@ function initModals() {
     };
   }
 
+  // 5. Twitter追加ボタン
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn) {
     addTwitterBtn.onclick = () => {
@@ -664,6 +676,7 @@ function initModals() {
     };
   }
 
+  // 6. Twitter削除ボタン
   const delTwitterBtn = document.getElementById('del-twitter-btn');
   if (delTwitterBtn) {
     delTwitterBtn.onclick = () => {
@@ -679,6 +692,7 @@ function initModals() {
     };
   }
 
+  // 7. YouTube追加ボタン
   const addYoutubeBtn = document.getElementById('add-youtube-btn');
   if (addYoutubeBtn) {
     addYoutubeBtn.onclick = () => {
@@ -689,7 +703,7 @@ function initModals() {
       });
 
       const youtubeExternalBtn = document.createElement('button');
-      youtubeExternalBtn.id = 'modal-nitter-btn'; // Twitterと同じボタン配置・スタイルを適用
+      youtubeExternalBtn.id = 'modal-nitter-btn';
       youtubeExternalBtn.className = 'btn';
       youtubeExternalBtn.textContent = 'YouTube';
       youtubeExternalBtn.onclick = () => {
@@ -699,6 +713,7 @@ function initModals() {
     };
   }
 
+  // 8. YouTube削除ボタン
   const delYoutubeBtn = document.getElementById('del-youtube-btn');
   if (delYoutubeBtn) {
     delYoutubeBtn.onclick = () => {
