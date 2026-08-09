@@ -347,6 +347,7 @@ async function loadKnowledgeContent(url) {
   }
 }
 
+// --- Twitter機能（キャッシュ＆制限対策版） ---
 function initTwitter() {
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn && !document.getElementById('refresh-twitter-btn')) {
@@ -363,17 +364,10 @@ function initTwitter() {
     refreshBtn.title = '最新のツイートを取得';
     refreshBtn.onclick = () => loadAllTwitterContent(true);
     
-    // 追加ボタンの「左側（直前）」に更新ボタンを設置
     addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
   }
 
-  loadAllTwitterContent();
-}
-
-function extractUsername(rawText) {
-  if (!rawText) return '無題';
-  let cleaned = rawText.split(/[\(@\/]/)[0].trim();
-  return cleaned || rawText;
+  loadAllTwitterContent(false);
 }
 
 async function loadAllTwitterContent(isManualRefresh = false) {
@@ -386,14 +380,36 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     return;
   }
 
+  // キャッシュの確認（自動読み込み時、前回から30分以内ならAPIを叩かずにキャッシュを表示してリクエストを節約）
+  const CACHE_KEY = 'twitter_cache_data';
+  const TIME_KEY = 'twitter_cache_time';
+  const cachedData = localStorage.getItem(CACHE_KEY);
+  const cachedTime = localStorage.getItem(TIME_KEY);
+  const now = Date.now();
+  const CACHE_VALID_MINUTES = 30; // 30分間はAPIリクエストを抑制
+
+  if (!isManualRefresh && cachedData && cachedTime && (now - cachedTime < CACHE_VALID_MINUTES * 60 * 1000)) {
+    try {
+      const allTweets = JSON.parse(cachedData);
+      // 日付文字列をDateオブジェクトに復元
+      allTweets.forEach(t => t.pubDate = new Date(t.pubDate));
+      renderTweets(allTweets, container);
+      return;
+    } catch (e) {
+      console.error('Cache parse error', e);
+    }
+  }
+
   if (refreshBtn) {
     refreshBtn.disabled = true;
     refreshBtn.style.opacity = '0.5';
   }
 
-  container.innerHTML = '<div class="loading">すべてのツイートを読み込み中...</div>';
+  container.innerHTML = '<div class="loading">すべてのツイートを読み込み中（制限対策モード）...</div>';
 
   try {
+    // 60アカウントある場合を考慮し、サーバー（API）へ負荷をかけすぎないよう順番、またはチャンクに分けて取得することも可能ですが、
+    // ここではPromise.allで一括取得しつつ、失敗時に制限エラーを検知できるようにしています。
     const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
         const fetchUrl = isManualRefresh 
@@ -414,61 +430,69 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     let allTweets = results.flat();
 
     if (allTweets.length === 0) {
-      container.innerHTML = '<div class="loading">ツイートを取得できませんでした</div>';
+      container.innerHTML = '<div class="loading">ツイートを取得できませんでした（API制限の可能性があります）</div>';
       return;
     }
 
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
-    container.innerHTML = '';
-    allTweets.forEach(item => {
-      const tweetDiv = document.createElement('div');
-      tweetDiv.className = 'tweet-item';
-      
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-        ? item.pubDate.toLocaleString('ja-JP', { 
-            timeZone: 'Asia/Tokyo',
-            month: 'numeric', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          })
-        : '';
+    // キャッシュに保存
+    localStorage.setItem(CACHE_KEY, JSON.stringify(allTweets));
+    localStorage.setItem(TIME_KEY, now);
 
-      const rawTitle = item.feedTitle || item.author || item.title;
-      const author = extractUsername(rawTitle);
-
-      const avatarHtml = item.avatarUrl
-        ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
-        : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
-
-      let cleanDescription = item.description
-        .replace(/<hr\s*\/?>/gi, '')
-        .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
-        .replace(/(リンク|Link)<br\s*\/?>/gi, '');
-
-      tweetDiv.innerHTML = `
-        <div class="tweet-header">
-          <div class="tweet-user-info">
-            ${avatarHtml}
-            <span class="tweet-account">${author}</span>
-          </div>
-          <span class="tweet-time">${dateStr}</span>
-        </div>
-        <div class="tweet-body">${cleanDescription}</div>
-      `;
-      container.appendChild(tweetDiv);
-    });
+    renderTweets(allTweets, container);
 
   } catch (err) {
     console.error(err);
-    container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました</div>';
+    container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました（API制限オーバーの恐れ）</div>';
   } finally {
     if (refreshBtn) {
       refreshBtn.disabled = false;
       refreshBtn.style.opacity = '1';
     }
   }
+}
+
+function renderTweets(allTweets, container) {
+  container.innerHTML = '';
+  allTweets.forEach(item => {
+    const tweetDiv = document.createElement('div');
+    tweetDiv.className = 'tweet-item';
+    
+    const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+      ? item.pubDate.toLocaleString('ja-JP', { 
+          timeZone: 'Asia/Tokyo',
+          month: 'numeric', 
+          day: 'numeric', 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        })
+      : '';
+
+    const rawTitle = item.feedTitle || item.author || item.title;
+    const author = extractUsername(rawTitle);
+
+    const avatarHtml = item.avatarUrl
+      ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
+      : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
+
+    let cleanDescription = item.description
+      .replace(/<hr\s*\/?>/gi, '')
+      .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
+      .replace(/(リンク|Link)<br\s*\/?>/gi, '');
+
+    tweetDiv.innerHTML = `
+      <div class="tweet-header">
+        <div class="tweet-user-info">
+          ${avatarHtml}
+          <span class="tweet-account">${author}</span>
+        </div>
+        <span class="tweet-time">${dateStr}</span>
+      </div>
+      <div class="tweet-body">${cleanDescription}</div>
+    `;
+    container.appendChild(tweetDiv);
+  });
 }
 
 function initYoutube() {
