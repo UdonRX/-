@@ -347,6 +347,19 @@ async function loadKnowledgeContent(url) {
 }
 
 function initTwitter() {
+  const addTwitterBtn = document.getElementById('add-twitter-btn');
+  if (addTwitterBtn && !document.getElementById('refresh-twitter-btn')) {
+    const refreshBtn = document.createElement('button');
+    refreshBtn.id = 'refresh-twitter-btn';
+    refreshBtn.type = 'button';
+    refreshBtn.className = 'btn';
+    refreshBtn.style.marginLeft = '4px';
+    refreshBtn.textContent = '🔄';
+    refreshBtn.title = '最新のツイートを取得';
+    refreshBtn.onclick = () => loadAllTwitterContent(true);
+    addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn.nextSibling);
+  }
+
   loadAllTwitterContent();
 }
 
@@ -356,8 +369,9 @@ function extractUsername(rawText) {
   return cleaned || rawText;
 }
 
-async function loadAllTwitterContent() {
+async function loadAllTwitterContent(isManualRefresh = false) {
   const container = document.getElementById('twitter-content');
+  const refreshBtn = document.getElementById('refresh-twitter-btn');
   if (!container) return;
   
   if (twitterFeeds.length === 0) {
@@ -365,12 +379,20 @@ async function loadAllTwitterContent() {
     return;
   }
 
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.style.opacity = '0.5';
+  }
+
   container.innerHTML = '<div class="loading">すべてのツイートを読み込み中...</div>';
 
   try {
     const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
-        const items = await fetchTwitterRSS(feed.url);
+        const fetchUrl = isManualRefresh 
+          ? `${feed.url}${feed.url.includes('?') ? '&' : '?'}_t=${Date.now()}` 
+          : feed.url;
+        const items = await fetchTwitterRSS(fetchUrl);
         return items.map(item => ({
           ...item,
           accountName: feed.name
@@ -434,6 +456,11 @@ async function loadAllTwitterContent() {
   } catch (err) {
     console.error(err);
     container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました</div>';
+  } finally {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.style.opacity = '1';
+    }
   }
 }
 
