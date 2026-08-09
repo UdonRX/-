@@ -326,6 +326,32 @@ h2 {
   margin-top: 16px;
   width: 100%;
 }
+/* モーダル全体の高さを画面内に収める */
+.modal-content {
+  max-height: 85vh; /* 画面高の85%以内に収める */
+  display: flex;
+  flex-direction: column;
+}
+
+/* モーダルのタイトル・ヘッダー部分 */
+.modal-header {
+  flex-shrink: 0;
+}
+
+/* 入力欄やリストが入るボディ部分をスクロール可能に */
+#modal-body {
+  overflow-y: auto;
+  max-height: 60vh; /* 入力行が増えたらここがスクロールされる */
+  padding-right: 4px; /* スクロールバーとの重なり防止 */
+  margin-bottom: 12px;
+}
+
+/* モーダル下部のボタンエリア（保存・キャンセル等）を固定 */
+.modal-footer,
+#modal .modal-buttons {
+  flex-shrink: 0;
+  margin-top: auto;
+}
 
 /* 「+ 入力欄を追加」ボタン */
 #modal-add-row-btn {
