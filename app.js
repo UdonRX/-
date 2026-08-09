@@ -391,43 +391,40 @@ async function loadAllTwitterContent() {
   container.innerHTML = '<div class="loading">最新ツイートを取得中...</div>';
 
   try {
-    // 直近24時間（ミリ秒計算）
-    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
-    let allTweets = [];
+    // 基準となる日付を設定（例：今日の00:00:00以降のツイートのみを取得対象とする場合）
+    // ※「直近24時間以内」にしたい場合は `const targetTime = Date.now() - (24 * 60 * 60 * 1000);` を使用
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
-    // API負荷を減らすため、1アカウントずつ順番に取得（直列処理）
-    for (let i = 0; i < twitterFeeds.length; i++) {
-      const feed = twitterFeeds[i];
+    const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
         const items = await fetchTwitterRSS(feed.url);
         
-        // 直近24時間以内のツイートのみ抽出（各アカウント最大10件まで）
+        // 1. 各アカウントから取得したツイートのうち、「本日以降」のものだけを抽出
+        // 2. 1アカウントあたりの件数が多すぎないよう上位10件程度に絞る
         const filteredItems = items
-          .filter(item => item.pubDate && item.pubDate.getTime() >= twentyFourHoursAgo)
+          .filter(item => item.pubDate.getTime() >= todayStart)
           .slice(0, 10);
 
-        const mappedItems = filteredItems.map(item => ({
+        return filteredItems.map(item => ({
           ...item,
           accountName: feed.name
         }));
-
-        allTweets.push(...mappedItems);
       } catch (err) {
         console.error(`Failed to fetch feed for ${feed.name}:`, err);
+        return [];
       }
+    });
 
-      // 次のリクエストまでに 200ms の間隔を空けてAPI制限を回避
-      if (i < twitterFeeds.length - 1) {
-        await delay(200);
-      }
-    }
+    const results = await Promise.all(fetchPromises);
+    let allTweets = results.flat();
 
     if (allTweets.length === 0) {
-      container.innerHTML = '<div class="loading">直近24時間以内のツイートはありません</div>';
+      container.innerHTML = '<div class="loading">本日の新着ツイートはありません</div>';
       return;
     }
 
-    // 全アカウントのツイートを新しい順（降順）に並べ替え
+    // 全アカウントのツイートを日付が新しい順（降順）にソート
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
