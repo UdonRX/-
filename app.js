@@ -145,35 +145,61 @@ async function fetchNewsRSS(feedUrl) {
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Nitterの生RSS(XML)をCORSプロキシ経由で取得し、DOMParserで解析する関数
+ * 複数のCORSプロキシをフォールバックしながらRSSを取得・解析する関数
  */
 async function fetchTwitterRSS(rssUrl) {
-  // キャッシュ回避用にタイムスタンプを付与
   const cacheBuster = Date.now();
   const targetUrl = `${rssUrl}${rssUrl.includes('?') ? '&' : '?'}_cb=${cacheBuster}`;
-  
-  // 403ブロックを受けにくい CORS プロキシ (codetabs) を使用
-  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
 
-  const response = await fetch(proxyUrl);
-  
-  if (!response.ok) {
-    throw new Error(`プロキシ通信エラー: status ${response.status}`);
+  // 試行するプロキシのリスト（上から順に試す）
+  const proxyEndpoints = [
+    // 1. AllOrigins (JSON経由)
+    async () => {
+      const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = await res.json();
+      if (!data.contents) throw new Error('Empty response');
+      return data.contents;
+    },
+    // 2. Corsproxy.io (直接テキスト)
+    async () => {
+      const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      return await res.text();
+    },
+    // 3. CodeTabs (直接テキスト)
+    async () => {
+      const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      return await res.text();
+    }
+  ];
+
+  let rawXml = null;
+  let lastError = null;
+
+  // 成功するプロキシが見つかるまで順番に試す
+  for (const getProxyContent of proxyEndpoints) {
+    try {
+      rawXml = await getProxyContent();
+      if (rawXml) break;
+    } catch (err) {
+      lastError = err;
+      console.warn('プロキシ試行失敗、次のプロキシへ切替:', err.message);
+    }
   }
 
-  const xmlText = await response.text();
-  if (!xmlText || xmlText.trim().length === 0) {
-    throw new Error('空のデータが返されました');
+  if (!rawXml) {
+    throw new Error(`すべてのプロキシで取得失敗: ${lastError?.message || '不明なエラー'}`);
   }
 
-  // DOMParser を使って XML 文字列を解析
+  // XMLの文字列解析
   const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+  const xmlDoc = parser.parseFromString(rawXml, 'text/xml');
 
-  // XML解析エラーのチェック
   const parserError = xmlDoc.querySelector('parsererror');
   if (parserError) {
-    throw new Error('XMLのパースエラーが発生しました');
+    throw new Error('XMLパースエラー');
   }
 
   const items = xmlDoc.querySelectorAll('item');
