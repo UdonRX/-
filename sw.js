@@ -44,18 +44,26 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// フェッチ処理：API通信（Open-MeteoやRSS API）はネットワーク優先、静的ファイルはネットワーク優先/キャッシュフォールバック
+// フェッチ処理：API通信（Open-MeteoやCORSプロキシ等）はネットワークから取得し、エラー時は安全に処理
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 外部APIやRSS（/api/rss）の取得はキャッシュせず常に最新を取得
+  // 外部APIやCORSプロキシ、RSS関連はキャッシュせず常に最新を取得（通信失敗時もエラーをキャッチする）
   if (
     url.origin !== location.origin ||
     url.pathname.startsWith('/api/') ||
     url.hostname.includes('open-meteo.com') ||
+    url.hostname.includes('corsproxy.io') ||
+    url.hostname.includes('allorigins.win') ||
     url.hostname.includes('rss2json.com')
   ) {
-    event.respondWith(fetch(event.request));
+    event.respondWith(
+      fetch(event.request).catch((err) => {
+        // 通信失敗時にService Worker全体がクラッシュするのを防ぐ
+        console.warn('Service Worker 外部リクエスト通信エラー:', event.request.url);
+        return new Response('', { status: 503, statusText: 'Service Unavailable' });
+      })
+    );
     return;
   }
 
