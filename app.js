@@ -77,7 +77,6 @@ function registerSW() {
 }
 
 // --- 通信処理 ---
-// --- RSS取得関数 ---
 async function fetchNewsRSS(feedUrl) {
   const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
   const response = await fetch(apiUrl);
@@ -91,11 +90,11 @@ async function fetchNewsRSS(feedUrl) {
     throw new Error('XMLパースエラー');
   }
 
-  let items = Array.from(xmlDoc.querySelectorAll('item, entry'));
+  let items = Array.from(xmlDoc.querySelectorAll('item, entry, アイテム'));
   if (items.length === 0) {
-    const channel = xmlDoc.querySelector('channel') || xmlDoc;
+    const channel = xmlDoc.querySelector('channel, チャンネル') || xmlDoc;
     items = Array.from(channel.children).filter(node => 
-      ['item', 'entry'].includes(node.tagName.toLowerCase())
+      ['item', 'entry', 'アイテム'].includes(node.tagName.toLowerCase())
     );
   }
 
@@ -107,39 +106,23 @@ async function fetchNewsRSS(feedUrl) {
     return '';
   };
 
-  // サムネイル画像のURLを取得する関数
-  const getThumbnailUrl = (item, description, contentEncoded) => {
-    // 1. media:thumbnail, media:content などの属性
-    const mediaElements = [
-      ...Array.from(item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'thumbnail')),
-      ...Array.from(item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'content')),
-      ...Array.from(item.querySelectorAll('thumbnail, content'))
-    ];
-    for (const el of mediaElements) {
-      const url = el.getAttribute('url');
-      if (url) return url;
+  // サムネイル画像のURLを各種タグ・HTML本文から取得する関数
+  const getThumbnailUrl = (item, description) => {
+    // 1. media:thumbnail または media:content
+    const mediaThumbnail = item.querySelector('media\\:thumbnail, thumbnail, media\\:content, content');
+    if (mediaThumbnail && mediaThumbnail.getAttribute('url')) {
+      return mediaThumbnail.getAttribute('url');
     }
 
-    // 2. enclosure (RSS2.0)
-    const enclosure = item.querySelector('enclosure');
-    if (enclosure) {
-      const type = enclosure.getAttribute('type') || '';
-      const url = enclosure.getAttribute('url');
-      if (url && (type.startsWith('image/') || !type)) {
-        return url;
-      }
+    // 2. enclosure (image/...)
+    const enclosure = item.querySelector('enclosure[type^="image"]');
+    if (enclosure && enclosure.getAttribute('url')) {
+      return enclosure.getAttribute('url');
     }
 
-    // 3. link[rel="enclosure"] または link[type^="image"] (Atomフィード用)
-    const linkImage = item.querySelector('link[rel="enclosure"], link[type^="image/"]');
-    if (linkImage && linkImage.getAttribute('href')) {
-      return linkImage.getAttribute('href');
-    }
-
-    // 4. description や content:encoded 内の <img> タグから src を抽出
-    const fullText = (description || '') + ' ' + (contentEncoded || '');
-    if (fullText) {
-      const imgMatch = fullText.match(/<img[^>]+src=["']([^"']+)["']/i);
+    // 3. description / content 内の <img> タグから src を抽出
+    if (description) {
+      const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
       if (imgMatch && imgMatch[1]) {
         return imgMatch[1];
       }
@@ -147,37 +130,6 @@ async function fetchNewsRSS(feedUrl) {
 
     return '';
   };
-
-  // 取得した記事データの整形
-  return items.map(item => {
-    const title = getTagText(item, ['title']);
-    
-    // リンクの取得
-    let link = getTagText(item, ['link']);
-    if (!link) {
-      const linkElem = item.querySelector('link[href]');
-      if (linkElem) link = linkElem.getAttribute('href') || '';
-    }
-
-    // 日時の取得
-    const pubDateStr = getTagText(item, ['pubDate', 'published', 'updated', 'dc\\:date']);
-    const pubDate = pubDateStr ? new Date(pubDateStr) : null;
-
-    // 本文テキストの取得
-    const description = getTagText(item, ['description', 'summary']);
-    const contentEncoded = getTagText(item, ['content\\:encoded', 'encoded', 'content']);
-
-    // 画像URLの判定
-    const thumbnail = getThumbnailUrl(item, description, contentEncoded);
-
-    return {
-      title,
-      link,
-      pubDate,
-      thumbnail
-    };
-  });
-} // ← ここで fetchNewsRSS 関数の閉じカッコを確実に閉じる
 
   const parseCustomDate = (dateStr) => {
     if (!dateStr) return new Date();
