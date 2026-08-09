@@ -353,7 +353,7 @@ function initTwitter() {
     refreshBtn.id = 'refresh-twitter-btn';
     refreshBtn.type = 'button';
     refreshBtn.className = 'btn';
-    refreshBtn.style.marginLeft = '4px';
+    refreshBtn.style.marginRight = '4px';
     refreshBtn.style.padding = '6px';
     refreshBtn.style.display = 'inline-flex';
     refreshBtn.style.alignItems = 'center';
@@ -361,7 +361,9 @@ function initTwitter() {
     refreshBtn.innerHTML = '<img src="icons/refresh.png" alt="更新" style="width: 16px; height: 16px; display: block;">';
     refreshBtn.title = '最新のツイートを取得';
     refreshBtn.onclick = () => loadAllTwitterContent(true);
-    addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn.nextSibling);
+    
+    // 追加ボタンの「左側（直前）」に更新ボタンを設置
+    addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
   }
 
   loadAllTwitterContent();
