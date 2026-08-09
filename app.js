@@ -142,7 +142,8 @@ async function fetchNewsRSS(feedUrl) {
 }
 
 async function fetchTwitterRSS(feedUrl) {
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
+  const apiKey = 'vnxteaxirpi0jgkt7eyymepu1b1ywzkg0zvtrhdg';
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${apiKey}`;
   const response = await fetch(apiUrl);
   if (!response.ok) throw new Error('Twitter RSS取得エラー');
   
