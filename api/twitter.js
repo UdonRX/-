@@ -14,11 +14,15 @@ export default async function handler(req, res) {
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Target server responded with status: ${response.status}`);
-    }
-
     const xmlText = await response.text();
+
+    if (!response.ok) {
+      return res.status(500).json({ 
+        status: 'error', 
+        message: `External server returned status ${response.status}`,
+        bodySnippet: xmlText.slice(0, 200) // 返ってきた中身の先頭を表示
+      });
+    }
 
     const items = [];
     const itemMatches = xmlText.match(/<item>([\s\S]*?)<\/item>/g) || [];
@@ -31,7 +35,6 @@ export default async function handler(req, res) {
 
     for (const itemStr of itemMatches) {
       const getTagContent = (tagName) => {
-        // 名前空間付きタグ（dc:creator等）にも対応
         const regex = new RegExp(`<(${tagName})[^>]*>([\\s\\S]*?)<\\/\\1>`, 'i');
         const match = itemStr.match(regex);
         if (!match) return '';
@@ -40,18 +43,12 @@ export default async function handler(req, res) {
         return content.trim();
       };
 
-      const title = getTagContent('title');
-      const link = getTagContent('link');
-      const pubDate = getTagContent('pubDate');
-      const description = getTagContent('description');
-      const author = getTagContent('dc:creator') || getTagContent('author') || feedTitle;
-
       items.push({
-        title,
-        link,
-        pubDate,
-        description,
-        author,
+        title: getTagContent('title'),
+        link: getTagContent('link'),
+        pubDate: getTagContent('pubDate'),
+        description: getTagContent('description'),
+        author: getTagContent('dc:creator') || getTagContent('author') || feedTitle,
         feedTitle
       });
     }
@@ -63,12 +60,11 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('API Error Details:', error);
-    // 500エラーの際、クライアントに詳細なエラーメッセージを返す
+    console.error('API Catch Error:', error);
     return res.status(500).json({ 
       status: 'error', 
       message: error.message,
-      stack: error.stack 
+      name: error.name
     });
   }
 }
