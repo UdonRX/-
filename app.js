@@ -106,6 +106,31 @@ async function fetchNewsRSS(feedUrl) {
     return '';
   };
 
+  // サムネイル画像のURLを各種タグ・HTML本文から取得する関数
+  const getThumbnailUrl = (item, description) => {
+    // 1. media:thumbnail または media:content
+    const mediaThumbnail = item.querySelector('media\\:thumbnail, thumbnail, media\\:content, content');
+    if (mediaThumbnail && mediaThumbnail.getAttribute('url')) {
+      return mediaThumbnail.getAttribute('url');
+    }
+
+    // 2. enclosure (image/...)
+    const enclosure = item.querySelector('enclosure[type^="image"]');
+    if (enclosure && enclosure.getAttribute('url')) {
+      return enclosure.getAttribute('url');
+    }
+
+    // 3. description / content 内の <img> タグから src を抽出
+    if (description) {
+      const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (imgMatch && imgMatch[1]) {
+        return imgMatch[1];
+      }
+    }
+
+    return '';
+  };
+
   const parseCustomDate = (dateStr) => {
     if (!dateStr) return new Date();
     const cleaned = dateStr
@@ -130,13 +155,15 @@ async function fetchNewsRSS(feedUrl) {
     const pubDateRaw = getTagText(item, ['pubDate', 'date', 'published', 'updated', '公開日時', '投稿日時', '日付', '発行日時']);
     const description = getTagText(item, ['description', 'content', 'encoded', '詳細', '概要', '内容', '本文']);
     const author = getTagText(item, ['creator', 'dc\\:creator', 'author name', 'author', '製作者', '投稿者', '作者']);
+    const thumbnail = getThumbnailUrl(item, description);
 
     return {
       title,
       link,
       pubDate: parseCustomDate(pubDateRaw),
       description: description || title,
-      author
+      author,
+      thumbnail
     };
   });
 }
@@ -287,9 +314,16 @@ async function loadNewsContent(url) {
         ? item.pubDate.toLocaleString('ja-JP') 
         : '';
 
+      const thumbHtml = item.thumbnail 
+        ? `<img src="${item.thumbnail}" alt="" class="news-thumbnail" loading="lazy" onerror="this.style.display='none';">`
+        : '';
+
       newsDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${dateStr}</div>
+        <div class="news-info">
+          <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
+          <div class="news-time">${dateStr}</div>
+        </div>
+        ${thumbHtml}
       `;
       container.appendChild(newsDiv);
     });
@@ -333,9 +367,16 @@ async function loadKnowledgeContent(url) {
         ? item.pubDate.toLocaleString('ja-JP') 
         : '';
 
+      const thumbHtml = item.thumbnail 
+        ? `<img src="${item.thumbnail}" alt="" class="news-thumbnail" loading="lazy" onerror="this.style.display='none';">`
+        : '';
+
       newsDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${dateStr}</div>
+        <div class="news-info">
+          <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
+          <div class="news-time">${dateStr}</div>
+        </div>
+        ${thumbHtml}
       `;
       container.appendChild(newsDiv);
     });
@@ -362,7 +403,6 @@ function initTwitter() {
     refreshBtn.title = '最新のツイートを取得';
     refreshBtn.onclick = () => loadAllTwitterContent(true);
     
-    // 追加ボタンの「左側（直前）」に更新ボタンを設置
     addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
   }
 
@@ -656,7 +696,7 @@ function initModals() {
       modalTitle.textContent = title;
       submitBtn.textContent = '完了';
       cancelBtn.textContent = 'キャンセル';
-      cancelBtn.style.display = 'none'; // 管理画面一覧では「完了」ボタンのみ使用
+      cancelBtn.style.display = 'none';
       cancelBtn.onclick = closeModal;
       submitBtn.onclick = closeModal;
 
