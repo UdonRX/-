@@ -142,8 +142,9 @@ async function fetchNewsRSS(feedUrl) {
 }
 
 async function fetchTwitterRSS(feedUrl) {
-  const apiKey = 'vnxteaxirpi0jgkt7eyymepu1b1ywzkg0zvtrhdg';
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${apiKey}`;
+  // 自前のVercel APIを経由して取得する
+  const apiUrl = `/api/twitter?url=${encodeURIComponent(feedUrl)}`;
+  
   const response = await fetch(apiUrl);
   if (!response.ok) throw new Error('Twitter RSS取得エラー');
   
@@ -180,44 +181,6 @@ async function fetchTwitterRSS(feedUrl) {
       author: item.author || feedTitle,
       feedTitle: feedTitle,
       avatarUrl: avatarUrl
-    };
-  });
-}
-
-async function fetchYoutubeRSS(channelId) {
-  const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
-  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
-  const response = await fetch(apiUrl);
-  if (!response.ok) throw new Error('YouTube RSS取得エラー');
-  const xmlText = await response.text();
-
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-
-  if (xmlDoc.querySelector('parsererror')) {
-    throw new Error('XMLパースエラー');
-  }
-
-  const authorName = xmlDoc.querySelector('author > name')?.textContent?.trim() || '';
-  const entries = Array.from(xmlDoc.querySelectorAll('entry'));
-
-  return entries.map(entry => {
-    const videoId = entry.querySelector('yt\\:videoId, videoId')?.textContent?.trim() || '';
-    const title = entry.querySelector('title')?.textContent?.trim() || '無題';
-    const link = entry.querySelector('link')?.getAttribute('href') || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '#');
-    const published = entry.querySelector('published')?.textContent?.trim() || '';
-    const channelName = authorName || entry.querySelector('author > name')?.textContent?.trim() || '不明なチャンネル';
-    const thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '';
-
-    let pubDate = new Date(published);
-    if (isNaN(pubDate.getTime())) pubDate = new Date();
-
-    return {
-      title,
-      link,
-      pubDate,
-      channelName,
-      thumbnail
     };
   });
 }
