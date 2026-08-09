@@ -141,7 +141,7 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
-// Twitterフィードの振り分け（rss.app か Nitter かを判定）
+// Twitterフィードの分流処理
 async function fetchTwitterRSS(feedUrl) {
   if (feedUrl.startsWith('https://rss.app')) {
     return await fetchRssAppFeed(feedUrl);
@@ -150,7 +150,7 @@ async function fetchTwitterRSS(feedUrl) {
   }
 }
 
-// rss.app 用の取得・パース処理
+// rss.app 用のパース処理
 async function fetchRssAppFeed(feedUrl) {
   const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
   const response = await fetch(apiUrl);
@@ -165,12 +165,16 @@ async function fetchRssAppFeed(feedUrl) {
   }
 
   const feedTitle = xmlDoc.querySelector('channel > title')?.textContent?.trim() || '';
+  
+  // <channel> > <image> > <url> からユーザーアイコンを取得
+  const channelImageUrl = xmlDoc.querySelector('channel > image > url')?.textContent?.trim() || '';
+
   const items = Array.from(xmlDoc.querySelectorAll('item'));
 
+  // リツイート（RT by）を除外
   const originalTweets = items.filter(item => {
     const title = item.querySelector('title')?.textContent || '';
     const description = item.querySelector('description')?.textContent || '';
-    // RT by が含まれるものはリツイートとみなして除外
     const isRetweet = /RT\s+by/i.test(title) || /RT\s+by/i.test(description);
     return !isRetweet;
   });
@@ -179,32 +183,25 @@ async function fetchRssAppFeed(feedUrl) {
     const title = item.querySelector('title')?.textContent?.trim() || '無題';
     const link = item.querySelector('link')?.textContent?.trim() || '';
     const pubDateStr = item.querySelector('pubDate')?.textContent?.trim() || '';
-    const description = item.querySelector('description')?.textContent?.trim() || '';
+    const descriptionHtml = item.querySelector('description')?.textContent?.trim() || '';
     const creator = item.querySelector('dc\\:creator, creator')?.textContent?.trim() || feedTitle;
 
     let parsedDate = new Date(pubDateStr);
     if (isNaN(parsedDate.getTime())) parsedDate = new Date();
 
-    // メディアサムネイルの抽出（media:contentなど）
-    let avatarUrl = '';
-    const mediaContent = item.querySelector('media\\:content, content');
-    if (mediaContent && mediaContent.getAttribute('url')) {
-      avatarUrl = mediaContent.getAttribute('url');
-    }
-
     return {
       title: title,
       link: link,
       pubDate: parsedDate,
-      description: description,
+      description: descriptionHtml,
       author: creator,
       feedTitle: feedTitle,
-      avatarUrl: avatarUrl
+      avatarUrl: channelImageUrl // アイコン画像に設定
     };
   });
 }
 
-// Nitter 用の取得・パース処理（既存）
+// Nitter 用の取得・パース処理
 async function fetchNitterFeed(feedUrl) {
   const apiKey = 'vnxteaxirpi0jgkt7eyymepu1b1ywzkg0zvtrhdg';
   const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${apiKey}`;
@@ -505,10 +502,14 @@ async function loadAllTwitterContent(isManualRefresh = false) {
         ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
         : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
 
+      // description 内の HTML から余分な要素の削除および画像タグの整形
       let cleanDescription = item.description
         .replace(/<hr\s*\/?>/gi, '')
         .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
         .replace(/(リンク|Link)<br\s*\/?>/gi, '');
+
+      // 画像タグにスタイルを適応して表示崩れを防ぐ処理
+      cleanDescription = cleanDescription.replace(/<img\s+/gi, '<img style="max-width:100%; height:auto; border-radius:8px; margin-top:8px;" ');
 
       tweetDiv.innerHTML = `
         <div class="tweet-header">
@@ -807,7 +808,6 @@ function initModals() {
       setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーIDまたはrss.app URL', (newItems) => {
         const formattedItems = newItems.map(item => {
           let cleanUrl = item.url.trim();
-          // rss.app から始まるURL、または https:// から始まるURLならそのまま使う
           if (cleanUrl.startsWith('https://rss.app') || cleanUrl.startsWith('https://nitter.net')) {
             return { name: item.name, url: cleanUrl };
           }
