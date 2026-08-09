@@ -154,18 +154,23 @@ async function fetchTwitterRSS(feedUrl) {
   const feedTitle = data.feed ? data.feed.title : '';
   const feedAvatar = data.feed?.image || data.feed?.avatar || '';
 
-  // 1. リツイート（タイトルが "RT by " や "RT @" 等で始まるもの）を除外フィルタリング
+  // リツイートを除外
   const originalTweets = data.items.filter(item => {
     const title = item.title || '';
-    // 先頭が "RT " または "RT by" で始まる場合はリツイートと判定して除外
     const isRetweet = /^RT\s/i.test(title.trim()) || /^RT\s+by\s/i.test(title.trim());
     return !isRetweet;
   });
 
-  // 2. リツイートを除外したデータのみを整形して返す
   return originalTweets.map(item => {
-    let parsedDate = new Date(item.pubDate);
-    if (isNaN(parsedDate.getTime())) parsedDate = new Date();
+    // RSSの時刻文字列（UTC）をISO形式またはUTCとして明示的にDateオブジェクト化
+    let rawDateStr = item.pubDate;
+    if (typeof rawDateStr === 'string' && !rawDateStr.endsWith('Z') && !rawDateStr.includes('+')) {
+      // "2026-08-09 07:12:00" のような形式の場合、末尾に ' UTC' または 'Z' を付けてUTC時間として認識させる
+      rawDateStr = rawDateStr.replace(' ', 'T') + 'Z';
+    }
+
+    let parsedDate = new Date(rawDateStr);
+    if (isNaN(parsedDate.getTime())) parsedDate = new Date(item.pubDate);
 
     let avatarUrl = item.thumbnail || item.enclosure?.link || feedAvatar;
 
@@ -394,9 +399,16 @@ container.innerHTML = '';
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
       
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-        ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : '';
+ // loadAllTwitterContent 関数内の Date フォーマット処理部分
+const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+  ? item.pubDate.toLocaleString('ja-JP', { 
+      timeZone: 'Asia/Tokyo',
+      month: 'numeric', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    })
+  : '';
 
       const rawTitle = item.feedTitle || item.author || item.title;
       const author = extractUsername(rawTitle);
