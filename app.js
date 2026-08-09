@@ -363,7 +363,6 @@ function initTwitter() {
     refreshBtn.title = '最新のツイートを取得';
     refreshBtn.onclick = () => loadAllTwitterContent(true);
     
-    // 追加ボタンの「左側（直前）」に更新ボタンを設置
     addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
   }
 
@@ -386,13 +385,13 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     return;
   }
 
-  // キャッシュの確認（自動読み込み時、前回から30分以内ならAPIを叩かずにキャッシュを表示してリクエストを節約）
+  // キャッシュの確認（30分以内ならAPIを叩かない）
   const CACHE_KEY = 'twitter_cache_data';
   const TIME_KEY = 'twitter_cache_time';
   const cachedData = localStorage.getItem(CACHE_KEY);
   const cachedTime = localStorage.getItem(TIME_KEY);
   const now = Date.now();
-  const CACHE_VALID_MINUTES = 30; // 30分間はAPIリクエストを抑制
+  const CACHE_VALID_MINUTES = 30;
 
   if (!isManualRefresh && cachedData && cachedTime && (now - cachedTime < CACHE_VALID_MINUTES * 60 * 1000)) {
     try {
@@ -410,30 +409,47 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     refreshBtn.style.opacity = '0.5';
   }
 
-  container.innerHTML = '<div class="loading">すべてのツイートを読み込み中（制限対策モード）...</div>';
+  container.innerHTML = '<div class="loading">ツイートを安全に取得中（制限対策モード）...</div>';
 
   try {
-    const fetchPromises = twitterFeeds.map(async (feed) => {
+    let allTweets = [];
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2); // 2日前を計算
+
+    // 60アカウント分の同時リクエストによる Too Many Requests (429) を防ぐため、1件ずつ順番に取得する
+    for (let i = 0; i < twitterFeeds.length; i++) {
+      const feed = twitterFeeds[i];
       try {
         const fetchUrl = isManualRefresh 
           ? `${feed.url}${feed.url.includes('?') ? '&' : '?'}_t=${Date.now()}` 
           : feed.url;
+        
         const items = await fetchTwitterRSS(fetchUrl);
-        return items.map(item => ({
+        
+        // 2日前までのツイートだけにフィルタリング
+        const filteredItems = items.filter(item => {
+          const itemDate = new Date(item.pubDate);
+          return !isNaN(itemDate) && itemDate >= twoDaysAgo;
+        });
+
+        const mapped = filteredItems.map(item => ({
           ...item,
           accountName: feed.name
         }));
+        
+        allTweets.push(...mapped);
+
+        // サーバーに負荷をかけすぎないよう、リクエストの合間に少しウェイト（100ms）を入れる
+        await new Promise(resolve => setTimeout(resolve, 100));
+
       } catch (err) {
         console.error(`Failed to fetch feed for ${feed.name}:`, err);
-        return [];
+        // エラーが出ても処理を止めず次のアカウントへ進む
       }
-    });
-
-    const results = await Promise.all(fetchPromises);
-    let allTweets = results.flat();
+    }
 
     if (allTweets.length === 0) {
-      container.innerHTML = '<div class="loading">ツイートを取得できませんでした（API制限の可能性があります）</div>';
+      container.innerHTML = '<div class="loading">有効なツイートを取得できませんでした（API制限または2日以内のツイートがない可能性があります）</div>';
       return;
     }
 
@@ -447,7 +463,7 @@ async function loadAllTwitterContent(isManualRefresh = false) {
 
   } catch (err) {
     console.error(err);
-    container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました（API制限オーバーの恐れ）</div>';
+    container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました</div>';
   } finally {
     if (refreshBtn) {
       refreshBtn.disabled = false;
