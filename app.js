@@ -141,33 +141,27 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
-// 一定時間待機用
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 /**
  * Nitterの生RSS(XML)をCORSプロキシ経由で取得し、DOMParserで解析する関数
  */
 async function fetchTwitterRSS(rssUrl) {
-  // キャッシュを回避するためにタイムスタンプを付与
-  const cacheBuster = Date.now();
-  const urlWithCb = `${rssUrl}${rssUrl.includes('?') ? '&' : '?'}_cb=${cacheBuster}`;
-  
-  // CORS制限を回避して生のXMLを取得するためのプロキシAPI (allorigins)
-  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlWithCb)}`;
+  // CORSプロキシ (corsproxy.io) を使用して生のXMLテキストを直接取得
+  // クエリパラメータの不具合を防ぐためシンプルにエンコード
+  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rssUrl)}`;
 
   const response = await fetch(proxyUrl);
   if (!response.ok) {
-    throw new Error(`プロキシ通信エラー: ${response.status}`);
+    throw new Error(`プロキシ通信エラー: status ${response.status}`);
   }
 
-  const data = await response.json();
-  if (!data.contents) {
-    throw new Error('RSSデータの取得に失敗しました');
+  const xmlText = await response.text();
+  if (!xmlText) {
+    throw new Error('空のRSSデータが返されました');
   }
 
   // DOMParser を使って XML 文字列を DOM 構造に変換
   const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(data.contents, 'text/xml');
+  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
 
   // XML解析エラーのチェック
   const parserError = xmlDoc.querySelector('parsererror');
