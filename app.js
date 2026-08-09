@@ -363,10 +363,11 @@ function initTwitter() {
     refreshBtn.title = '最新のツイートを取得';
     refreshBtn.onclick = () => loadAllTwitterContent(true);
     
+    // 追加ボタンの「左側（直前）」に更新ボタンを設置
     addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
   }
 
-  loadAllTwitterContent(false);
+  loadAllTwitterContent();
 }
 
 function extractUsername(rawText) {
@@ -385,81 +386,79 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     return;
   }
 
-  // キャッシュの確認（30分以内ならAPIを叩かない）
-  const CACHE_KEY = 'twitter_cache_data';
-  const TIME_KEY = 'twitter_cache_time';
-  const cachedData = localStorage.getItem(CACHE_KEY);
-  const cachedTime = localStorage.getItem(TIME_KEY);
-  const now = Date.now();
-  const CACHE_VALID_MINUTES = 30;
-
-  if (!isManualRefresh && cachedData && cachedTime && (now - cachedTime < CACHE_VALID_MINUTES * 60 * 1000)) {
-    try {
-      const allTweets = JSON.parse(cachedData);
-      allTweets.forEach(t => t.pubDate = new Date(t.pubDate));
-      renderTweets(allTweets, container);
-      return;
-    } catch (e) {
-      console.error('Cache parse error', e);
-    }
-  }
-
   if (refreshBtn) {
     refreshBtn.disabled = true;
     refreshBtn.style.opacity = '0.5';
   }
 
-  container.innerHTML = '<div class="loading">ツイートを安全に取得中（1日前まで・制限対策モード）...</div>';
+  container.innerHTML = '<div class="loading">すべてのツイートを読み込み中...</div>';
 
   try {
-    let allTweets = [];
-    const oneDayAgo = new Date();
-    oneDayAgo.setDate(oneDayAgo.getDate() - 1); // 1日前を計算
-
-    // 60アカウント分の同時リクエストによる Too Many Requests (429) を防ぐため、1件ずつ順番に取得する
-    for (let i = 0; i < twitterFeeds.length; i++) {
-      const feed = twitterFeeds[i];
+    const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
         const fetchUrl = isManualRefresh 
           ? `${feed.url}${feed.url.includes('?') ? '&' : '?'}_t=${Date.now()}` 
           : feed.url;
-        
         const items = await fetchTwitterRSS(fetchUrl);
-        
-        // 1日前までのツイートだけにフィルタリング
-        const filteredItems = items.filter(item => {
-          const itemDate = new Date(item.pubDate);
-          return !isNaN(itemDate) && itemDate >= oneDayAgo;
-        });
-
-        const mapped = filteredItems.map(item => ({
+        return items.map(item => ({
           ...item,
           accountName: feed.name
         }));
-        
-        allTweets.push(...mapped);
-
-        // サーバーに負荷をかけすぎないよう、リクエストの合間に少しウェイト（100ms）を入れる
-        await new Promise(resolve => setTimeout(resolve, 100));
-
       } catch (err) {
         console.error(`Failed to fetch feed for ${feed.name}:`, err);
-        // エラーが出ても処理を止めず次のアカウントへ進む
+        return [];
       }
-    }
+    });
+
+    const results = await Promise.all(fetchPromises);
+    let allTweets = results.flat();
 
     if (allTweets.length === 0) {
-      container.innerHTML = '<div class="loading">有効なツイートを取得できませんでした（API制限または1日以内のツイートがない可能性があります）</div>';
+      container.innerHTML = '<div class="loading">ツイートを取得できませんでした</div>';
       return;
     }
 
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
-    // キャッシュに保存
-    localStorage.setItem(CACHE_KEY, JSON.stringify(allTweets));
-    localStorage.setItem(TIME_KEY, now);
+    container.innerHTML = '';
+    allTweets.forEach(item => {
+      const tweetDiv = document.createElement('div');
+      tweetDiv.className = 'tweet-item';
+      
+      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+        ? item.pubDate.toLocaleString('ja-JP', { 
+            timeZone: 'Asia/Tokyo',
+            month: 'numeric', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          })
+        : '';
 
-    renderTweets(allTweets, container);
+      const rawTitle = item.feedTitle || item.author || item.title;
+      const author = extractUsername(rawTitle);
+
+      const avatarHtml = item.avatarUrl
+        ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
+        : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
+
+      let cleanDescription = item.description
+        .replace(/<hr\s*\/?>/gi, '')
+        .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
+        .replace(/(リンク|Link)<br\s*\/?>/gi, '');
+
+      tweetDiv.innerHTML = `
+        <div class="tweet-header">
+          <div class="tweet-user-info">
+            ${avatarHtml}
+            <span class="tweet-account">${author}</span>
+          </div>
+          <span class="tweet-time">${dateStr}</span>
+        </div>
+        <div class="tweet-body">${cleanDescription}</div>
+      `;
+      container.appendChild(tweetDiv);
+    });
 
   } catch (err) {
     console.error(err);
@@ -470,48 +469,6 @@ async function loadAllTwitterContent(isManualRefresh = false) {
       refreshBtn.style.opacity = '1';
     }
   }
-}
-
-function renderTweets(allTweets, container) {
-  container.innerHTML = '';
-  allTweets.forEach(item => {
-    const tweetDiv = document.createElement('div');
-    tweetDiv.className = 'tweet-item';
-    
-    const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-      ? item.pubDate.toLocaleString('ja-JP', { 
-          timeZone: 'Asia/Tokyo',
-          month: 'numeric', 
-          day: 'numeric', 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        })
-      : '';
-
-    const rawTitle = item.feedTitle || item.author || item.title;
-    const author = extractUsername(rawTitle);
-
-    const avatarHtml = item.avatarUrl
-      ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
-      : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
-
-    let cleanDescription = item.description
-      .replace(/<hr\s*\/?>/gi, '')
-      .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
-      .replace(/(リンク|Link)<br\s*\/?>/gi, '');
-
-    tweetDiv.innerHTML = `
-      <div class="tweet-header">
-        <div class="tweet-user-info">
-          ${avatarHtml}
-          <span class="tweet-account">${author}</span>
-        </div>
-        <span class="tweet-time">${dateStr}</span>
-      </div>
-      <div class="tweet-body">${cleanDescription}</div>
-    `;
-    container.appendChild(tweetDiv);
-  });
 }
 
 function initYoutube() {
