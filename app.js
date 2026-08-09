@@ -90,11 +90,11 @@ async function fetchNewsRSS(feedUrl) {
     throw new Error('XMLパースエラー');
   }
 
-  let items = Array.from(xmlDoc.querySelectorAll('item, entry'));
+  let items = Array.from(xmlDoc.querySelectorAll('item, entry, アイテム'));
   if (items.length === 0) {
-    const channel = xmlDoc.querySelector('channel') || xmlDoc;
+    const channel = xmlDoc.querySelector('channel, チャンネル') || xmlDoc;
     items = Array.from(channel.children).filter(node => 
-      ['item', 'entry'].includes(node.tagName.toLowerCase())
+      ['item', 'entry', 'アイテム'].includes(node.tagName.toLowerCase())
     );
   }
 
@@ -105,78 +105,6 @@ async function fetchNewsRSS(feedUrl) {
     }
     return '';
   };
-
-  // サムネイル画像のURLを取得する関数（改善版）
-  const getThumbnailUrl = (item, description, contentEncoded) => {
-    // 1. media:thumbnail, media:content などの属性（getElementsByTagNameNSを使用することで確実に取得）
-    const mediaElements = [
-      ...Array.from(item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'thumbnail')),
-      ...Array.from(item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'content')),
-      ...Array.from(item.querySelectorAll('thumbnail, content'))
-    ];
-    for (const el of mediaElements) {
-      const url = el.getAttribute('url');
-      if (url) return url;
-    }
-
-    // 2. enclosure (RSS2.0)
-    const enclosure = item.querySelector('enclosure');
-    if (enclosure) {
-      const type = enclosure.getAttribute('type') || '';
-      const url = enclosure.getAttribute('url');
-      if (url && (type.startsWith('image/') || !type)) {
-        return url;
-      }
-    }
-
-    // 3. link[rel="enclosure"] または link[type^="image"] (Atomフィード用)
-    const linkImage = item.querySelector('link[rel="enclosure"], link[type^="image/"]');
-    if (linkImage && linkImage.getAttribute('href')) {
-      return linkImage.getAttribute('href');
-    }
-
-    // 4. description や content:encoded 内の <img> タグから src を抽出
-    const fullText = (description || '') + ' ' + (contentEncoded || '');
-    if (fullText) {
-      const imgMatch = fullText.match(/<img[^>]+src=["']([^"']+)["']/i);
-      if (imgMatch && imgMatch[1]) {
-        return imgMatch[1];
-      }
-    }
-
-    return '';
-  };
-
-  // 取得した記事データの整形
-  return items.map(item => {
-    const title = getTagText(item, ['title']);
-    
-    // リンクの取得（RSS/Atom両対応）
-    let link = getTagText(item, ['link']);
-    if (!link) {
-      const linkElem = item.querySelector('link[href]');
-      if (linkElem) link = linkElem.getAttribute('href') || '';
-    }
-
-    // 日時の取得
-    const pubDateStr = getTagText(item, ['pubDate', 'published', 'updated', 'dc\\:date']);
-    const pubDate = pubDateStr ? new Date(pubDateStr) : null;
-
-    // 本文テキストの取得
-    const description = getTagText(item, ['description', 'summary']);
-    const contentEncoded = getTagText(item, ['content\\:encoded', 'encoded', 'content']);
-
-    // 画像URLの判定
-    const thumbnail = getThumbnailUrl(item, description, contentEncoded);
-
-    return {
-      title,
-      link,
-      pubDate,
-      thumbnail
-    };
-  });
-}
 
   const parseCustomDate = (dateStr) => {
     if (!dateStr) return new Date();
@@ -202,15 +130,13 @@ async function fetchNewsRSS(feedUrl) {
     const pubDateRaw = getTagText(item, ['pubDate', 'date', 'published', 'updated', '公開日時', '投稿日時', '日付', '発行日時']);
     const description = getTagText(item, ['description', 'content', 'encoded', '詳細', '概要', '内容', '本文']);
     const author = getTagText(item, ['creator', 'dc\\:creator', 'author name', 'author', '製作者', '投稿者', '作者']);
-    const thumbnail = getThumbnailUrl(item, description);
 
     return {
       title,
       link,
       pubDate: parseCustomDate(pubDateRaw),
       description: description || title,
-      author,
-      thumbnail
+      author
     };
   });
 }
@@ -228,6 +154,7 @@ async function fetchTwitterRSS(feedUrl) {
   const feedTitle = data.feed ? data.feed.title : '';
   const feedAvatar = data.feed?.image || data.feed?.avatar || '';
 
+  // リツイートを除外
   const originalTweets = data.items.filter(item => {
     const title = item.title || '';
     const isRetweet = /^RT\s/i.test(title.trim()) || /^RT\s+by\s/i.test(title.trim());
@@ -235,8 +162,10 @@ async function fetchTwitterRSS(feedUrl) {
   });
 
   return originalTweets.map(item => {
+    // RSSの時刻文字列（UTC）をISO形式またはUTCとして明示的にDateオブジェクト化
     let rawDateStr = item.pubDate;
     if (typeof rawDateStr === 'string' && !rawDateStr.endsWith('Z') && !rawDateStr.includes('+')) {
+      // "2026-08-09 07:12:00" のような形式の場合、末尾に ' UTC' または 'Z' を付けてUTC時間として認識させる
       rawDateStr = rawDateStr.replace(' ', 'T') + 'Z';
     }
 
@@ -361,16 +290,9 @@ async function loadNewsContent(url) {
         ? item.pubDate.toLocaleString('ja-JP') 
         : '';
 
-      const thumbHtml = item.thumbnail 
-        ? `<img src="${item.thumbnail}" alt="" class="news-thumbnail" loading="lazy" onerror="this.style.display='none';">`
-        : '';
-
       newsDiv.innerHTML = `
-        <div class="news-info">
-          <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-          <div class="news-time">${dateStr}</div>
-        </div>
-        ${thumbHtml}
+        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
+        <div class="news-time">${dateStr}</div>
       `;
       container.appendChild(newsDiv);
     });
@@ -414,16 +336,9 @@ async function loadKnowledgeContent(url) {
         ? item.pubDate.toLocaleString('ja-JP') 
         : '';
 
-      const thumbHtml = item.thumbnail 
-        ? `<img src="${item.thumbnail}" alt="" class="news-thumbnail" loading="lazy" onerror="this.style.display='none';">`
-        : '';
-
       newsDiv.innerHTML = `
-        <div class="news-info">
-          <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-          <div class="news-time">${dateStr}</div>
-        </div>
-        ${thumbHtml}
+        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
+        <div class="news-time">${dateStr}</div>
       `;
       container.appendChild(newsDiv);
     });
@@ -435,24 +350,6 @@ async function loadKnowledgeContent(url) {
 }
 
 function initTwitter() {
-  const addTwitterBtn = document.getElementById('add-twitter-btn');
-  if (addTwitterBtn && !document.getElementById('refresh-twitter-btn')) {
-    const refreshBtn = document.createElement('button');
-    refreshBtn.id = 'refresh-twitter-btn';
-    refreshBtn.type = 'button';
-    refreshBtn.className = 'btn';
-    refreshBtn.style.marginRight = '4px';
-    refreshBtn.style.padding = '6px';
-    refreshBtn.style.display = 'inline-flex';
-    refreshBtn.style.alignItems = 'center';
-    refreshBtn.style.justifyContent = 'center';
-    refreshBtn.innerHTML = '<img src="icons/refresh.png" alt="更新" style="width: 16px; height: 16px; display: block;">';
-    refreshBtn.title = '最新のツイートを取得';
-    refreshBtn.onclick = () => loadAllTwitterContent(true);
-    
-    addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
-  }
-
   loadAllTwitterContent();
 }
 
@@ -462,9 +359,8 @@ function extractUsername(rawText) {
   return cleaned || rawText;
 }
 
-async function loadAllTwitterContent(isManualRefresh = false) {
+async function loadAllTwitterContent() {
   const container = document.getElementById('twitter-content');
-  const refreshBtn = document.getElementById('refresh-twitter-btn');
   if (!container) return;
   
   if (twitterFeeds.length === 0) {
@@ -472,20 +368,12 @@ async function loadAllTwitterContent(isManualRefresh = false) {
     return;
   }
 
-  if (refreshBtn) {
-    refreshBtn.disabled = true;
-    refreshBtn.style.opacity = '0.5';
-  }
-
   container.innerHTML = '<div class="loading">すべてのツイートを読み込み中...</div>';
 
   try {
     const fetchPromises = twitterFeeds.map(async (feed) => {
       try {
-        const fetchUrl = isManualRefresh 
-          ? `${feed.url}${feed.url.includes('?') ? '&' : '?'}_t=${Date.now()}` 
-          : feed.url;
-        const items = await fetchTwitterRSS(fetchUrl);
+        const items = await fetchTwitterRSS(feed.url);
         return items.map(item => ({
           ...item,
           accountName: feed.name
@@ -506,24 +394,26 @@ async function loadAllTwitterContent(isManualRefresh = false) {
 
     allTweets.sort((a, b) => b.pubDate - a.pubDate);
 
-    container.innerHTML = '';
+container.innerHTML = '';
     allTweets.forEach(item => {
       const tweetDiv = document.createElement('div');
       tweetDiv.className = 'tweet-item';
       
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-        ? item.pubDate.toLocaleString('ja-JP', { 
-            timeZone: 'Asia/Tokyo',
-            month: 'numeric', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          })
-        : '';
+ // loadAllTwitterContent 関数内の Date フォーマット処理部分
+const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+  ? item.pubDate.toLocaleString('ja-JP', { 
+      timeZone: 'Asia/Tokyo',
+      month: 'numeric', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    })
+  : '';
 
       const rawTitle = item.feedTitle || item.author || item.title;
       const author = extractUsername(rawTitle);
 
+      // アイコン要素の生成（画像があれば<img>、無ければ頭文字のダミーアイコン）
       const avatarHtml = item.avatarUrl
         ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
         : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
@@ -549,11 +439,6 @@ async function loadAllTwitterContent(isManualRefresh = false) {
   } catch (err) {
     console.error(err);
     container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました</div>';
-  } finally {
-    if (refreshBtn) {
-      refreshBtn.disabled = false;
-      refreshBtn.style.opacity = '1';
-    }
   }
 }
 
@@ -575,7 +460,7 @@ async function loadAllYoutubeContent() {
   try {
     const fetchPromises = youtubeFeeds.map(async (feed) => {
       try {
-        const items = await fetchYoutubeRSS(feed.url);
+        const items = await fetchYoutubeRSS(feed.url); // feed.url に channelId が格納されます
         return items.map(item => ({
           ...item,
           displayName: feed.name || item.channelName
@@ -594,6 +479,7 @@ async function loadAllYoutubeContent() {
       return;
     }
 
+    // 時系列順にソート
     allVideos.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
@@ -650,6 +536,7 @@ function initModals() {
 
   if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
 
+  // 動的に追加したボタン（Nitter/YouTube外部リンクボタンや「+ 入力欄を追加」ボタン）の削除
   const cleanupExtraButtons = () => {
     const extraBtn = document.getElementById('modal-nitter-btn');
     if (extraBtn) extraBtn.remove();
@@ -657,17 +544,24 @@ function initModals() {
     if (addRowBtn) addRowBtn.remove();
   };
 
+  // モーダル閉じる＋内容完全クリア
   const closeModal = () => {
+    // 画面上の全input要素の値を強制クリア（iOS Webアプリのキャッシュ対策）
+    const inputs = modalBody.querySelectorAll('input');
+    inputs.forEach(input => {
+      input.value = '';
+    });
+
     cleanupExtraButtons();
-    modalBody.innerHTML = '';
-    submitBtn.textContent = '保存';
-    cancelBtn.textContent = 'キャンセル';
-    cancelBtn.style.display = 'inline-block';
+    modalBody.innerHTML = ''; // 入力要素をDOMからクリア
     modal.classList.add('hidden');
   };
   
   cancelBtn.onclick = closeModal;
 
+  /**
+   * 完全に新規・空欄の入力行を作成する関数
+   */
   const createInputRow = (placeholderName, placeholderUrl) => {
     const row = document.createElement('div');
     row.className = 'modal-input-row';
@@ -676,11 +570,18 @@ function initModals() {
     row.style.marginBottom = '8px';
     row.style.alignItems = 'center';
 
+    // autocomplete="off" / autocorrect="off" / autocapitalize="off" を追加してiOSの自動補完を停止
     row.innerHTML = `
       <input type="text" class="input-name" placeholder="${placeholderName}" autocomplete="off" autocorrect="off" autocapitalize="off" style="flex: 1;">
       <input type="text" class="input-url" placeholder="${placeholderUrl}" autocomplete="off" autocorrect="off" autocapitalize="off" style="flex: 2;">
       <button type="button" class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
     `;
+
+    // JavaScript経由で明確に空文字を代入して値を初期化
+    const nameInput = row.querySelector('.input-name');
+    const urlInput = row.querySelector('.input-url');
+    nameInput.value = '';
+    urlInput.value = '';
 
     row.querySelector('.remove-row-btn').onclick = () => {
       if (modalBody.querySelectorAll('.modal-input-row').length > 1) {
@@ -691,13 +592,18 @@ function initModals() {
     return row;
   };
 
+  /**
+   * 複数追加モーダルの共通セットアップ
+   */
   const setupMultiAddModal = (title, placeholderName, placeholderUrl, onSave) => {
     cleanupExtraButtons();
     modalTitle.textContent = title;
-    modalBody.innerHTML = '';
+    modalBody.innerHTML = ''; // 開く前に要素を初期化
 
+    // 最初に1行目の空入力欄を作成
     modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
 
+    // 「+ 入力欄を追加」ボタンの設定
     const addRowBtn = document.createElement('button');
     addRowBtn.id = 'modal-add-row-btn';
     addRowBtn.type = 'button';
@@ -711,9 +617,7 @@ function initModals() {
 
     cancelBtn.parentNode.insertBefore(addRowBtn, cancelBtn);
 
-    cancelBtn.textContent = 'キャンセル';
-    cancelBtn.onclick = closeModal;
-    submitBtn.textContent = '保存';
+    // 保存処理
     submitBtn.onclick = () => {
       const rows = modalBody.querySelectorAll('.modal-input-row');
       const newItems = [];
@@ -735,48 +639,6 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  const setupManageModal = (title, feeds, onSave, onRefresh, isTwitter = false) => {
-    cleanupExtraButtons();
-    modalTitle.textContent = title;
-    
-    const renderList = () => {
-      modalTitle.textContent = title;
-      submitBtn.textContent = '完了';
-      cancelBtn.textContent = 'キャンセル';
-      cancelBtn.style.display = 'none';
-      cancelBtn.onclick = closeModal;
-      submitBtn.onclick = closeModal;
-
-      renderManageList(
-        feeds, 
-        (updatedFeeds) => {
-          feeds = updatedFeeds;
-          onSave(feeds);
-          onRefresh();
-          renderList();
-        },
-        (feed, idx) => {
-          showEditModal(
-            feed,
-            (updatedItem) => {
-              feeds[idx] = updatedItem;
-              onSave(feeds);
-              onRefresh();
-              renderList();
-            },
-            () => {
-              renderList();
-            },
-            isTwitter
-          );
-        }
-      );
-    };
-
-    renderList();
-    modal.classList.remove('hidden');
-  };
-
   // 1. ニュース追加ボタン
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
@@ -789,14 +651,19 @@ function initModals() {
     };
   }
 
-  // 2. ニュース削除（管理）ボタン
+  // 2. ニュース削除ボタン
   const delNewsBtn = document.getElementById('del-news-btn');
   if (delNewsBtn) {
     delNewsBtn.onclick = () => {
-      setupManageModal('ニュース配信先の管理', newsFeeds, (updated) => {
-        newsFeeds = updated;
+      cleanupExtraButtons();
+      modalTitle.textContent = 'ニュース配信先の管理';
+      renderManageList(newsFeeds, (newFeeds) => {
+        newsFeeds = newFeeds;
         saveStoredFeeds('newsFeeds', newsFeeds);
-      }, initNews);
+        initNews();
+      });
+      submitBtn.onclick = closeModal;
+      modal.classList.remove('hidden');
     };
   }
 
@@ -812,14 +679,19 @@ function initModals() {
     };
   }
 
-  // 4. 知識削除（管理）ボタン
+  // 4. 知識削除ボタン
   const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
-      setupManageModal('知識配信先の管理', knowledgeFeeds, (updated) => {
-        knowledgeFeeds = updated;
+      cleanupExtraButtons();
+      modalTitle.textContent = '知識配信先の管理';
+      renderManageList(knowledgeFeeds, (newFeeds) => {
+        knowledgeFeeds = newFeeds;
         saveStoredFeeds('knowledgeFeeds', knowledgeFeeds);
-      }, initKnowledge);
+        initKnowledge();
+      });
+      submitBtn.onclick = closeModal;
+      modal.classList.remove('hidden');
     };
   }
 
@@ -829,11 +701,7 @@ function initModals() {
     addTwitterBtn.onclick = () => {
       setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーID', (newItems) => {
         const formattedItems = newItems.map(item => {
-          let cleanUrl = item.url.trim();
-          if (cleanUrl.startsWith('https://nitter.net')) {
-            return { name: item.name, url: cleanUrl };
-          }
-          const cleanUserId = cleanUrl.replace(/^@/, '');
+          const cleanUserId = item.url.replace(/^@/, '').trim();
           return {
             name: item.name,
             url: `https://nitter.net/${cleanUserId}/rss`
@@ -857,14 +725,19 @@ function initModals() {
     };
   }
 
-  // 6. Twitter削除（管理）ボタン
+  // 6. Twitter削除ボタン
   const delTwitterBtn = document.getElementById('del-twitter-btn');
   if (delTwitterBtn) {
     delTwitterBtn.onclick = () => {
-      setupManageModal('Twitterアカウントの管理', twitterFeeds, (updated) => {
-        twitterFeeds = updated;
+      cleanupExtraButtons();
+      modalTitle.textContent = 'Twitterアカウントの管理';
+      renderManageList(twitterFeeds, (newFeeds) => {
+        twitterFeeds = newFeeds;
         saveStoredFeeds('twitterFeeds', twitterFeeds);
-      }, initTwitter, true);
+        initTwitter();
+      });
+      submitBtn.onclick = closeModal;
+      modal.classList.remove('hidden');
     };
   }
 
@@ -890,25 +763,30 @@ function initModals() {
     };
   }
 
-  // 8. YouTube削除（管理）ボタン
+  // 8. YouTube削除ボタン
   const delYoutubeBtn = document.getElementById('del-youtube-btn');
   if (delYoutubeBtn) {
     delYoutubeBtn.onclick = () => {
-      setupManageModal('YouTubeチャンネルの管理', youtubeFeeds, (updated) => {
-        youtubeFeeds = updated;
+      cleanupExtraButtons();
+      modalTitle.textContent = 'YouTubeチャンネルの管理';
+      renderManageList(youtubeFeeds, (newFeeds) => {
+        youtubeFeeds = newFeeds;
         saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-      }, initYoutube);
+        initYoutube();
+      });
+      submitBtn.onclick = closeModal;
+      modal.classList.remove('hidden');
     };
   }
 }
 
-function renderManageList(feeds, saveCallback, onEdit) {
+function renderManageList(feeds, saveCallback) {
   const modalBody = document.getElementById('modal-body');
   if (!modalBody) return;
   modalBody.innerHTML = '';
   
   if (feeds.length === 0) {
-    modalBody.innerHTML = '<div style="color: var(--text-sub); font-size: 14px;">登録されていません</div>';
+    modalBody.innerHTML = '<div>登録されていません</div>';
     return;
   }
 
@@ -919,33 +797,16 @@ function renderManageList(feeds, saveCallback, onEdit) {
     row.style.alignItems = 'center';
     row.style.justifyContent = 'space-between';
     row.style.marginBottom = '8px';
-    row.style.padding = '8px 12px';
-    row.style.backgroundColor = 'var(--bg-main)';
-    row.style.borderRadius = '8px';
-    row.style.border = feed.isError ? '1px solid #ff4d4f' : '1px solid var(--border-color)';
 
-    const errorBadge = feed.isError 
-      ? `<span title="データを受け取れませんでした。ID/URLが間違っている可能性があります" style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; background-color:#ff4d4f; color:#fff; border-radius:50%; font-weight:bold; font-size:12px; margin-right:8px; flex-shrink:0;">!</span>`
-      : '';
-
-    const nameWrapper = document.createElement('div');
-    nameWrapper.style.display = 'flex';
-    nameWrapper.style.alignItems = 'center';
-    nameWrapper.style.minWidth = '0';
-    nameWrapper.style.flex = '1';
-    nameWrapper.style.marginRight = '8px';
-    nameWrapper.innerHTML = `
-      ${errorBadge}
-      <span style="font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${feed.name}</span>
-    `;
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = feed.name;
+    nameSpan.style.flex = '1';
 
     const btnGroup = document.createElement('div');
     btnGroup.style.display = 'flex';
     btnGroup.style.gap = '4px';
-    btnGroup.style.flexShrink = '0';
 
     const upBtn = document.createElement('button');
-    upBtn.type = 'button';
     upBtn.className = 'btn';
     upBtn.style.padding = '2px 8px';
     upBtn.textContent = '↑';
@@ -955,10 +816,10 @@ function renderManageList(feeds, saveCallback, onEdit) {
       feeds[idx] = feeds[idx - 1];
       feeds[idx - 1] = temp;
       saveCallback(feeds);
+      renderManageList(feeds, saveCallback);
     };
 
     const downBtn = document.createElement('button');
-    downBtn.type = 'button';
     downBtn.className = 'btn';
     downBtn.style.padding = '2px 8px';
     downBtn.textContent = '↓';
@@ -968,105 +829,25 @@ function renderManageList(feeds, saveCallback, onEdit) {
       feeds[idx] = feeds[idx + 1];
       feeds[idx + 1] = temp;
       saveCallback(feeds);
-    };
-
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'btn';
-    editBtn.style.padding = '2px 8px';
-    editBtn.textContent = '変更';
-    editBtn.onclick = () => {
-      if (onEdit) onEdit(feed, idx);
+      renderManageList(feeds, saveCallback);
     };
 
     const delBtn = document.createElement('button');
-    delBtn.type = 'button';
     delBtn.className = 'btn danger';
     delBtn.style.padding = '2px 8px';
     delBtn.textContent = '削除';
     delBtn.onclick = () => {
       feeds.splice(idx, 1);
       saveCallback(feeds);
+      renderManageList(feeds, saveCallback);
     };
 
     btnGroup.appendChild(upBtn);
     btnGroup.appendChild(downBtn);
-    btnGroup.appendChild(editBtn);
     btnGroup.appendChild(delBtn);
 
-    row.appendChild(nameWrapper);
+    row.appendChild(nameSpan);
     row.appendChild(btnGroup);
     modalBody.appendChild(row);
   });
-}
-
-// 変更（上書き）用ダイアログを表示する関数
-function showEditModal(feed, onOverwrite, onCancel, isTwitter = false) {
-  const modalTitle = document.getElementById('modal-title');
-  const modalBody = document.getElementById('modal-body');
-  const cancelBtn = document.getElementById('modal-cancel-btn');
-  const submitBtn = document.getElementById('modal-submit-btn');
-
-  modalTitle.textContent = '配信先の変更';
-  modalBody.innerHTML = '';
-
-  const editForm = document.createElement('div');
-  editForm.style.display = 'flex';
-  editForm.style.flexDirection = 'column';
-  editForm.style.gap = '12px';
-
-  editForm.innerHTML = `
-    <div>
-      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">名前</label>
-      <input type="text" id="edit-name-input" value="${feed.name || ''}" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main);" autocomplete="off">
-    </div>
-    <div>
-      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">現在のURL / ID</label>
-      <input type="text" value="${feed.url || ''}" disabled style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); opacity: 0.6; color: var(--text-main);">
-    </div>
-    <div>
-      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">新しいURL / ID（変更する場合のみ入力）</label>
-      <input type="text" id="edit-url-input" placeholder="新しいURLまたはIDを入力" value="" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main);" autocomplete="off">
-    </div>
-  `;
-
-  modalBody.appendChild(editForm);
-
-  if (cancelBtn) {
-    cancelBtn.style.display = 'inline-block';
-    cancelBtn.textContent = 'キャンセル';
-    cancelBtn.onclick = () => {
-      onCancel();
-    };
-  }
-
-  if (submitBtn) {
-    submitBtn.textContent = '上書き';
-    submitBtn.onclick = () => {
-      const newName = document.getElementById('edit-name-input').value.trim();
-      let newUrl = document.getElementById('edit-url-input').value.trim();
-
-      if (!newName) {
-        alert('名前を入力してください');
-        return;
-      }
-
-      let finalUrl = feed.url;
-
-      if (newUrl) {
-        if (isTwitter) {
-          if (newUrl.startsWith('https://nitter.net')) {
-            finalUrl = newUrl;
-          } else {
-            const cleanUserId = newUrl.replace(/^@/, '');
-            finalUrl = `https://nitter.net/${cleanUserId}/rss`;
-          }
-        } else {
-          finalUrl = newUrl;
-        }
-      }
-
-      onOverwrite({ ...feed, name: newName, url: finalUrl, isError: false });
-    };
-  }
 }
