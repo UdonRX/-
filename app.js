@@ -141,7 +141,71 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
+// Twitterフィードの振り分け（rss.app か Nitter かを判定）
 async function fetchTwitterRSS(feedUrl) {
+  if (feedUrl.startsWith('https://rss.app')) {
+    return await fetchRssAppFeed(feedUrl);
+  } else {
+    return await fetchNitterFeed(feedUrl);
+  }
+}
+
+// rss.app 用の取得・パース処理
+async function fetchRssAppFeed(feedUrl) {
+  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
+  const response = await fetch(apiUrl);
+  if (!response.ok) throw new Error('rss.app RSS取得エラー');
+  const xmlText = await response.text();
+
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+
+  if (xmlDoc.querySelector('parsererror')) {
+    throw new Error('XMLパースエラー');
+  }
+
+  const feedTitle = xmlDoc.querySelector('channel > title')?.textContent?.trim() || '';
+  const items = Array.from(xmlDoc.querySelectorAll('item'));
+
+  const originalTweets = items.filter(item => {
+    const title = item.querySelector('title')?.textContent || '';
+    const description = item.querySelector('description')?.textContent || '';
+    // RT by が含まれるものはリツイートとみなして除外
+    const isRetweet = /RT\s+by/i.test(title) || /RT\s+by/i.test(description);
+    return !isRetweet;
+  });
+
+  return originalTweets.map(item => {
+    const title = item.querySelector('title')?.textContent?.trim() || '無題';
+    const link = item.querySelector('link')?.textContent?.trim() || '';
+    const pubDateStr = item.querySelector('pubDate')?.textContent?.trim() || '';
+    const description = item.querySelector('description')?.textContent?.trim() || '';
+    const creator = item.querySelector('dc\\:creator, creator')?.textContent?.trim() || feedTitle;
+
+    let parsedDate = new Date(pubDateStr);
+    if (isNaN(parsedDate.getTime())) parsedDate = new Date();
+
+    // メディアサムネイルの抽出（media:contentなど）
+    let avatarUrl = '';
+    const mediaContent = item.querySelector('media\\:content, content');
+    if (mediaContent && mediaContent.getAttribute('url')) {
+      avatarUrl = mediaContent.getAttribute('url');
+    }
+
+    return {
+      title: title,
+      link: link,
+      pubDate: parsedDate,
+      description: description,
+      author: creator,
+      feedTitle: feedTitle,
+      avatarUrl: avatarUrl
+    };
+  });
+}
+
+// Nitter 用の取得・パース処理（既存）
+async function fetchNitterFeed(feedUrl) {
   const apiKey = 'vnxteaxirpi0jgkt7eyymepu1b1ywzkg0zvtrhdg';
   const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${apiKey}`;
   const response = await fetch(apiUrl);
@@ -363,7 +427,6 @@ function initTwitter() {
     refreshBtn.title = '最新のツイートを取得';
     refreshBtn.onclick = () => loadAllTwitterContent(true);
     
-    // 追加ボタンの「左側（直前）」に更新ボタンを設置
     addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
   }
 
@@ -657,7 +720,7 @@ function initModals() {
       modalTitle.textContent = title;
       submitBtn.textContent = '完了';
       cancelBtn.textContent = 'キャンセル';
-      cancelBtn.style.display = 'none'; // 管理画面一覧では「完了」ボタンのみ使用
+      cancelBtn.style.display = 'none';
       cancelBtn.onclick = closeModal;
       submitBtn.onclick = closeModal;
 
@@ -691,7 +754,7 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  // 1. ニュース追加ボタン
+  // 1. ニュース追加
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
     addNewsBtn.onclick = () => {
@@ -703,7 +766,7 @@ function initModals() {
     };
   }
 
-  // 2. ニュース削除（管理）ボタン
+  // 2. ニュース管理
   const delNewsBtn = document.getElementById('del-news-btn');
   if (delNewsBtn) {
     delNewsBtn.onclick = () => {
@@ -714,7 +777,7 @@ function initModals() {
     };
   }
 
-  // 3. 知識追加ボタン
+  // 3. 知識追加
   const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
   if (addKnowledgeBtn) {
     addKnowledgeBtn.onclick = () => {
@@ -726,7 +789,7 @@ function initModals() {
     };
   }
 
-  // 4. 知識削除（管理）ボタン
+  // 4. 知識管理
   const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
@@ -737,14 +800,15 @@ function initModals() {
     };
   }
 
-  // 5. Twitter追加ボタン
+  // 5. Twitter追加
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn) {
     addTwitterBtn.onclick = () => {
-      setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーID', (newItems) => {
+      setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーIDまたはrss.app URL', (newItems) => {
         const formattedItems = newItems.map(item => {
           let cleanUrl = item.url.trim();
-          if (cleanUrl.startsWith('https://nitter.net')) {
+          // rss.app から始まるURL、または https:// から始まるURLならそのまま使う
+          if (cleanUrl.startsWith('https://rss.app') || cleanUrl.startsWith('https://nitter.net')) {
             return { name: item.name, url: cleanUrl };
           }
           const cleanUserId = cleanUrl.replace(/^@/, '');
@@ -771,7 +835,7 @@ function initModals() {
     };
   }
 
-  // 6. Twitter削除（管理）ボタン
+  // 6. Twitter管理
   const delTwitterBtn = document.getElementById('del-twitter-btn');
   if (delTwitterBtn) {
     delTwitterBtn.onclick = () => {
@@ -782,7 +846,7 @@ function initModals() {
     };
   }
 
-  // 7. YouTube追加ボタン
+  // 7. YouTube追加
   const addYoutubeBtn = document.getElementById('add-youtube-btn');
   if (addYoutubeBtn) {
     addYoutubeBtn.onclick = () => {
@@ -804,7 +868,7 @@ function initModals() {
     };
   }
 
-  // 8. YouTube削除（管理）ボタン
+  // 8. YouTube管理
   const delYoutubeBtn = document.getElementById('del-youtube-btn');
   if (delYoutubeBtn) {
     delYoutubeBtn.onclick = () => {
@@ -914,7 +978,6 @@ function renderManageList(feeds, saveCallback, onEdit) {
   });
 }
 
-// 変更（上書き）用ダイアログを表示する関数
 function showEditModal(feed, onOverwrite, onCancel, isTwitter = false) {
   const modalTitle = document.getElementById('modal-title');
   const modalBody = document.getElementById('modal-body');
@@ -969,7 +1032,7 @@ function showEditModal(feed, onOverwrite, onCancel, isTwitter = false) {
 
       if (newUrl) {
         if (isTwitter) {
-          if (newUrl.startsWith('https://nitter.net')) {
+          if (newUrl.startsWith('https://rss.app') || newUrl.startsWith('https://nitter.net')) {
             finalUrl = newUrl;
           } else {
             const cleanUserId = newUrl.replace(/^@/, '');
