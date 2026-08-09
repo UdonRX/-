@@ -517,6 +517,7 @@ function initModals() {
 
   if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
 
+  // 動的に追加したボタン（Nitter/YouTube外部リンクボタンや「+ 入力欄を追加」ボタン）の削除
   const cleanupExtraButtons = () => {
     const extraBtn = document.getElementById('modal-nitter-btn');
     if (extraBtn) extraBtn.remove();
@@ -527,13 +528,16 @@ function initModals() {
   // モーダル閉じる＋内容完全クリア
   const closeModal = () => {
     cleanupExtraButtons();
-    modalBody.innerHTML = ''; // フォーム要素をクリア
+    modalBody.innerHTML = ''; // 入力要素を完全に破棄・クリア
     modal.classList.add('hidden');
   };
   
   cancelBtn.onclick = closeModal;
 
-  // 常に完全な空欄（value=""）の入力行を作成する関数
+  /**
+   * 完全に新規・空欄の入力行を作成する関数
+   * 既存要素のコピーや値を参照することは一切せず、常に空（value=""）で生成します
+   */
   const createInputRow = (placeholderName, placeholderUrl) => {
     const row = document.createElement('div');
     row.className = 'modal-input-row';
@@ -542,10 +546,11 @@ function initModals() {
     row.style.marginBottom = '8px';
     row.style.alignItems = 'center';
 
+    // value属性は空文字列で固定
     row.innerHTML = `
       <input type="text" class="input-name" placeholder="${placeholderName}" value="" style="flex: 1;">
       <input type="text" class="input-url" placeholder="${placeholderUrl}" value="" style="flex: 2;">
-      <button class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
+      <button type="button" class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
     `;
 
     row.querySelector('.remove-row-btn').onclick = () => {
@@ -557,21 +562,27 @@ function initModals() {
     return row;
   };
 
+  /**
+   * 複数追加モーダルの共通セットアップ
+   */
   const setupMultiAddModal = (title, placeholderName, placeholderUrl, onSave) => {
     cleanupExtraButtons();
     modalTitle.textContent = title;
     modalBody.innerHTML = ''; // 開く前に前回の入力を完全初期化
 
-    // 最初に1行目の空の入力欄を追加
+    // 最初に1行目の空入力欄を作成
     modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
 
     // 「+ 入力欄を追加」ボタンの設定
     const addRowBtn = document.createElement('button');
     addRowBtn.id = 'modal-add-row-btn';
+    addRowBtn.type = 'button';
     addRowBtn.className = 'btn';
     addRowBtn.textContent = '+ 入力欄を追加';
-    addRowBtn.onclick = () => {
-      // 常に空の入力行を追加
+    
+    // 追加ボタンを押した際は、常に新しい空の row を生成して追加する
+    addRowBtn.onclick = (e) => {
+      e.preventDefault();
       modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
     };
 
@@ -644,7 +655,7 @@ function initModals() {
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
       cleanupExtraButtons();
-      modalTitle.textContent = '配信先の管理';
+      modalTitle.textContent = '知識配信先の管理';
       renderManageList(knowledgeFeeds, (newFeeds) => {
         knowledgeFeeds = newFeeds;
         saveStoredFeeds('knowledgeFeeds', knowledgeFeeds);
@@ -655,14 +666,11 @@ function initModals() {
     };
   }
 
-// 5. Twitter追加ボタン
+  // 5. Twitter追加ボタン
   const addTwitterBtn = document.getElementById('add-twitter-btn');
   if (addTwitterBtn) {
     addTwitterBtn.onclick = () => {
-      // プレースホルダーを「配信先」「ユーザーID」にして共通関数を呼出
-      // (内部で createInputRow が空のボックス value="" を生成します)
-      setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーID', (newItems) => {
-        // 入力された「ユーザーID」を https://nitter.net/ユーザーID/rss に変換して保存
+      setupMultiAddModal('RSSを追加', '配信先', 'ユーザーID', (newItems) => {
         const formattedItems = newItems.map(item => {
           const cleanUserId = item.url.replace(/^@/, '').trim();
           return {
@@ -676,9 +684,9 @@ function initModals() {
         initTwitter();
       });
 
-      // Nitter ボタンの生成・追加
       const nitterBtn = document.createElement('button');
       nitterBtn.id = 'modal-nitter-btn';
+      nitterBtn.type = 'button';
       nitterBtn.className = 'btn';
       nitterBtn.textContent = 'Nitter';
       nitterBtn.onclick = () => {
@@ -716,6 +724,7 @@ function initModals() {
 
       const youtubeExternalBtn = document.createElement('button');
       youtubeExternalBtn.id = 'modal-nitter-btn';
+      youtubeExternalBtn.type = 'button';
       youtubeExternalBtn.className = 'btn';
       youtubeExternalBtn.textContent = 'YouTube';
       youtubeExternalBtn.onclick = () => {
