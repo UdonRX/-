@@ -396,7 +396,7 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（背景不透過・バツボタン単体表示版）
+// YouTubeカードのHTML生成部分（カードヘッダー統合・黒枠解消版）
 window.currentVideoList = [];
 window.selectedChannel = 'ALL';
 window.currentType = 'long';
@@ -431,27 +431,22 @@ channels.forEach(ch => {
   channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
 });
 
-// 親コンテナ自体の高さを拡張（カード2個分程度広げる）
-if (container && container.parentElement) {
-  container.parentElement.style.minHeight = '650px';
-}
-
-// 3. UIの構築（不透過背景ヘッダー ＋ バツボタンのみ表示）
+// 3. UIの構築（タイトル・プルダウン・タブを区切り線の上に配置＆固定化）
 container.innerHTML = `
-  <!-- スクロール時上部固定ヘッダーエリア（不透過背景） -->
-  <div style="position: sticky; top: 0; background: #1c1c1e; z-index: 10; padding-top: 8px; margin-top: -4px;">
-    <!-- ① チャンネル選択プルダウン（75%幅）＆バツボタンのみ（残り幅） -->
-    <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: center; width: 100%;">
-      <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.1); color: inherit; border: 1px solid rgba(255,255,255,0.2); font-size: 13px; box-sizing: border-box;">
+  <!-- 区切り線より上のヘッダー固定エリア（全体の背景色に親和） -->
+  <div style="position: sticky; top: 0; background: inherit; z-index: 10; padding-bottom: 4px;">
+    <!-- ① プルダウン（75%幅）＆バツボタン（残り幅） -->
+    <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center; width: 100%;">
+      <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.08); color: inherit; border: 1px solid rgba(255,255,255,0.2); font-size: 13px; box-sizing: border-box;">
         ${channelOptionsHtml}
       </select>
-      <div id="yt-channel-badge" style="display: none; flex: 1; min-width: 0; align-items: center; justify-content: center; background: rgba(255,255,255,0.15); border-radius: 6px; height: 31px; box-sizing: border-box;">
-        <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: inherit; opacity: 0.8; cursor: pointer; font-size: 16px; line-height: 1; padding: 4px 8px; width: 100%; height: 100%;" title="フィルター解除">✕</button>
+      <div id="yt-channel-badge" style="display: none; flex: 1; min-width: 0; align-items: center; justify-content: center; background: rgba(255,255,255,0.12); border-radius: 6px; height: 31px; box-sizing: border-box;">
+        <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: inherit; opacity: 0.8; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; width: 100%; height: 100%;" title="フィルター解除">✕</button>
       </div>
     </div>
 
     <!-- ② タブ（動画 / Shorts）＋ ③ 下部区切り線（横棒） -->
-    <div class="card-tabs yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px;">
+    <div class="card-tabs yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 8px;">
       <button id="yt-tab-long" class="tab-btn active" style="flex: 1; cursor: pointer;" onclick="switchYtTab('long')">動画</button>
       <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; cursor: pointer;" onclick="switchYtTab('short')">Shorts</button>
     </div>
