@@ -396,9 +396,10 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（右下固定ミニプレイヤー専用・拡大ボタンなし版）
+// YouTubeカードのHTML生成部分（右下固定＆ドラッグ/タッチ移動対応ミニプレイヤー版）
 window.currentVideoList = [];
 window.selectedChannel = 'ALL'; // 選択中チャンネルのグローバル保持
+window.modalPos = { x: null, y: null }; // ドラッグ後の位置保持用
 
 // 1. 動画(通常)とShortsの自動判定・分類およびチャンネル一覧抽出
 const allVideoDataList = [];
@@ -566,7 +567,7 @@ updateVideoDisplay();
   }
 }
 
-// --- グローバル定義: 右下固定ミニプレイヤー表示関数 ---
+// --- グローバル定義: 移動可能ミニプレイヤー表示関数 ---
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
@@ -585,13 +586,9 @@ window.openYoutubeModalByIndex = function(index) {
   const hasPrev = index > 0;
   const hasNext = index < list.length - 1;
 
-  // 常に画面右下に固定配置
+  // 基本スタイル適用
   modal.style.cssText = `
     position: fixed !important;
-    bottom: 16px !important;
-    right: 16px !important;
-    top: auto !important;
-    left: auto !important;
     width: min(320px, 85vw) !important;
     height: auto !important;
     background: #000 !important;
@@ -600,17 +597,31 @@ window.openYoutubeModalByIndex = function(index) {
     z-index: 999999 !important;
     box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
     border: 1px solid rgba(255,255,255,0.2) !important;
+    touch-action: none;
   `;
+
+  // 位置の適用（ドラッグ移動後の保存位置があればそれを使用、なければ右下デフォルト）
+  if (window.modalPos.x !== null && window.modalPos.y !== null) {
+    modal.style.left = `${window.modalPos.x}px`;
+    modal.style.top = `${window.modalPos.y}px`;
+    modal.style.bottom = 'auto';
+    modal.style.right = 'auto';
+  } else {
+    modal.style.bottom = '16px';
+    modal.style.right = '16px';
+    modal.style.top = 'auto';
+    modal.style.left = 'auto';
+  }
 
   modal.innerHTML = `
     <div style="width: 100%; background: #000; position: relative;">
-      <!-- コントロールバー -->
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #1c1c1e; color: #fff; font-size: 12px;">
+      <!-- コントロールバー（ここを掴んでドラッグ移動） -->
+      <div id="yt-modal-drag-handle" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #1c1c1e; color: #fff; font-size: 12px; cursor: move; user-select: none; -webkit-user-select: none;">
         <div style="display: flex; align-items: center; gap: 4px;">
           <button onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'}; font-size: 11px;">▲ 前</button>
           <button onclick="openYoutubeModalByIndex(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'}; font-size: 11px;">▼ 次</button>
         </div>
-        <div style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">${title}</div>
+        <div style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">⠿ ${title}</div>
         <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
       </div>
       <!-- 埋め込みプレイヤー領域 -->
@@ -625,7 +636,80 @@ window.openYoutubeModalByIndex = function(index) {
       </div>
     </div>
   `;
+
+  // ドラッグ＆タッチ移動イベントの設定
+  setupModalDrag(modal);
 };
+
+// ドラッグ/タッチ移動処理関数
+function setupModalDrag(modal) {
+  const handle = modal.querySelector('#yt-modal-drag-handle');
+  if (!handle) return;
+
+  let isDragging = false;
+  let startX = 0, startY = 0;
+  let initialLeft = 0, initialTop = 0;
+
+  const onStart = (e) => {
+    // ボタン操作時はドラッグを発動しない
+    if (e.target.tagName === 'BUTTON') return;
+
+    isDragging = true;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    const rect = modal.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+
+    startX = clientX;
+    startY = clientY;
+
+    modal.style.bottom = 'auto';
+    modal.style.right = 'auto';
+    modal.style.left = `${initialLeft}px`;
+    modal.style.top = `${initialTop}px`;
+  };
+
+  const onMove = (e) => {
+    if (!isDragging) return;
+
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    const deltaX = clientX - startX;
+    const deltaY = clientY - startY;
+
+    let newLeft = initialLeft + deltaX;
+    let newTop = initialTop + deltaY;
+
+    // 画面外へ飛び出さない制御
+    const maxLeft = window.innerWidth - modal.offsetWidth;
+    const maxTop = window.innerHeight - modal.offsetHeight;
+
+    newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+    newTop = Math.max(0, Math.min(newTop, maxTop));
+
+    modal.style.left = `${newLeft}px`;
+    modal.style.top = `${newTop}px`;
+
+    // 最後に動かした位置を記録
+    window.modalPos.x = newLeft;
+    window.modalPos.y = newTop;
+  };
+
+  const onEnd = () => {
+    isDragging = false;
+  };
+
+  handle.addEventListener('mousedown', onStart);
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onEnd);
+
+  handle.addEventListener('touchstart', onStart, { passive: true });
+  document.addEventListener('touchmove', onMove, { passive: true });
+  document.addEventListener('touchend', onEnd);
+}
 
 window.closeYoutubeModal = function() {
   const modal = document.getElementById('youtube-video-modal');
