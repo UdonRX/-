@@ -401,103 +401,105 @@ window.currentVideoList = [];
 window.selectedChannel = 'ALL';
 window.currentType = 'long'; // デフォルトは通常動画
 
-// 1. 全動画データとチャンネルリストの抽出
-const allVideoDataList = [];
-const channelSet = new Set();
+// 1. YouTubeコンテンツ描画対象のコンテナを取得
+const container = document.getElementById('youtube-content');
 
-allVideos.forEach(item => {
-  let videoId = '';
-  let isShort = false;
+if (container) {
+  // 2. 全動画データとチャンネルリストの抽出
+  const allVideoDataList = [];
+  const channelSet = new Set();
 
-  if (item.link && item.link.includes('/shorts/')) {
-    videoId = item.link.split('/shorts/')[1]?.split('?')[0]?.split('&')[0];
-    isShort = true;
-  } else if (item.link && item.link.includes('v=')) {
-    videoId = item.link.split('v=')[1]?.split('&')[0];
-  }
+  allVideos.forEach(item => {
+    let videoId = '';
+    let isShort = false;
 
-  const videoData = { ...item, videoId, isShort };
-  allVideoDataList.push(videoData);
+    if (item.link && item.link.includes('/shorts/')) {
+      videoId = item.link.split('/shorts/')[1]?.split('?')[0]?.split('&')[0];
+      isShort = true;
+    } else if (item.link && item.link.includes('v=')) {
+      videoId = item.link.split('v=')[1]?.split('&')[0];
+    }
 
-  if (item.displayName) {
-    channelSet.add(item.displayName);
-  }
-});
+    const videoData = { ...item, videoId, isShort };
+    allVideoDataList.push(videoData);
 
-// 2. UIの生成（固定ヘッダー・フィルター・タブ領域）
-const channels = Array.from(channelSet);
-let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
-channels.forEach(ch => {
-  channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
-});
-
-container.innerHTML = `
-  <div class="yt-fixed-header">
-    <!-- チャンネル選択フィルタエリア（幅の指定：プルダウン約75% / ✕ボタン約25%） -->
-    <div class="yt-filter-container">
-      <select id="yt-channel-select" class="yt-select" onchange="filterYtByChannel(this.value)">
-        ${channelOptionsHtml}
-      </select>
-      <div id="yt-channel-badge" class="yt-badge" style="display: none;">
-        <button onclick="resetYtChannelFilter()" class="yt-reset-btn" title="すべてのチャンネルを表示">✕</button>
-      </div>
-    </div>
-
-    <!-- ニュースや知識と同じ renderTabs を利用するコンテナ -->
-    <div id="yt-sub-tabs" class="tab-container"></div>
-  </div>
-
-  <!-- 動画一覧テーブル -->
-  <div id="yt-table-container"></div>
-`;
-
-// 3. 他のタブと同等の定義（動画 / Shorts）
-const ytFeeds = [
-  { name: '動画', type: 'long' },
-  { name: 'Shorts', type: 'short' }
-];
-
-// ニュース・知識と同じ renderTabs 方式でサブタブを描画
-renderTabs('yt-sub-tabs', ytFeeds, (selectedType) => {
-  window.currentType = selectedType;
-  updateVideoDisplay();
-});
-
-// 絞り込み実行＆描画更新
-window.updateVideoDisplay = function() {
-  const filtered = allVideoDataList.filter(item => {
-    const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
-    const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
-    return matchesType && matchesChannel;
+    if (item.displayName) {
+      channelSet.add(item.displayName);
+    }
   });
 
-  const selectElem = document.getElementById('yt-channel-select');
-  const badgeDiv = document.getElementById('yt-channel-badge');
+  // 3. UIの生成（固定ヘッダー・フィルター・タブ領域）
+  const channels = Array.from(channelSet);
+  let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
+  channels.forEach(ch => {
+    channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
+  });
 
-  if (selectElem) selectElem.value = window.selectedChannel;
+  container.innerHTML = `
+    <div class="yt-fixed-header">
+      <div class="yt-filter-container">
+        <select id="yt-channel-select" class="yt-select" onchange="filterYtByChannel(this.value)">
+          ${channelOptionsHtml}
+        </select>
+        <div id="yt-channel-badge" class="yt-badge" style="display: none;">
+          <button onclick="resetYtChannelFilter()" class="yt-reset-btn" title="すべてのチャンネルを表示">✕</button>
+        </div>
+      </div>
+      <div id="yt-sub-tabs" class="tab-container"></div>
+    </div>
+    <div id="yt-table-container"></div>
+  `;
 
-  if (window.selectedChannel !== 'ALL') {
-    if (badgeDiv) badgeDiv.style.display = 'flex';
-  } else {
-    if (badgeDiv) badgeDiv.style.display = 'none';
-  }
+  // 4. サブタブの描画（動画 / Shorts）
+  const ytFeeds = [
+    { name: '動画', type: 'long' },
+    { name: 'Shorts', type: 'short' }
+  ];
 
-  renderVideoTable(filtered);
-};
+  renderTabs('yt-sub-tabs', ytFeeds, (selectedType) => {
+    window.currentType = selectedType;
+    updateVideoDisplay();
+  });
+
+  // 5. 表示更新関数
+  window.updateVideoDisplay = function() {
+    const filtered = allVideoDataList.filter(item => {
+      const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
+      const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
+      return matchesType && matchesChannel;
+    });
+
+    const selectElem = document.getElementById('yt-channel-select');
+    const badgeDiv = document.getElementById('yt-channel-badge');
+
+    if (selectElem) selectElem.value = window.selectedChannel;
+
+    if (window.selectedChannel !== 'ALL') {
+      if (badgeDiv) badgeDiv.style.display = 'flex';
+    } else {
+      if (badgeDiv) badgeDiv.style.display = 'none';
+    }
+
+    renderVideoTable(filtered);
+  };
+
+  // 初期描画実行
+  updateVideoDisplay();
+}
 
 // チャンネルフィルタ変更関数
 window.filterYtByChannel = function(channelName) {
   window.selectedChannel = channelName;
-  updateVideoDisplay();
+  if (typeof updateVideoDisplay === 'function') updateVideoDisplay();
 };
 
 // チャンネルフィルタ解除関数
 window.resetYtChannelFilter = function() {
   window.selectedChannel = 'ALL';
-  updateVideoDisplay();
+  if (typeof updateVideoDisplay === 'function') updateVideoDisplay();
 };
 
-// 4. テーブル描画関数
+// 6. テーブル描画関数
 function renderVideoTable(videos) {
   window.currentVideoList = videos;
   const tableContainer = document.getElementById('yt-table-container');
@@ -535,7 +537,7 @@ function renderVideoTable(videos) {
   tableContainer.innerHTML = html;
 }
 
-// 既存の renderTabs 関数の定義（引数処理を柔軟に対応できるよう微修正）
+// 汎用タブ描画関数
 function renderTabs(containerId, feeds, onClickCallback) {
   const container = document.getElementById(containerId);
   if (!container) return;
