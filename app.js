@@ -395,10 +395,11 @@ async function loadAllYoutubeContent() {
     allVideos.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
- // YouTubeカードのHTML生成部分を書き換えます
+// YouTubeカードのHTML生成部分（モーダル再生対応）
 allVideos.forEach(item => {
   const itemDiv = document.createElement('div');
   itemDiv.className = 'youtube-item';
+  itemDiv.style.cursor = 'pointer';
 
   // 動画IDの抽出（YouTube URL または item 内の動画ID）
   const videoId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : '';
@@ -408,7 +409,7 @@ allVideos.forEach(item => {
     : '';
 
   itemDiv.innerHTML = `
-    <div class="youtube-player-wrapper" id="player-${videoId}">
+    <div class="youtube-player-wrapper" id="player-${videoId}" style="position: relative;">
       ${item.thumbnail ? `<img src="${item.thumbnail}" class="youtube-thumbnail" alt="thumbnail" loading="lazy">` : ''}
       <button class="play-btn" aria-label="再生">▶</button>
     </div>
@@ -419,20 +420,10 @@ allVideos.forEach(item => {
     </div>
   `;
 
-  // サムネイルエリアをタップしたらその場で iframe プレーヤーに差し替え
-  const playerWrapper = itemDiv.querySelector(`.youtube-player-wrapper`);
-  playerWrapper.onclick = () => {
+  // タップ時にモーダルで動画を開く
+  itemDiv.onclick = () => {
     if (!videoId) return;
-    playerWrapper.innerHTML = `
-      <iframe 
-        src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1" 
-        title="${item.title}"
-        frameborder="0" 
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-        allowfullscreen
-        style="width:100%; height:100%; aspect-ratio:16/9; border-radius:12px;">
-      </iframe>
-    `;
+    openYoutubeModal(videoId, item.title);
   };
 
   container.appendChild(itemDiv);
@@ -442,6 +433,94 @@ allVideos.forEach(item => {
     console.error(err);
     container.innerHTML = '<div class="loading">YouTube情報の取得中にエラーが発生しました</div>';
   }
+}
+
+// --- YouTube専用 モーダル再生用関数 ---
+function openYoutubeModal(videoId, title) {
+  const existingModal = document.getElementById('youtube-video-modal');
+  if (existingModal) existingModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'youtube-video-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    padding: 16px;
+    box-sizing: border-box;
+    backdrop-filter: blur(4px);
+  `;
+
+  const container = document.createElement('div');
+  container.style.cssText = `
+    width: 100%;
+    max-width: 800px;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  `;
+
+  const header = document.createElement('div');
+  header.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #1c1c1e;
+    color: #fff;
+  `;
+  header.innerHTML = `
+    <div style="font-size: 14px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 12px;">${title}</div>
+    <button id="close-yt-modal" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1;">✕</button>
+  `;
+
+  const playerWrapper = document.createElement('div');
+  playerWrapper.style.cssText = `
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%;
+    background: #000;
+  `;
+
+  const iframe = document.createElement('iframe');
+  iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1`;
+  iframe.title = title;
+  iframe.style.cssText = `
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+  `;
+  iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+  iframe.allowFullscreen = true;
+
+  playerWrapper.appendChild(iframe);
+  container.appendChild(header);
+  container.appendChild(playerWrapper);
+  modal.appendChild(container);
+
+  const closeModal = () => {
+    iframe.src = '';
+    modal.remove();
+  };
+
+  modal.onclick = (e) => {
+    if (e.target === modal) closeModal();
+  };
+  header.querySelector('#close-yt-modal').onclick = closeModal;
+
+  document.body.appendChild(modal);
 }
 
 function renderTabs(containerId, feeds, onClickCallback) {
