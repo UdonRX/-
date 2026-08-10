@@ -301,7 +301,7 @@ async function loadKnowledgeContent(url) {
   }
 }
 
-// --- Twitter 領域: Foloボタンのみの実装 ---
+// --- Twitter 領域: Foloアイコンボタン ＆ アプリ強制起動処理 ---
 function initTwitter() {
   const container = document.getElementById('twitter-content');
   if (!container) return;
@@ -312,33 +312,56 @@ function initTwitter() {
   foloWrapper.style.display = 'flex';
   foloWrapper.style.justifyContent = 'center';
   foloWrapper.style.alignItems = 'center';
-  foloWrapper.style.padding = '24px 0';
+  foloWrapper.style.padding = '20px 0';
 
-  const foloBtn = document.createElement('button');
-  foloBtn.className = 'btn';
-  foloBtn.textContent = 'Folo';
-  foloBtn.style.padding = '12px 32px';
-  foloBtn.style.fontSize = '16px';
-  foloBtn.style.fontWeight = 'bold';
-  foloBtn.style.cursor = 'pointer';
+  // 画像ボタンの生成
+  const foloBtn = document.createElement('a');
+  foloBtn.href = '#';
+  foloBtn.style.display = 'inline-block';
+  foloBtn.style.textDecoration = 'none';
+  foloBtn.style.transition = 'transform 0.1s ease, opacity 0.2s ease';
 
-  foloBtn.onclick = () => {
-    const targetUrl = 'https://app.folo.is/timeline/articles/all/pending';
+  // アイコン画像（※拡張子が.pngでない場合はここを修正してください）
+  const img = document.createElement('img');
+  img.src = 'icons/folo.png'; 
+  img.alt = 'Folo';
+  img.style.width = '64px';  // 好みに合わせてサイズ調整してください
+  img.style.height = '64px';
+  img.style.borderRadius = '16px'; // 角丸デザイン
+  img.style.objectFit = 'cover';
+  img.style.display = 'block';
+
+  foloBtn.appendChild(img);
+
+  // タップ時のフィードバック演出
+  foloBtn.addEventListener('touchstart', () => { foloBtn.style.transform = 'scale(0.92)'; });
+  foloBtn.addEventListener('touchend', () => { foloBtn.style.transform = 'scale(1)'; });
+
+  foloBtn.onclick = (e) => {
+    e.preventDefault();
+
+    const webUrl = 'https://app.folo.is/timeline/articles/all/pending';
+    const appScheme = 'follow://'; // アプリ固有のカスタムURLスキーム
+
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
 
     if (isIOS) {
-      // iPhone / iOS環境での遷移処理（Universal Link対応）
-      if (isStandalone) {
-        // ホーム画面追加Webアプリ（PWA）上から起動
-        window.location.href = targetUrl;
-      } else {
-        // 通常のWebブラウザ上から起動
-        window.open(targetUrl, '_blank', 'noopener,noreferrer');
-      }
+      // iPhoneの場合：カスタムスキームでアプリ起動を試みる
+      // Web App (PWA) や Safari 上からでも直接 follow:// への遷移を実行
+      window.location.href = appScheme;
+
+      // アプリがインストールされていない・開かなかった場合のフォールバック（0.5秒後にWeb版へ遷移）
+      const start = Date.now();
+      setTimeout(() => {
+        // バックグラウンドに移動（アプリが正常起動）した場合は遷移を防止
+        if (Date.now() - start < 1500) {
+          window.location.href = webUrl;
+        }
+      }, 500);
+
     } else {
-      // PC等その他ブラウザ上での起動
-      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      // PC等、iPhone以外の場合はブラウザで通常遷移
+      window.open(webUrl, '_blank', 'noopener,noreferrer');
     }
   };
 
