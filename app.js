@@ -396,7 +396,7 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（Shorts対応・ワンタップ直再生）
+// YouTubeカードのHTML生成部分（Shorts対応・完全自動再生対応）
 allVideos.forEach(item => {
   const itemDiv = document.createElement('div');
   itemDiv.className = 'youtube-item';
@@ -426,7 +426,7 @@ allVideos.forEach(item => {
     </div>
   `;
 
-  // 動画選択時に直接モーダルで再生（ワンタップ起動）
+  // 動画タップ時に自動再生でモーダル起動
   itemDiv.onclick = () => {
     if (!videoId) return;
     openYoutubeModal(videoId, item.title);
@@ -441,7 +441,15 @@ allVideos.forEach(item => {
   }
 }
 
-// --- YouTube専用 モーダル再生用関数 ---
+// --- YouTube APIスクリプトの動的読み込み ---
+if (!window.YT) {
+  const tag = document.createElement('script');
+  tag.src = "https://www.youtube.com/iframe_api";
+  const firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+}
+
+// --- YouTube専用 モーダル再生用関数（API直接起動による強制的自動再生） ---
 function openYoutubeModal(videoId, title) {
   const existingModal = document.getElementById('youtube-video-modal');
   if (existingModal) existingModal.remove();
@@ -493,31 +501,31 @@ function openYoutubeModal(videoId, title) {
   playerWrapper.style.cssText = `
     position: relative;
     width: 100%;
-    padding-top: 56.25%; /* 16:9 Aspect Ratio */
+    padding-top: 56.25%;
     background: #000;
   `;
 
-  const iframe = document.createElement('iframe');
-  iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1`;
-  iframe.title = title;
-  iframe.style.cssText = `
+  const iframeContainer = document.createElement('div');
+  iframeContainer.id = 'yt-player-target';
+  iframeContainer.style.cssText = `
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    border: none;
   `;
-  iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
-  iframe.allowFullscreen = true;
 
-  playerWrapper.appendChild(iframe);
+  playerWrapper.appendChild(iframeContainer);
   container.appendChild(header);
   container.appendChild(playerWrapper);
   modal.appendChild(container);
 
+  let player = null;
+
   const closeModal = () => {
-    iframe.src = '';
+    if (player && typeof player.destroy === 'function') {
+      player.destroy();
+    }
     modal.remove();
   };
 
@@ -527,6 +535,35 @@ function openYoutubeModal(videoId, title) {
   header.querySelector('#close-yt-modal').onclick = closeModal;
 
   document.body.appendChild(modal);
+
+  // YouTube APIを使用してプレーヤーを準備し直接自動再生を呼び出す
+  const createPlayer = () => {
+    player = new YT.Player('yt-player-target', {
+      videoId: videoId,
+      playerVars: {
+        autoplay: 1,
+        playsinline: 1,
+        rel: 0
+      },
+      events: {
+        onReady: (event) => {
+          event.target.playVideo();
+        }
+      }
+    });
+  };
+
+  if (window.YT && window.YT.Player) {
+    createPlayer();
+  } else {
+    // APIの準備待ち
+    const checkYT = setInterval(() => {
+      if (window.YT && window.YT.Player) {
+        clearInterval(checkYT);
+        createPlayer();
+      }
+    }, 50);
+  }
 }
 
 function renderTabs(containerId, feeds, onClickCallback) {
