@@ -396,7 +396,7 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（Sticky固定 ＆ プルダウン75%幅調整版）
+// YouTubeカードのHTML生成部分（背景不透過・バツボタン単体表示版）
 window.currentVideoList = [];
 window.selectedChannel = 'ALL';
 window.currentType = 'long';
@@ -431,23 +431,27 @@ channels.forEach(ch => {
   channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
 });
 
-// 3. UIの構築（sticky固定 ＋ 指定の並び順・幅設定）
+// 親コンテナ自体の高さを拡張（カード2個分程度広げる）
+if (container && container.parentElement) {
+  container.parentElement.style.minHeight = '650px';
+}
+
+// 3. UIの構築（不透過背景ヘッダー ＋ バツボタンのみ表示）
 container.innerHTML = `
-  <!-- スクロール時上部固定ヘッダーエリア -->
-  <div style="position: sticky; top: 0; background: inherit; z-index: 10; padding-top: 4px;">
-    <!-- ① チャンネル選択プルダウン（75%幅）＆解除バッジ（残り幅） -->
+  <!-- スクロール時上部固定ヘッダーエリア（不透過背景） -->
+  <div style="position: sticky; top: 0; background: #1c1c1e; z-index: 10; padding-top: 8px; margin-top: -4px;">
+    <!-- ① チャンネル選択プルダウン（75%幅）＆バツボタンのみ（残り幅） -->
     <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: center; width: 100%;">
-      <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.08); color: inherit; border: 1px solid rgba(255,255,255,0.2); font-size: 13px; box-sizing: border-box;">
+      <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.1); color: inherit; border: 1px solid rgba(255,255,255,0.2); font-size: 13px; box-sizing: border-box;">
         ${channelOptionsHtml}
       </select>
-      <div id="yt-channel-badge" style="display: none; flex: 1; min-width: 0; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.12); color: inherit; padding: 6px 8px; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-        <span id="yt-channel-badge-name" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold;"></span>
-        <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: inherit; opacity: 0.8; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 4px;">✕</button>
+      <div id="yt-channel-badge" style="display: none; flex: 1; min-width: 0; align-items: center; justify-content: center; background: rgba(255,255,255,0.15); border-radius: 6px; height: 31px; box-sizing: border-box;">
+        <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: inherit; opacity: 0.8; cursor: pointer; font-size: 16px; line-height: 1; padding: 4px 8px; width: 100%; height: 100%;" title="フィルター解除">✕</button>
       </div>
     </div>
 
     <!-- ② タブ（動画 / Shorts）＋ ③ 下部区切り線（横棒） -->
-    <div class="card-tabs yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 8px;">
+    <div class="card-tabs yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px;">
       <button id="yt-tab-long" class="tab-btn active" style="flex: 1; cursor: pointer;" onclick="switchYtTab('long')">動画</button>
       <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; cursor: pointer;" onclick="switchYtTab('short')">Shorts</button>
     </div>
@@ -466,14 +470,12 @@ window.updateVideoDisplay = function() {
   });
 
   const badgeDiv = document.getElementById('yt-channel-badge');
-  const badgeName = document.getElementById('yt-channel-badge-name');
   const selectElem = document.getElementById('yt-channel-select');
 
   if (selectElem) selectElem.value = window.selectedChannel;
 
   if (window.selectedChannel !== 'ALL') {
     if (badgeDiv) badgeDiv.style.display = 'flex';
-    if (badgeName) badgeName.textContent = window.selectedChannel;
   } else {
     if (badgeDiv) badgeDiv.style.display = 'none';
   }
@@ -553,6 +555,90 @@ updateVideoDisplay();
     console.error(err);
     container.innerHTML = '<div class="loading">YouTube情報の取得中にエラーが発生しました</div>';
   }
+}
+
+// --- グローバル定義: モーダル表示関数 ---
+window.openYoutubeModalByIndex = function(index) {
+  const list = window.currentVideoList;
+  if (!list || index < 0 || index >= list.length) return;
+
+  const item = list[index];
+  const videoId = item.videoId;
+  const title = item.title || '';
+
+  const existingModal = document.getElementById('youtube-video-modal');
+  if (existingModal) existingModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'youtube-video-modal';
+  modal.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.85) !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    z-index: 999999 !important;
+    padding: 16px !important;
+    box-sizing: border-box !important;
+  `;
+
+  const hasPrev = index > 0;
+  const hasNext = index < list.length - 1;
+
+  modal.innerHTML = `
+    <div style="width: 100%; max-width: 960px; background: #000; border-radius: 12px; overflow: hidden; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #1c1c1e; color: #fff;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <button onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'};">▲ 前</button>
+          <button onclick="openYoutubeModalByIndex(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'};">▼ 次</button>
+        </div>
+        <div style="font-size: 13px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 10px; flex: 1; text-align: center;">${title}</div>
+        <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1;">✕</button>
+      </div>
+      <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000;">
+        <iframe 
+          src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080" 
+          title="${title}"
+          style="position: absolute; top:0; left:0; width: 100%; height: 100%; border: none;"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+          allowfullscreen>
+        </iframe>
+      </div>
+    </div>
+  `;
+
+  modal.onclick = (e) => {
+    if (e.target === modal) window.closeYoutubeModal();
+  };
+
+  document.body.appendChild(modal);
+};
+
+window.closeYoutubeModal = function() {
+  const modal = document.getElementById('youtube-video-modal');
+  if (modal) modal.remove();
+};
+
+function renderTabs(containerId, feeds, onClickCallback) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+
+  feeds.forEach((feed, idx) => {
+    const btn = document.createElement('button');
+    btn.className = `tab-btn ${idx === 0 ? 'active' : ''}`;
+    btn.textContent = feed.name;
+    btn.onclick = () => {
+      container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      onClickCallback(feed.url);
+    };
+    container.appendChild(btn);
+  });
 }
 
 // --- グローバル定義: モーダル表示関数 ---
