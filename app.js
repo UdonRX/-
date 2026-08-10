@@ -395,24 +395,48 @@ async function loadAllYoutubeContent() {
     allVideos.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
-    allVideos.forEach(item => {
-      const itemDiv = document.createElement('div');
-      itemDiv.className = 'youtube-item';
+ // YouTubeカードのHTML生成部分を書き換えます
+allVideos.forEach(item => {
+  const itemDiv = document.createElement('div');
+  itemDiv.className = 'youtube-item';
 
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-        ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : '';
+  // 動画IDの抽出（YouTube URL または item 内の動画ID）
+  const videoId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : '';
 
-      itemDiv.innerHTML = `
-        ${item.thumbnail ? `<img src="${item.thumbnail}" class="youtube-thumbnail" alt="thumbnail" loading="lazy">` : ''}
-        <div class="youtube-info">
-          <div class="youtube-channel">${item.displayName}</div>
-          <a href="${item.link}" target="_blank" rel="noopener" class="youtube-link">${item.title}</a>
-          <div class="youtube-time">${dateStr}</div>
-        </div>
-      `;
-      container.appendChild(itemDiv);
-    });
+  const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+    ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  itemDiv.innerHTML = `
+    <div class="youtube-player-wrapper" id="player-${videoId}">
+      ${item.thumbnail ? `<img src="${item.thumbnail}" class="youtube-thumbnail" alt="thumbnail" loading="lazy">` : ''}
+      <button class="play-btn" aria-label="再生">▶</button>
+    </div>
+    <div class="youtube-info">
+      <div class="youtube-channel">${item.displayName}</div>
+      <div class="youtube-title">${item.title}</div>
+      <div class="youtube-time">${dateStr}</div>
+    </div>
+  `;
+
+  // サムネイルエリアをタップしたらその場で iframe プレーヤーに差し替え
+  const playerWrapper = itemDiv.querySelector(`.youtube-player-wrapper`);
+  playerWrapper.onclick = () => {
+    if (!videoId) return;
+    playerWrapper.innerHTML = `
+      <iframe 
+        src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1" 
+        title="${item.title}"
+        frameborder="0" 
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+        allowfullscreen
+        style="width:100%; height:100%; aspect-ratio:16/9; border-radius:12px;">
+      </iframe>
+    `;
+  };
+
+  container.appendChild(itemDiv);
+});
 
   } catch (err) {
     console.error(err);
