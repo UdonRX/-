@@ -242,9 +242,8 @@ async function loadNewsContent(url) {
         ? item.pubDate.toLocaleString('ja-JP') 
         : '';
 
-      // 【変更】外部ブラウザではなく、アプリ内の記事リーダーモーダルを直接開くように変更
       newsDiv.innerHTML = `
-        <a href="javascript:void(0);" onclick="openArticleModal('${item.link}')" class="news-link">${item.title}</a>
+        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
         <div class="news-time">${dateStr}</div>
       `;
       container.appendChild(newsDiv);
@@ -289,9 +288,8 @@ async function loadKnowledgeContent(url) {
         ? item.pubDate.toLocaleString('ja-JP') 
         : '';
 
-      // 【変更】外部ブラウザではなく、アプリ内の記事リーダーモーダルを直接開くように変更
       newsDiv.innerHTML = `
-        <a href="javascript:void(0);" onclick="openArticleModal('${item.link}')" class="news-link">${item.title}</a>
+        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
         <div class="news-time">${dateStr}</div>
       `;
       container.appendChild(newsDiv);
@@ -300,85 +298,6 @@ async function loadKnowledgeContent(url) {
     if (currentKnowledgeUrl !== url) return;
     console.error(err);
     container.innerHTML = '<div class="loading">知識の取得に失敗しました</div>';
-  }
-}
-
-// --- 追加: アプリ内テキスト抽出型リーダーモーダル処理 ---
-async function openArticleModal(url) {
-  let modal = document.getElementById('article-reader-modal');
-  
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'article-reader-modal';
-    modal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      background: rgba(0, 0, 0, 0.85);
-      z-index: 999990;
-      display: flex;
-      flex-direction: column;
-      box-sizing: border-box;
-      padding: 16px;
-    `;
-    modal.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; background: #222; padding: 12px 16px; border-radius: 8px 8px 0 0; color: #fff;">
-        <span id="article-modal-title" style="font-size: 14px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">記事リーダー</span>
-        <button id="close-article-btn" style="background: #e74c3c; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">閉じる</button>
-      </div>
-      <div id="article-body-content" style="width: 100%; flex-grow: 1; border: none; background: #fff; border-radius: 0 0 8px 8px; padding: 20px; overflow-y: auto; box-sizing: border-box; font-size: 15px; line-height: 1.6; color: #333;">
-        <div style="text-align: center; margin-top: 40px; color: #666;">記事を読み込んでいます...</div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-
-    document.getElementById('close-article-btn').onclick = () => {
-      modal.style.display = 'none';
-    };
-  } else {
-    modal.style.display = 'flex';
-    document.getElementById('article-body-content').innerHTML = '<div style="text-align: center; margin-top: 40px; color: #666;">記事を読み込んでいます...</div>';
-  }
-
-  try {
-    const apiUrl = `/api/scrape?url=${encodeURIComponent(url)}`;
-    const response = await fetch(apiUrl);
-    if (!response.ok) throw new Error('取得失敗');
-    
-    const htmlText = await response.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlText, 'text/html');
-
-    doc.querySelectorAll('script, style, nav, header, footer, aside, iframe').forEach(el => el.remove());
-
-    const pageTitle = doc.querySelector('h1')?.textContent || doc.querySelector('title')?.textContent || '記事詳細';
-    
-    let mainContentHtml = '';
-    const articleTag = doc.querySelector('article') || doc.querySelector('.post-content, .entry-content, .content, main');
-    
-    if (articleTag) {
-      mainContentHtml = articleTag.innerHTML;
-    } else {
-      const paragraphs = Array.from(doc.querySelectorAll('p')).map(p => p.outerHTML).join('');
-      mainContentHtml = paragraphs || '<p>本文をうまく抽出できませんでした。</p>';
-    }
-
-    document.getElementById('article-modal-title').textContent = pageTitle;
-    document.getElementById('article-body-content').innerHTML = `
-      <h2 style="font-size: 18px; margin-bottom: 16px; color: #111; line-height: 1.4;">${pageTitle}</h2>
-      <hr style="border: none; border-top: 1px solid #eee; margin-bottom: 16px;">
-      <div>${mainContentHtml}</div>
-    `;
-
-  } catch (err) {
-    console.error(err);
-    document.getElementById('article-body-content').innerHTML = `
-      <div style="color: #e74c3c; text-align: center; margin-top: 40px;">
-        セキュリティ制限や配信元の仕様により、この記事のテキストを直接取得できませんでした。
-      </div>
-    `;
   }
 }
 
