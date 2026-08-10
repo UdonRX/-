@@ -23,7 +23,6 @@ const DEFAULT_KNOWLEDGE = [
   { name: "GIGAZINE", url: "https://gigazine.net/news/rss_2.0/" }
 ];
 
-const DEFAULT_TWITTER = [];
 const DEFAULT_YOUTUBE = [];
 
 // --- Storage 管理関数 ---
@@ -47,7 +46,6 @@ function saveStoredFeeds(key, data) {
 // グローバル変数
 let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
 let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
-let twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
 let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 
 let currentNewsUrl = '';
@@ -57,7 +55,6 @@ let currentKnowledgeUrl = '';
 document.addEventListener('DOMContentLoaded', () => {
   newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
   knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
-  twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
   youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 
   initWeather();
@@ -76,8 +73,8 @@ function registerSW() {
   }
 }
 
-// --- 通信・パース共通処理 (自作Vercelプロキシ経由) ---
-async function fetchGenericRSS(feedUrl) {
+// --- 通信処理 ---
+async function fetchNewsRSS(feedUrl) {
   const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
   const response = await fetch(apiUrl);
   if (!response.ok) throw new Error('RSS取得エラー');
@@ -89,11 +86,6 @@ async function fetchGenericRSS(feedUrl) {
   if (xmlDoc.querySelector('parsererror')) {
     throw new Error('XMLパースエラー');
   }
-  return xmlDoc;
-}
-
-async function fetchNewsRSS(feedUrl) {
-  const xmlDoc = await fetchGenericRSS(feedUrl);
 
   let items = Array.from(xmlDoc.querySelectorAll('item, entry, アイテム'));
   if (items.length === 0) {
@@ -146,58 +138,19 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
-async function fetchTwitterRSS(feedUrl) {
-  const xmlDoc = await fetchGenericRSS(feedUrl);
-
-  const feedTitle = xmlDoc.querySelector('channel > title, feed > title')?.textContent?.trim() || '';
-  const items = Array.from(xmlDoc.querySelectorAll('item, entry'));
-
-  const getTagText = (parent, selectors) => {
-    for (const selector of selectors) {
-      const elem = parent.querySelector(selector);
-      if (elem && elem.textContent) return elem.textContent.trim();
-    }
-    return '';
-  };
-
-  const originalTweets = items.filter(item => {
-    const title = getTagText(item, ['title']) || '';
-    const isRetweet = /^RT\s/i.test(title.trim()) || /^RT\s+by\s/i.test(title.trim());
-    return !isRetweet;
-  });
-
-  return originalTweets.map(item => {
-    const title = getTagText(item, ['title']) || '無題';
-    let link = getTagText(item, ['link']);
-    if (!link) {
-      const linkElem = item.querySelector('link');
-      if (linkElem && linkElem.getAttribute('href')) {
-        link = linkElem.getAttribute('href');
-      }
-    }
-
-    const pubDateRaw = getTagText(item, ['pubDate', 'published', 'updated', 'date']);
-    let parsedDate = new Date(pubDateRaw);
-    if (isNaN(parsedDate.getTime())) parsedDate = new Date();
-
-    const description = getTagText(item, ['description', 'content', 'summary']) || title;
-    const author = getTagText(item, ['creator', 'dc\\:creator', 'author > name']) || feedTitle;
-
-    return {
-      title,
-      link,
-      pubDate: parsedDate,
-      description,
-      author,
-      feedTitle,
-      avatarUrl: ''
-    };
-  });
-}
-
 async function fetchYoutubeRSS(channelId) {
   const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
-  const xmlDoc = await fetchGenericRSS(feedUrl);
+  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
+  const response = await fetch(apiUrl);
+  if (!response.ok) throw new Error('YouTube RSS取得エラー');
+  const xmlText = await response.text();
+
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+
+  if (xmlDoc.querySelector('parsererror')) {
+    throw new Error('XMLパースエラー');
+  }
 
   const authorName = xmlDoc.querySelector('author > name')?.textContent?.trim() || '';
   const entries = Array.from(xmlDoc.querySelectorAll('entry'));
@@ -348,128 +301,49 @@ async function loadKnowledgeContent(url) {
   }
 }
 
+// --- Twitter 領域: Foloボタンのみの実装 ---
 function initTwitter() {
-  const addTwitterBtn = document.getElementById('add-twitter-btn');
-  if (addTwitterBtn && !document.getElementById('refresh-twitter-btn')) {
-    const refreshBtn = document.createElement('button');
-    refreshBtn.id = 'refresh-twitter-btn';
-    refreshBtn.type = 'button';
-    refreshBtn.className = 'btn';
-    refreshBtn.style.marginRight = '4px';
-    refreshBtn.style.padding = '6px';
-    refreshBtn.style.display = 'inline-flex';
-    refreshBtn.style.alignItems = 'center';
-    refreshBtn.style.justifyContent = 'center';
-    refreshBtn.innerHTML = '<img src="icons/refresh.png" alt="更新" style="width: 16px; height: 16px; display: block;">';
-    refreshBtn.title = '最新のツイートを取得';
-    refreshBtn.onclick = () => loadAllTwitterContent(true);
-    
-    // 追加ボタンの「左側（直前）」に更新ボタンを設置
-    addTwitterBtn.parentNode.insertBefore(refreshBtn, addTwitterBtn);
-  }
-
-  loadAllTwitterContent();
-}
-
-function extractUsername(rawText) {
-  if (!rawText) return '無題';
-  let cleaned = rawText.split(/[\(@\/]/)[0].trim();
-  return cleaned || rawText;
-}
-
-async function loadAllTwitterContent(isManualRefresh = false) {
   const container = document.getElementById('twitter-content');
-  const refreshBtn = document.getElementById('refresh-twitter-btn');
   if (!container) return;
+
+  container.innerHTML = '';
   
-  if (twitterFeeds.length === 0) {
-    container.innerHTML = '<div class="loading">配信先を追加してください。</div>';
-    return;
-  }
+  const foloWrapper = document.createElement('div');
+  foloWrapper.style.display = 'flex';
+  foloWrapper.style.justifyContent = 'center';
+  foloWrapper.style.alignItems = 'center';
+  foloWrapper.style.padding = '24px 0';
 
-  if (refreshBtn) {
-    refreshBtn.disabled = true;
-    refreshBtn.style.opacity = '0.5';
-  }
+  const foloBtn = document.createElement('button');
+  foloBtn.className = 'btn';
+  foloBtn.textContent = 'Folo';
+  foloBtn.style.padding = '12px 32px';
+  foloBtn.style.fontSize = '16px';
+  foloBtn.style.fontWeight = 'bold';
+  foloBtn.style.cursor = 'pointer';
 
-  container.innerHTML = '<div class="loading">すべてのツイートを読み込み中...</div>';
+  foloBtn.onclick = () => {
+    const targetUrl = 'https://app.folo.is/timeline/articles/all/pending';
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
 
-  try {
-    const fetchPromises = twitterFeeds.map(async (feed) => {
-      try {
-        const fetchUrl = isManualRefresh 
-          ? `${feed.url}${feed.url.includes('?') ? '&' : '?'}_t=${Date.now()}` 
-          : feed.url;
-        const items = await fetchTwitterRSS(fetchUrl);
-        return items.map(item => ({
-          ...item,
-          accountName: feed.name
-        }));
-      } catch (err) {
-        console.error(`Failed to fetch feed for ${feed.name}:`, err);
-        return [];
+    if (isIOS) {
+      // iPhone / iOS環境での遷移処理（Universal Link対応）
+      if (isStandalone) {
+        // ホーム画面追加Webアプリ（PWA）上から起動
+        window.location.href = targetUrl;
+      } else {
+        // 通常のWebブラウザ上から起動
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
       }
-    });
-
-    const results = await Promise.all(fetchPromises);
-    let allTweets = results.flat();
-
-    if (allTweets.length === 0) {
-      container.innerHTML = '<div class="loading">ツイートを取得できませんでした</div>';
-      return;
+    } else {
+      // PC等その他ブラウザ上での起動
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
     }
+  };
 
-    allTweets.sort((a, b) => b.pubDate - a.pubDate);
-
-    container.innerHTML = '';
-    allTweets.forEach(item => {
-      const tweetDiv = document.createElement('div');
-      tweetDiv.className = 'tweet-item';
-      
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-        ? item.pubDate.toLocaleString('ja-JP', { 
-            timeZone: 'Asia/Tokyo',
-            month: 'numeric', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          })
-        : '';
-
-      const rawTitle = item.feedTitle || item.author || item.title;
-      const author = extractUsername(rawTitle);
-
-      const avatarHtml = item.avatarUrl
-        ? `<img src="${item.avatarUrl}" class="tweet-avatar" alt="${author}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tweet-avatar-placeholder&quot;>${author.charAt(0)}</div>';">`
-        : `<div class="tweet-avatar-placeholder">${author.charAt(0)}</div>`;
-
-      let cleanDescription = item.description
-        .replace(/<hr\s*\/?>/gi, '')
-        .replace(/<b>\s*(リンク|Link)\s*<\/b>/gi, '')
-        .replace(/(リンク|Link)<br\s*\/?>/gi, '');
-
-      tweetDiv.innerHTML = `
-        <div class="tweet-header">
-          <div class="tweet-user-info">
-            ${avatarHtml}
-            <span class="tweet-account">${author}</span>
-          </div>
-          <span class="tweet-time">${dateStr}</span>
-        </div>
-        <div class="tweet-body">${cleanDescription}</div>
-      `;
-      container.appendChild(tweetDiv);
-    });
-
-  } catch (err) {
-    console.error(err);
-    container.innerHTML = '<div class="loading">ツイートの取得中にエラーが発生しました</div>';
-  } finally {
-    if (refreshBtn) {
-      refreshBtn.disabled = false;
-      refreshBtn.style.opacity = '1';
-    }
-  }
+  foloWrapper.appendChild(foloBtn);
+  container.appendChild(foloWrapper);
 }
 
 function initYoutube() {
@@ -650,7 +524,7 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  const setupManageModal = (title, feeds, onSave, onRefresh, isTwitter = false) => {
+  const setupManageModal = (title, feeds, onSave, onRefresh) => {
     cleanupExtraButtons();
     modalTitle.textContent = title;
     
@@ -681,8 +555,7 @@ function initModals() {
             },
             () => {
               renderList();
-            },
-            isTwitter
+            }
           );
         }
       );
@@ -704,7 +577,7 @@ function initModals() {
     };
   }
 
-  // 2. ニュース管理ボタン
+  // 2. ニュース削除（管理）ボタン
   const delNewsBtn = document.getElementById('del-news-btn');
   if (delNewsBtn) {
     delNewsBtn.onclick = () => {
@@ -727,7 +600,7 @@ function initModals() {
     };
   }
 
-  // 4. 知識管理ボタン
+  // 4. 知識削除（管理）ボタン
   const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
@@ -738,52 +611,7 @@ function initModals() {
     };
   }
 
-  // 5. Twitter追加ボタン
-  const addTwitterBtn = document.getElementById('add-twitter-btn');
-  if (addTwitterBtn) {
-    addTwitterBtn.onclick = () => {
-      setupMultiAddModal('Twitter RSSを追加', '配信先', 'ユーザーID', (newItems) => {
-        const formattedItems = newItems.map(item => {
-          let cleanUrl = item.url.trim();
-          if (cleanUrl.startsWith('https://nitter.net')) {
-            return { name: item.name, url: cleanUrl };
-          }
-          const cleanUserId = cleanUrl.replace(/^@/, '');
-          return {
-            name: item.name,
-            url: `https://nitter.net/${cleanUserId}/rss`
-          };
-        });
-
-        twitterFeeds.push(...formattedItems);
-        saveStoredFeeds('twitterFeeds', twitterFeeds);
-        initTwitter();
-      });
-
-      const nitterBtn = document.createElement('button');
-      nitterBtn.id = 'modal-nitter-btn';
-      nitterBtn.type = 'button';
-      nitterBtn.className = 'btn';
-      nitterBtn.textContent = 'Nitter';
-      nitterBtn.onclick = () => {
-        window.open('https://nitter.net', '_blank', 'noopener,noreferrer');
-      };
-      cancelBtn.parentNode.insertBefore(nitterBtn, cancelBtn);
-    };
-  }
-
-  // 6. Twitter管理ボタン
-  const delTwitterBtn = document.getElementById('del-twitter-btn');
-  if (delTwitterBtn) {
-    delTwitterBtn.onclick = () => {
-      setupManageModal('Twitterアカウントの管理', twitterFeeds, (updated) => {
-        twitterFeeds = updated;
-        saveStoredFeeds('twitterFeeds', twitterFeeds);
-      }, initTwitter, true);
-    };
-  }
-
-  // 7. YouTube追加ボタン
+  // 5. YouTube追加ボタン
   const addYoutubeBtn = document.getElementById('add-youtube-btn');
   if (addYoutubeBtn) {
     addYoutubeBtn.onclick = () => {
@@ -805,7 +633,7 @@ function initModals() {
     };
   }
 
-  // 8. YouTube管理ボタン
+  // 6. YouTube削除（管理）ボタン
   const delYoutubeBtn = document.getElementById('del-youtube-btn');
   if (delYoutubeBtn) {
     delYoutubeBtn.onclick = () => {
@@ -915,7 +743,7 @@ function renderManageList(feeds, saveCallback, onEdit) {
   });
 }
 
-function showEditModal(feed, onOverwrite, onCancel, isTwitter = false) {
+function showEditModal(feed, onOverwrite, onCancel) {
   const modalTitle = document.getElementById('modal-title');
   const modalBody = document.getElementById('modal-body');
   const cancelBtn = document.getElementById('modal-cancel-btn');
@@ -958,28 +786,14 @@ function showEditModal(feed, onOverwrite, onCancel, isTwitter = false) {
     submitBtn.textContent = '上書き';
     submitBtn.onclick = () => {
       const newName = document.getElementById('edit-name-input').value.trim();
-      let newUrl = document.getElementById('edit-url-input').value.trim();
+      const newUrl = document.getElementById('edit-url-input').value.trim();
 
       if (!newName) {
         alert('名前を入力してください');
         return;
       }
 
-      let finalUrl = feed.url;
-
-      if (newUrl) {
-        if (isTwitter) {
-          if (newUrl.startsWith('https://nitter.net')) {
-            finalUrl = newUrl;
-          } else {
-            const cleanUserId = newUrl.replace(/^@/, '');
-            finalUrl = `https://nitter.net/${cleanUserId}/rss`;
-          }
-        } else {
-          finalUrl = newUrl;
-        }
-      }
-
+      const finalUrl = newUrl || feed.url;
       onOverwrite({ ...feed, name: newName, url: finalUrl, isError: false });
     };
   }
