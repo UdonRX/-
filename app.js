@@ -396,10 +396,20 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（右下固定＆ドラッグ/タッチ移動対応ミニプレイヤー版）
+// YouTubeカードのHTML生成部分（YouTube IFrame APIによる高画質強制指定版）
+
+// 1. YouTube APIスクリプトの動的読み込み（未読み込みの場合）
+if (!window.YT) {
+  const tag = document.createElement('script');
+  tag.src = "https://www.youtube.com/iframe_api";
+  const firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+}
+
 window.currentVideoList = [];
 window.selectedChannel = 'ALL'; // 選択中チャンネルのグローバル保持
 window.modalPos = { x: null, y: null }; // ドラッグ後の位置保持用
+window.ytPlayerInstance = null; // YouTube API プレイヤーインスタンス
 
 // 1. 動画(通常)とShortsの自動判定・分類およびチャンネル一覧抽出
 const allVideoDataList = [];
@@ -424,7 +434,7 @@ allVideos.forEach(item => {
   }
 });
 
-// 2. UI（白背景スクロール固定ヘッダー・幅指定プルダウン・テーブルコンテナ）の生成
+// 2. UIの生成
 const channels = Array.from(channelSet);
 let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
 channels.forEach(ch => {
@@ -432,10 +442,7 @@ channels.forEach(ch => {
 });
 
 container.innerHTML = `
-  <!-- 白背景の固定ヘッダーエリア -->
   <div style="position: sticky; top: 0; z-index: 100; background: #ffffff; padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
-    
-    <!-- 1段目: 75%幅のプルダウン ＋ 25%幅の✕ボタン領域 -->
     <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
       <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: #ffffff; color: #333333; border: 1px solid #ccc; font-size: 13px; box-sizing: border-box;">
         ${channelOptionsHtml}
@@ -446,20 +453,17 @@ container.innerHTML = `
       </div>
     </div>
 
-    <!-- 2段目: 動画(50%) / Shorts(50%) 切替タブ -->
     <div style="display: flex; gap: 8px;">
       <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-weight: bold;" onclick="switchYtTab('long')">動画</button>
       <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px;" onclick="switchYtTab('short')">Shorts</button>
     </div>
   </div>
 
-  <!-- 動画テーブル出力領域 -->
   <div id="yt-table-container"></div>
 `;
 
-window.currentType = 'long'; // 現在選択中のタイプ ('long' または 'short')
+window.currentType = 'long';
 
-// 絞り込み実行＆描画更新
 window.updateVideoDisplay = function() {
   const filtered = allVideoDataList.filter(item => {
     const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
@@ -481,7 +485,6 @@ window.updateVideoDisplay = function() {
   renderVideoTable(filtered);
 };
 
-// タブ切替関数
 window.switchYtTab = function(type) {
   window.currentType = type;
   const btnLong = document.getElementById('yt-tab-long');
@@ -508,19 +511,16 @@ window.switchYtTab = function(type) {
   updateVideoDisplay();
 };
 
-// チャンネルフィルタ変更関数
 window.filterYtByChannel = function(channelName) {
   window.selectedChannel = channelName;
   updateVideoDisplay();
 };
 
-// チャンネルフィルタ解除関数
 window.resetYtChannelFilter = function() {
   window.selectedChannel = 'ALL';
   updateVideoDisplay();
 };
 
-// 3. テーブル描画関数
 function renderVideoTable(videos) {
   window.currentVideoList = videos;
   const tableContainer = document.getElementById('yt-table-container');
@@ -558,7 +558,6 @@ function renderVideoTable(videos) {
   tableContainer.innerHTML = html;
 }
 
-// 初期描画
 updateVideoDisplay();
 
   } catch (err) {
@@ -567,7 +566,7 @@ updateVideoDisplay();
   }
 }
 
-// --- グローバル定義: 移動可能ミニプレイヤー表示関数 ---
+// --- 高画質制御付きミニプレイヤー表示関数 ---
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
@@ -575,6 +574,12 @@ window.openYoutubeModalByIndex = function(index) {
   const item = list[index];
   const videoId = item.videoId;
   const title = item.title || '';
+
+  // 既存プレイヤーインスタンスの破棄
+  if (window.ytPlayerInstance && typeof window.ytPlayerInstance.destroy === 'function') {
+    window.ytPlayerInstance.destroy();
+    window.ytPlayerInstance = null;
+  }
 
   let modal = document.getElementById('youtube-video-modal');
   if (!modal) {
@@ -586,7 +591,6 @@ window.openYoutubeModalByIndex = function(index) {
   const hasPrev = index > 0;
   const hasNext = index < list.length - 1;
 
-  // 基本スタイル適用
   modal.style.cssText = `
     position: fixed !important;
     width: min(320px, 85vw) !important;
@@ -600,7 +604,6 @@ window.openYoutubeModalByIndex = function(index) {
     touch-action: none;
   `;
 
-  // 位置の適用（ドラッグ移動後の保存位置があればそれを使用、なければ右下デフォルト）
   if (window.modalPos.x !== null && window.modalPos.y !== null) {
     modal.style.left = `${window.modalPos.x}px`;
     modal.style.top = `${window.modalPos.y}px`;
@@ -615,7 +618,6 @@ window.openYoutubeModalByIndex = function(index) {
 
   modal.innerHTML = `
     <div style="width: 100%; background: #000; position: relative;">
-      <!-- コントロールバー（ここを掴んでドラッグ移動） -->
       <div id="yt-modal-drag-handle" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #1c1c1e; color: #fff; font-size: 12px; cursor: move; user-select: none; -webkit-user-select: none;">
         <div style="display: flex; align-items: center; gap: 4px;">
           <button onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'}; font-size: 11px;">▲ 前</button>
@@ -624,24 +626,52 @@ window.openYoutubeModalByIndex = function(index) {
         <div style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">⠿ ${title}</div>
         <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
       </div>
-      <!-- 埋め込みプレイヤー領域 -->
       <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000;">
-        <iframe 
-          src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080" 
-          title="${title}"
-          style="position: absolute; top:0; left:0; width: 100%; height: 100%; border: none;"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-          allowfullscreen>
-        </iframe>
+        <div id="yt-iframe-placeholder" style="position: absolute; top:0; left:0; width: 100%; height: 100%;"></div>
       </div>
     </div>
   `;
 
-  // ドラッグ＆タッチ移動イベントの設定
   setupModalDrag(modal);
+
+  // YouTube IFrame API経由でプレイヤーを生成し高画質を要求
+  const createPlayer = () => {
+    window.ytPlayerInstance = new YT.Player('yt-iframe-placeholder', {
+      videoId: videoId,
+      playerVars: {
+        'autoplay': 1,
+        'playsinline': 1,
+        'rel': 0,
+        'enablejsapi': 1
+      },
+      events: {
+        'onReady': (event) => {
+          event.target.playVideo();
+          // API経由で1080p（高画質）を明示的に要求
+          if (typeof event.target.setPlaybackQuality === 'function') {
+            event.target.setPlaybackQuality('hd1080');
+          }
+        },
+        'onStateChange': (event) => {
+          // 再生開始時にも画質指定を再実行
+          if (event.data === YT.PlayerState.PLAYING) {
+            if (typeof event.target.setPlaybackQuality === 'function') {
+              event.target.setPlaybackQuality('hd1080');
+            }
+          }
+        }
+      }
+    });
+  };
+
+  if (window.YT && window.YT.Player) {
+    createPlayer();
+  } else {
+    // APIの準備完了を待ってから実行
+    window.onYouTubeIframeAPIReady = createPlayer;
+  }
 };
 
-// ドラッグ/タッチ移動処理関数
 function setupModalDrag(modal) {
   const handle = modal.querySelector('#yt-modal-drag-handle');
   if (!handle) return;
@@ -651,7 +681,6 @@ function setupModalDrag(modal) {
   let initialLeft = 0, initialTop = 0;
 
   const onStart = (e) => {
-    // ボタン操作時はドラッグを発動しない
     if (e.target.tagName === 'BUTTON') return;
 
     isDragging = true;
@@ -683,7 +712,6 @@ function setupModalDrag(modal) {
     let newLeft = initialLeft + deltaX;
     let newTop = initialTop + deltaY;
 
-    // 画面外へ飛び出さない制御
     const maxLeft = window.innerWidth - modal.offsetWidth;
     const maxTop = window.innerHeight - modal.offsetHeight;
 
@@ -693,7 +721,6 @@ function setupModalDrag(modal) {
     modal.style.left = `${newLeft}px`;
     modal.style.top = `${newTop}px`;
 
-    // 最後に動かした位置を記録
     window.modalPos.x = newLeft;
     window.modalPos.y = newTop;
   };
@@ -712,6 +739,10 @@ function setupModalDrag(modal) {
 }
 
 window.closeYoutubeModal = function() {
+  if (window.ytPlayerInstance && typeof window.ytPlayerInstance.destroy === 'function') {
+    window.ytPlayerInstance.destroy();
+    window.ytPlayerInstance = null;
+  }
   const modal = document.getElementById('youtube-video-modal');
   if (modal) modal.remove();
 };
