@@ -396,7 +396,7 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（グローバル連携・イベント確実に発火版）
+// YouTubeカードのHTML生成部分（高画質化パラメータ調整・モーダル最適化版）
 window.currentVideoList = [];
 
 // 1. 動画(通常)とShortsの自動判定・分類
@@ -526,7 +526,7 @@ window.openYoutubeModalByIndex = function(index) {
   const hasNext = index < list.length - 1;
 
   modal.innerHTML = `
-    <div style="width: 100%; max-width: 800px; background: #000; border-radius: 12px; overflow: hidden; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+    <div style="width: 100%; max-width: 960px; background: #000; border-radius: 12px; overflow: hidden; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
       <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #1c1c1e; color: #fff;">
         <div style="display: flex; align-items: center; gap: 6px;">
           <button onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'};">▲ 前</button>
@@ -537,7 +537,7 @@ window.openYoutubeModalByIndex = function(index) {
       </div>
       <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000;">
         <iframe 
-          src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1" 
+          src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080" 
           title="${title}"
           style="position: absolute; top:0; left:0; width: 100%; height: 100%; border: none;"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
