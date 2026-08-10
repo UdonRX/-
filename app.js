@@ -396,20 +396,10 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（YouTube IFrame APIによる高画質強制指定版）
-
-// 1. YouTube APIスクリプトの動的読み込み（未読み込みの場合）
-if (!window.YT) {
-  const tag = document.createElement('script');
-  tag.src = "https://www.youtube.com/iframe_api";
-  const firstScriptTag = document.getElementsByTagName('script')[0];
-  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-}
-
+// YouTubeカードのHTML生成部分（CSS Scale縮小による高画質強制維持版）
 window.currentVideoList = [];
 window.selectedChannel = 'ALL'; // 選択中チャンネルのグローバル保持
 window.modalPos = { x: null, y: null }; // ドラッグ後の位置保持用
-window.ytPlayerInstance = null; // YouTube API プレイヤーインスタンス
 
 // 1. 動画(通常)とShortsの自動判定・分類およびチャンネル一覧抽出
 const allVideoDataList = [];
@@ -566,7 +556,7 @@ updateVideoDisplay();
   }
 }
 
-// --- 高画質制御付きミニプレイヤー表示関数 ---
+// --- 高画質維持（CSS Scale縮小）ミニプレイヤー表示関数 ---
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
@@ -574,12 +564,6 @@ window.openYoutubeModalByIndex = function(index) {
   const item = list[index];
   const videoId = item.videoId;
   const title = item.title || '';
-
-  // 既存プレイヤーインスタンスの破棄
-  if (window.ytPlayerInstance && typeof window.ytPlayerInstance.destroy === 'function') {
-    window.ytPlayerInstance.destroy();
-    window.ytPlayerInstance = null;
-  }
 
   let modal = document.getElementById('youtube-video-modal');
   if (!modal) {
@@ -591,6 +575,7 @@ window.openYoutubeModalByIndex = function(index) {
   const hasPrev = index > 0;
   const hasNext = index < list.length - 1;
 
+  // 外枠（ミニプレイヤーサイズ: 幅320px）
   modal.style.cssText = `
     position: fixed !important;
     width: min(320px, 85vw) !important;
@@ -618,6 +603,7 @@ window.openYoutubeModalByIndex = function(index) {
 
   modal.innerHTML = `
     <div style="width: 100%; background: #000; position: relative;">
+      <!-- コントロールバー -->
       <div id="yt-modal-drag-handle" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #1c1c1e; color: #fff; font-size: 12px; cursor: move; user-select: none; -webkit-user-select: none;">
         <div style="display: flex; align-items: center; gap: 4px;">
           <button onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'}; font-size: 11px;">▲ 前</button>
@@ -626,50 +612,24 @@ window.openYoutubeModalByIndex = function(index) {
         <div style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">⠿ ${title}</div>
         <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
       </div>
-      <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000;">
-        <div id="yt-iframe-placeholder" style="position: absolute; top:0; left:0; width: 100%; height: 100%;"></div>
+
+      <!-- プレイヤーコンテナ（16:9 保持） -->
+      <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; overflow: hidden;">
+        <!-- 内部で 1280x720 の大型解像度として作成し、CSSスケールで 50% 縮小表示させる -->
+        <div style="position: absolute; top: 0; left: 0; width: 200%; height: 200%; transform: scale(0.5); transform-origin: 0 0;">
+          <iframe 
+            src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080" 
+            title="${title}"
+            style="width: 100%; height: 100%; border: none;"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+            allowfullscreen>
+          </iframe>
+        </div>
       </div>
     </div>
   `;
 
   setupModalDrag(modal);
-
-  // YouTube IFrame API経由でプレイヤーを生成し高画質を要求
-  const createPlayer = () => {
-    window.ytPlayerInstance = new YT.Player('yt-iframe-placeholder', {
-      videoId: videoId,
-      playerVars: {
-        'autoplay': 1,
-        'playsinline': 1,
-        'rel': 0,
-        'enablejsapi': 1
-      },
-      events: {
-        'onReady': (event) => {
-          event.target.playVideo();
-          // API経由で1080p（高画質）を明示的に要求
-          if (typeof event.target.setPlaybackQuality === 'function') {
-            event.target.setPlaybackQuality('hd1080');
-          }
-        },
-        'onStateChange': (event) => {
-          // 再生開始時にも画質指定を再実行
-          if (event.data === YT.PlayerState.PLAYING) {
-            if (typeof event.target.setPlaybackQuality === 'function') {
-              event.target.setPlaybackQuality('hd1080');
-            }
-          }
-        }
-      }
-    });
-  };
-
-  if (window.YT && window.YT.Player) {
-    createPlayer();
-  } else {
-    // APIの準備完了を待ってから実行
-    window.onYouTubeIframeAPIReady = createPlayer;
-  }
 };
 
 function setupModalDrag(modal) {
@@ -739,10 +699,6 @@ function setupModalDrag(modal) {
 }
 
 window.closeYoutubeModal = function() {
-  if (window.ytPlayerInstance && typeof window.ytPlayerInstance.destroy === 'function') {
-    window.ytPlayerInstance.destroy();
-    window.ytPlayerInstance = null;
-  }
   const modal = document.getElementById('youtube-video-modal');
   if (modal) modal.remove();
 };
