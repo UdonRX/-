@@ -396,7 +396,7 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（指定順序：プルダウン ➔ タブ ➔ 横棒 修正版）
+// YouTubeカードのHTML生成部分（Sticky固定 ＆ プルダウン75%幅調整版）
 window.currentVideoList = [];
 window.selectedChannel = 'ALL';
 window.currentType = 'long';
@@ -431,23 +431,26 @@ channels.forEach(ch => {
   channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
 });
 
-// 3. UIの構築（指定された並び順：プルダウン ➔ タブ ➔ 下部横棒）
+// 3. UIの構築（sticky固定 ＋ 指定の並び順・幅設定）
 container.innerHTML = `
-  <!-- ① チャンネル選択プルダウン＆解除バッジ -->
-  <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: center;">
-    <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.05); color: inherit; border: 1px solid rgba(255,255,255,0.2); font-size: 13px;">
-      ${channelOptionsHtml}
-    </select>
-    <div id="yt-channel-badge" style="display: none; flex: 1; min-width: 0; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.1); color: inherit; padding: 6px 10px; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-      <span id="yt-channel-badge-name" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold;"></span>
-      <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: inherit; opacity: 0.7; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 6px;">✕</button>
+  <!-- スクロール時上部固定ヘッダーエリア -->
+  <div style="position: sticky; top: 0; background: inherit; z-index: 10; padding-top: 4px;">
+    <!-- ① チャンネル選択プルダウン（75%幅）＆解除バッジ（残り幅） -->
+    <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: center; width: 100%;">
+      <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.08); color: inherit; border: 1px solid rgba(255,255,255,0.2); font-size: 13px; box-sizing: border-box;">
+        ${channelOptionsHtml}
+      </select>
+      <div id="yt-channel-badge" style="display: none; flex: 1; min-width: 0; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.12); color: inherit; padding: 6px 8px; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
+        <span id="yt-channel-badge-name" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold;"></span>
+        <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: inherit; opacity: 0.8; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 4px;">✕</button>
+      </div>
     </div>
-  </div>
 
-  <!-- ② タブ（動画 / Shorts）＋ ③ 下部区切り線（横棒） -->
-  <div class="card-tabs yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
-    <button id="yt-tab-long" class="tab-btn active" style="flex: 1; cursor: pointer;" onclick="switchYtTab('long')">動画</button>
-    <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; cursor: pointer;" onclick="switchYtTab('short')">Shorts</button>
+    <!-- ② タブ（動画 / Shorts）＋ ③ 下部区切り線（横棒） -->
+    <div class="card-tabs yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 8px;">
+      <button id="yt-tab-long" class="tab-btn active" style="flex: 1; cursor: pointer;" onclick="switchYtTab('long')">動画</button>
+      <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; cursor: pointer;" onclick="switchYtTab('short')">Shorts</button>
+    </div>
   </div>
 
   <!-- 動画リスト表示コンテナ -->
@@ -635,6 +638,7 @@ function renderTabs(containerId, feeds, onClickCallback) {
     container.appendChild(btn);
   });
 }
+
 // --- モーダル表示関数 ---
 function openYoutubeModalByIndex(index) {
   if (!currentVideoList || index < 0 || index >= currentVideoList.length) return;
