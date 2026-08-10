@@ -396,44 +396,106 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（Shorts対応・完全自動再生対応）
-allVideos.forEach(item => {
-  const itemDiv = document.createElement('div');
-  itemDiv.className = 'youtube-item';
-  itemDiv.style.cursor = 'pointer';
+// YouTubeカードのHTML生成部分（タブ切り替え・テーブル表示・前後移動付きモーダル）
+let currentVideoList = []; // 現在選択中タブの動画リストを保持
 
-  // 動画IDの抽出（通常の v= パラメータ、または /shorts/ URLに対応）
+// 1. 動画(通常)とShortsの自動判定・分類
+const longVideos = [];
+const shortsVideos = [];
+
+allVideos.forEach(item => {
   let videoId = '';
-  if (item.link.includes('v=')) {
-    videoId = item.link.split('v=')[1]?.split('&')[0];
-  } else if (item.link.includes('/shorts/')) {
+  let isShort = false;
+
+  if (item.link.includes('/shorts/')) {
     videoId = item.link.split('/shorts/')[1]?.split('?')[0];
+    isShort = true;
+  } else if (item.link.includes('v=')) {
+    videoId = item.link.split('v=')[1]?.split('&')[0];
   }
 
-  const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-    ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : '';
-
-  itemDiv.innerHTML = `
-    <div class="youtube-player-wrapper" id="player-${videoId}" style="position: relative;">
-      ${item.thumbnail ? `<img src="${item.thumbnail}" class="youtube-thumbnail" alt="thumbnail" loading="lazy">` : ''}
-      <button class="play-btn" aria-label="再生">▶</button>
-    </div>
-    <div class="youtube-info">
-      <div class="youtube-channel">${item.displayName}</div>
-      <div class="youtube-title">${item.title}</div>
-      <div class="youtube-time">${dateStr}</div>
-    </div>
-  `;
-
-  // 動画タップ時に自動再生でモーダル起動
-  itemDiv.onclick = () => {
-    if (!videoId) return;
-    openYoutubeModal(videoId, item.title);
-  };
-
-  container.appendChild(itemDiv);
+  const videoData = { ...item, videoId, isShort };
+  if (isShort) {
+    shortsVideos.push(videoData);
+  } else {
+    longVideos.push(videoData);
+  }
 });
+
+// 2. タブ（動画 / Shorts）の描画
+container.innerHTML = `
+  <div class="yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px;">
+    <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 6px 12px; cursor: pointer;">動画 (${longVideos.length})</button>
+    <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 6px 12px; cursor: pointer;">Shorts (${shortsVideos.length})</button>
+  </div>
+  <div id="yt-table-container"></div>
+`;
+
+const tableContainer = container.querySelector('#yt-table-container');
+const tabLongBtn = container.querySelector('#yt-tab-long');
+const tabShortsBtn = container.querySelector('#yt-tab-shorts');
+
+// 3. テーブル表示関数
+function renderVideoTable(videos) {
+  currentVideoList = videos; // 前後切替用にリストを記憶
+  tableContainer.innerHTML = '';
+
+  if (videos.length === 0) {
+    tableContainer.innerHTML = '<div class="loading">動画がありません</div>';
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'yt-video-table';
+  table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px;';
+
+  videos.forEach((item, index) => {
+    const tr = document.createElement('tr');
+    tr.style.cssText = 'border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer;';
+    
+    const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+      ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+
+    tr.innerHTML = `
+      <td style="padding: 8px 4px; width: 70px;">
+        <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
+          ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
+          <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.2); color:#fff; font-size:10px;">▶</div>
+        </div>
+      </td>
+      <td style="padding: 8px 4px; vertical-align: middle;">
+        <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title}</div>
+        <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName} • ${dateStr}</div>
+      </td>
+    `;
+
+    tr.onclick = () => {
+      if (!item.videoId) return;
+      openYoutubeModalByIndex(index);
+    };
+
+    table.appendChild(tr);
+  });
+
+  tableContainer.appendChild(table);
+}
+
+// タブ切り替えイベント
+tabLongBtn.onclick = () => {
+  tabLongBtn.classList.add('active');
+  tabShortsBtn.classList.remove('active');
+  renderVideoTable(longVideos);
+};
+
+tabShortsBtn.onclick = () => {
+  tabShortsBtn.classList.add('active');
+  tabLongBtn.classList.remove('active');
+  renderVideoTable(shortsVideos);
+};
+
+// 初期表示（動画タブ）
+renderVideoTable(longVideos);
 
   } catch (err) {
     console.error(err);
@@ -449,8 +511,14 @@ if (!window.YT) {
   firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 }
 
-// --- YouTube専用 モーダル再生用関数（API直接起動による強制的自動再生） ---
-function openYoutubeModal(videoId, title) {
+// --- インデックス（配列位置）指定でモーダルを開く関数 ---
+function openYoutubeModalByIndex(index) {
+  if (index < 0 || index >= currentVideoList.length) return;
+
+  const item = currentVideoList[index];
+  const videoId = item.videoId;
+  const title = item.title;
+
   const existingModal = document.getElementById('youtube-video-modal');
   if (existingModal) existingModal.remove();
 
@@ -483,17 +551,25 @@ function openYoutubeModal(videoId, title) {
     box-shadow: 0 10px 25px rgba(0,0,0,0.5);
   `;
 
+  // ヘッダー（タイトル・前後ナビゲーションボタン・閉じるボタン）
+  const hasPrev = index > 0;
+  const hasNext = index < currentVideoList.length - 1;
+
   const header = document.createElement('div');
   header.style.cssText = `
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    padding: 8px 12px;
     background: #1c1c1e;
     color: #fff;
   `;
   header.innerHTML = `
-    <div style="font-size: 14px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 12px;">${title}</div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <button id="yt-prev-btn" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'};">▲ 前</button>
+      <button id="yt-next-btn" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'};">▼ 次</button>
+    </div>
+    <div style="font-size: 13px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 10px; flex: 1; text-align: center;">${title}</div>
     <button id="close-yt-modal" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1;">✕</button>
   `;
 
@@ -534,9 +610,27 @@ function openYoutubeModal(videoId, title) {
   };
   header.querySelector('#close-yt-modal').onclick = closeModal;
 
+  // 「前（上の動画）」ボタン：インデックスを -1
+  const prevBtn = header.querySelector('#yt-prev-btn');
+  if (hasPrev) {
+    prevBtn.onclick = () => {
+      closeModal();
+      openYoutubeModalByIndex(index - 1);
+    };
+  }
+
+  // 「次（下の動画）」ボタン：インデックスを +1
+  const nextBtn = header.querySelector('#yt-next-btn');
+  if (hasNext) {
+    nextBtn.onclick = () => {
+      closeModal();
+      openYoutubeModalByIndex(index + 1);
+    };
+  }
+
   document.body.appendChild(modal);
 
-  // YouTube APIを使用してプレーヤーを準備し直接自動再生を呼び出す
+  // YouTube APIを使用した動画作成＆自動再生
   const createPlayer = () => {
     player = new YT.Player('yt-player-target', {
       videoId: videoId,
@@ -556,7 +650,6 @@ function openYoutubeModal(videoId, title) {
   if (window.YT && window.YT.Player) {
     createPlayer();
   } else {
-    // APIの準備待ち
     const checkYT = setInterval(() => {
       if (window.YT && window.YT.Player) {
         clearInterval(checkYT);
