@@ -397,7 +397,7 @@ async function loadAllYoutubeContent() {
     container.innerHTML = '';
 
 // YouTubeカードのHTML生成部分（タブ切り替え・テーブル表示・前後移動付きモーダル）
-let currentVideoList = []; // 現在選択中タブの動画リストを保持
+let currentVideoList = [];
 
 // 1. 動画(通常)とShortsの自動判定・分類
 const longVideos = [];
@@ -407,10 +407,10 @@ allVideos.forEach(item => {
   let videoId = '';
   let isShort = false;
 
-  if (item.link.includes('/shorts/')) {
-    videoId = item.link.split('/shorts/')[1]?.split('?')[0];
+  if (item.link && item.link.includes('/shorts/')) {
+    videoId = item.link.split('/shorts/')[1]?.split('?')[0]?.split('&')[0];
     isShort = true;
-  } else if (item.link.includes('v=')) {
+  } else if (item.link && item.link.includes('v=')) {
     videoId = item.link.split('v=')[1]?.split('&')[0];
   }
 
@@ -422,11 +422,11 @@ allVideos.forEach(item => {
   }
 });
 
-// 2. タブ（動画 / Shorts）の描画
+// 2. タブ（動画 / Shorts）の描画（件数表示を削除）
 container.innerHTML = `
   <div class="yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px;">
-    <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 6px 12px; cursor: pointer;">動画 (${longVideos.length})</button>
-    <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 6px 12px; cursor: pointer;">Shorts (${shortsVideos.length})</button>
+    <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 6px 12px; cursor: pointer;">動画</button>
+    <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 6px 12px; cursor: pointer;">Shorts</button>
   </div>
   <div id="yt-table-container"></div>
 `;
@@ -437,10 +437,10 @@ const tabShortsBtn = container.querySelector('#yt-tab-shorts');
 
 // 3. テーブル表示関数
 function renderVideoTable(videos) {
-  currentVideoList = videos; // 前後切替用にリストを記憶
+  currentVideoList = videos;
   tableContainer.innerHTML = '';
 
-  if (videos.length === 0) {
+  if (!videos || videos.length === 0) {
     tableContainer.innerHTML = '<div class="loading">動画がありません</div>';
     return;
   }
@@ -471,7 +471,6 @@ function renderVideoTable(videos) {
     `;
 
     tr.onclick = () => {
-      if (!item.videoId) return;
       openYoutubeModalByIndex(index);
     };
 
@@ -508,12 +507,16 @@ if (!window.YT) {
   const tag = document.createElement('script');
   tag.src = "https://www.youtube.com/iframe_api";
   const firstScriptTag = document.getElementsByTagName('script')[0];
-  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+  if (firstScriptTag && firstScriptTag.parentNode) {
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+  } else {
+    document.head.appendChild(tag);
+  }
 }
 
 // --- インデックス（配列位置）指定でモーダルを開く関数 ---
 function openYoutubeModalByIndex(index) {
-  if (index < 0 || index >= currentVideoList.length) return;
+  if (!currentVideoList || index < 0 || index >= currentVideoList.length) return;
 
   const item = currentVideoList[index];
   const videoId = item.videoId;
@@ -540,8 +543,8 @@ function openYoutubeModalByIndex(index) {
     backdrop-filter: blur(4px);
   `;
 
-  const container = document.createElement('div');
-  container.style.cssText = `
+  const modalContainer = document.createElement('div');
+  modalContainer.style.cssText = `
     width: 100%;
     max-width: 800px;
     background: #000;
@@ -551,7 +554,6 @@ function openYoutubeModalByIndex(index) {
     box-shadow: 0 10px 25px rgba(0,0,0,0.5);
   `;
 
-  // ヘッダー（タイトル・前後ナビゲーションボタン・閉じるボタン）
   const hasPrev = index > 0;
   const hasNext = index < currentVideoList.length - 1;
 
@@ -592,9 +594,9 @@ function openYoutubeModalByIndex(index) {
   `;
 
   playerWrapper.appendChild(iframeContainer);
-  container.appendChild(header);
-  container.appendChild(playerWrapper);
-  modal.appendChild(container);
+  modalContainer.appendChild(header);
+  modalContainer.appendChild(playerWrapper);
+  modal.appendChild(modalContainer);
 
   let player = null;
 
@@ -610,7 +612,6 @@ function openYoutubeModalByIndex(index) {
   };
   header.querySelector('#close-yt-modal').onclick = closeModal;
 
-  // 「前（上の動画）」ボタン：インデックスを -1
   const prevBtn = header.querySelector('#yt-prev-btn');
   if (hasPrev) {
     prevBtn.onclick = () => {
@@ -619,7 +620,6 @@ function openYoutubeModalByIndex(index) {
     };
   }
 
-  // 「次（下の動画）」ボタン：インデックスを +1
   const nextBtn = header.querySelector('#yt-next-btn');
   if (hasNext) {
     nextBtn.onclick = () => {
@@ -630,28 +630,52 @@ function openYoutubeModalByIndex(index) {
 
   document.body.appendChild(modal);
 
-  // YouTube APIを使用した動画作成＆自動再生
+  // YouTube APIを用いた再生処理
   const createPlayer = () => {
-    player = new YT.Player('yt-player-target', {
-      videoId: videoId,
-      playerVars: {
-        autoplay: 1,
-        playsinline: 1,
-        rel: 0
-      },
-      events: {
-        onReady: (event) => {
-          event.target.playVideo();
+    if (!document.getElementById('yt-player-target')) return;
+    
+    // APIの準備ができているか簡易フォールバック（iframe直接埋め込み）と使い分け
+    if (window.YT && window.YT.Player) {
+      player = new YT.Player('yt-player-target', {
+        videoId: videoId,
+        playerVars: {
+          autoplay: 1,
+          playsinline: 1,
+          rel: 0
+        },
+        events: {
+          onReady: (event) => {
+            event.target.playVideo();
+          }
         }
+      });
+    } else {
+      // API読み込み前・失敗時のための直接iframeフォールバック
+      const targetDiv = document.getElementById('yt-player-target');
+      if (targetDiv) {
+        targetDiv.innerHTML = `
+          <iframe 
+            src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1" 
+            title="${title}"
+            style="width: 100%; height: 100%; border: none;"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+            allowfullscreen>
+          </iframe>
+        `;
       }
-    });
+    }
   };
 
   if (window.YT && window.YT.Player) {
     createPlayer();
   } else {
+    let retries = 0;
     const checkYT = setInterval(() => {
+      retries++;
       if (window.YT && window.YT.Player) {
+        clearInterval(checkYT);
+        createPlayer();
+      } else if (retries > 10) { // 一定時間API準備ができなければフォールバック描画
         clearInterval(checkYT);
         createPlayer();
       }
