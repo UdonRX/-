@@ -447,3 +447,114 @@ h2 {
   padding: 16px;
   text-align: center;
 }
+
+/* --- YouTubeカスタムスタイル --- */
+.yt-fixed-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--card-bg);
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+/* チャンネルフィルタのコンテナ */
+.yt-filter-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+/* プルダウンの幅（動画ボタン幅 100% + Shorts幅 50% に相当する約75%） */
+.yt-select {
+  flex: 0 0 calc(75% - 4px);
+  width: calc(75% - 4px);
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+/* 残り幅（約25%）に配置される✕ボタンエリア */
+.yt-badge {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.yt-reset-btn {
+  background: #e5e5ea;
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* テーブルスタイル */
+.yt-video-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.yt-video-table tr {
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+}
+
+.yt-thumb-wrapper {
+  position: relative;
+  width: 64px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #000;
+}
+
+.yt-thumb-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.yt-play-icon {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font-size: 10px;
+}
+
+.yt-title {
+  font-weight: bold;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.yt-meta {
+  font-size: 11px;
+  color: var(--text-sub);
+  margin-top: 2px;
+}
