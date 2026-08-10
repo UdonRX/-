@@ -396,11 +396,12 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（タブ上部固定・チャンネルフィルタ機能付き）
+// --- YouTubeカードの生成処理（ニュース・知識タブと同等の構造に統合） ---
 window.currentVideoList = [];
-window.selectedChannel = 'ALL'; // 選択中チャンネルのグローバル保持
+window.selectedChannel = 'ALL';
+window.currentType = 'long'; // デフォルトは通常動画
 
-// 1. 動画(通常)とShortsの自動判定・分類およびチャンネル一覧抽出
+// 1. 全動画データとチャンネルリストの抽出
 const allVideoDataList = [];
 const channelSet = new Set();
 
@@ -423,7 +424,7 @@ allVideos.forEach(item => {
   }
 });
 
-// 2. UI（スクロール固定タブ・チャンネルプルダウン・テーブルコンテナ）の生成
+// 2. UIの生成（固定ヘッダー・フィルター・タブ領域）
 const channels = Array.from(channelSet);
 let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
 channels.forEach(ch => {
@@ -431,72 +432,57 @@ channels.forEach(ch => {
 });
 
 container.innerHTML = `
-  <!-- 上部固定ヘッダーエリア -->
-  <div style="position: sticky; top: 0; z-index: 100; background: #121212; padding-top: 8px; padding-bottom: 8px;">
-    <!-- チャンネル選択プルダウン＆解除ボタン -->
-    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px;">
-      <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="flex: 1; padding: 6px 8px; border-radius: 6px; background: #1c1c1e; color: #fff; border: 1px solid rgba(255,255,255,0.2); font-size: 13px;">
+  <div class="yt-fixed-header">
+    <!-- チャンネル選択フィルタエリア（幅の指定：プルダウン約75% / ✕ボタン約25%） -->
+    <div class="yt-filter-container">
+      <select id="yt-channel-select" class="yt-select" onchange="filterYtByChannel(this.value)">
         ${channelOptionsHtml}
       </select>
-      <div id="yt-channel-badge" style="display: none; align-items: center; gap: 4px; background: #333; color: #fff; padding: 4px 8px; border-radius: 12px; font-size: 12px; white-space: nowrap;">
-        <span id="yt-channel-badge-name"></span>
-        <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: #aaa; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px;">✕</button>
+      <div id="yt-channel-badge" class="yt-badge" style="display: none;">
+        <button onclick="resetYtChannelFilter()" class="yt-reset-btn" title="すべてのチャンネルを表示">✕</button>
       </div>
     </div>
 
-    <!-- 動画 / Shorts 切替タブ -->
-    <div style="display: flex; gap: 8px;">
-      <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer;" onclick="switchYtTab('long')">動画</button>
-      <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer;" onclick="switchYtTab('short')">Shorts</button>
-    </div>
+    <!-- ニュースや知識と同じ renderTabs を利用するコンテナ -->
+    <div id="yt-sub-tabs" class="tab-container"></div>
   </div>
 
-  <!-- 動画テーブル出力領域 -->
+  <!-- 動画一覧テーブル -->
   <div id="yt-table-container"></div>
 `;
 
-window.currentType = 'long'; // 現在選択中のタイプ ('long' または 'short')
+// 3. 他のタブと同等の定義（動画 / Shorts）
+const ytFeeds = [
+  { name: '動画', type: 'long' },
+  { name: 'Shorts', type: 'short' }
+];
+
+// ニュース・知識と同じ renderTabs 方式でサブタブを描画
+renderTabs('yt-sub-tabs', ytFeeds, (selectedType) => {
+  window.currentType = selectedType;
+  updateVideoDisplay();
+});
 
 // 絞り込み実行＆描画更新
 window.updateVideoDisplay = function() {
   const filtered = allVideoDataList.filter(item => {
-    // タブ（通常動画 / Shorts）判定
     const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
-    // チャンネル判定
     const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
     return matchesType && matchesChannel;
   });
 
-  // バッジ状態の更新
-  const badgeDiv = document.getElementById('yt-channel-badge');
-  const badgeName = document.getElementById('yt-channel-badge-name');
   const selectElem = document.getElementById('yt-channel-select');
+  const badgeDiv = document.getElementById('yt-channel-badge');
 
   if (selectElem) selectElem.value = window.selectedChannel;
 
   if (window.selectedChannel !== 'ALL') {
-    if (badgeDiv) badgeDiv.style.display = 'inline-flex';
-    if (badgeName) badgeName.textContent = window.selectedChannel;
+    if (badgeDiv) badgeDiv.style.display = 'flex';
   } else {
     if (badgeDiv) badgeDiv.style.display = 'none';
   }
 
   renderVideoTable(filtered);
-};
-
-// タブ切替関数
-window.switchYtTab = function(type) {
-  window.currentType = type;
-  const btnLong = document.getElementById('yt-tab-long');
-  const btnShorts = document.getElementById('yt-tab-shorts');
-  if (type === 'long') {
-    if (btnLong) btnLong.classList.add('active');
-    if (btnShorts) btnShorts.classList.remove('active');
-  } else {
-    if (btnShorts) btnShorts.classList.add('active');
-    if (btnLong) btnLong.classList.remove('active');
-  }
-  updateVideoDisplay();
 };
 
 // チャンネルフィルタ変更関数
@@ -511,18 +497,18 @@ window.resetYtChannelFilter = function() {
   updateVideoDisplay();
 };
 
-// 3. テーブル描画関数
+// 4. テーブル描画関数
 function renderVideoTable(videos) {
   window.currentVideoList = videos;
   const tableContainer = document.getElementById('yt-table-container');
   if (!tableContainer) return;
 
   if (!videos || videos.length === 0) {
-    tableContainer.innerHTML = '<div class="loading" style="padding:16px; text-align:center;">該当する動画がありません</div>';
+    tableContainer.innerHTML = '<div class="loading">該当する動画がありません</div>';
     return;
   }
 
-  let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;">';
+  let html = '<table class="yt-video-table">';
   
   videos.forEach((item, index) => {
     const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
@@ -530,16 +516,16 @@ function renderVideoTable(videos) {
       : '';
 
     html += `
-      <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer;">
+      <tr onclick="openYoutubeModalByIndex(${index})">
         <td style="padding: 8px 4px; width: 70px;">
-          <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
-            ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
-            <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); color:#fff; font-size:10px;">▶</div>
+          <div class="yt-thumb-wrapper">
+            ${item.thumbnail ? `<img src="${item.thumbnail}" alt="thumbnail">` : ''}
+            <div class="yt-play-icon">▶</div>
           </div>
         </td>
         <td style="padding: 8px 4px; vertical-align: middle;">
-          <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title || 'タイトルなし'}</div>
-          <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
+          <div class="yt-title">${item.title || 'タイトルなし'}</div>
+          <div class="yt-meta">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
         </td>
       </tr>
     `;
@@ -549,13 +535,23 @@ function renderVideoTable(videos) {
   tableContainer.innerHTML = html;
 }
 
-// 初期描画
-updateVideoDisplay();
+// 既存の renderTabs 関数の定義（引数処理を柔軟に対応できるよう微修正）
+function renderTabs(containerId, feeds, onClickCallback) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
 
-  } catch (err) {
-    console.error(err);
-    container.innerHTML = '<div class="loading">YouTube情報の取得中にエラーが発生しました</div>';
-  }
+  feeds.forEach((feed, idx) => {
+    const btn = document.createElement('button');
+    btn.className = `tab-btn ${idx === 0 ? 'active' : ''}`;
+    btn.textContent = feed.name;
+    btn.onclick = () => {
+      container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      onClickCallback(feed.type || feed.url);
+    };
+    container.appendChild(btn);
+  });
 }
 
 // --- グローバル定義: モーダル表示関数 ---
