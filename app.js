@@ -396,7 +396,7 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（タブ切り替え・テーブル表示・前後移動付きモーダル）
+// YouTubeカードのHTML生成部分（イベント発動を強制した修正版）
 let currentVideoList = [];
 
 // 1. 動画(通常)とShortsの自動判定・分類
@@ -422,7 +422,7 @@ allVideos.forEach(item => {
   }
 });
 
-// 2. タブ（動画 / Shorts）の描画（件数表示を削除）
+// 2. タブ（動画 / Shorts）の描画
 container.innerHTML = `
   <div class="yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px;">
     <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 6px 12px; cursor: pointer;">動画</button>
@@ -447,32 +447,36 @@ function renderVideoTable(videos) {
 
   const table = document.createElement('table');
   table.className = 'yt-video-table';
-  table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px;';
+  table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;';
 
   videos.forEach((item, index) => {
     const tr = document.createElement('tr');
-    tr.style.cssText = 'border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer;';
-    
+    tr.style.cssText = 'border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer; user-select: none; -webkit-tap-highlight-color: rgba(0,0,0,0.1);';
+    tr.setAttribute('data-index', index);
+
     const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
       ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
 
     tr.innerHTML = `
-      <td style="padding: 8px 4px; width: 70px;">
+      <td style="padding: 8px 4px; width: 70px; pointer-events: none;">
         <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
           ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
           <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.2); color:#fff; font-size:10px;">▶</div>
         </div>
       </td>
-      <td style="padding: 8px 4px; vertical-align: middle;">
-        <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title}</div>
-        <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName} • ${dateStr}</div>
+      <td style="padding: 8px 4px; vertical-align: middle; pointer-events: none;">
+        <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all;">${item.title || 'タイトルなし'}</div>
+        <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
       </td>
     `;
 
-    tr.onclick = () => {
+    // タップイベント（addEventListenerで確実に捕捉）
+    tr.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       openYoutubeModalByIndex(index);
-    };
+    });
 
     table.appendChild(tr);
   });
@@ -481,17 +485,17 @@ function renderVideoTable(videos) {
 }
 
 // タブ切り替えイベント
-tabLongBtn.onclick = () => {
+tabLongBtn.addEventListener('click', () => {
   tabLongBtn.classList.add('active');
   tabShortsBtn.classList.remove('active');
   renderVideoTable(longVideos);
-};
+});
 
-tabShortsBtn.onclick = () => {
+tabShortsBtn.addEventListener('click', () => {
   tabShortsBtn.classList.add('active');
   tabLongBtn.classList.remove('active');
   renderVideoTable(shortsVideos);
-};
+});
 
 // 初期表示（動画タブ）
 renderVideoTable(longVideos);
@@ -514,13 +518,13 @@ if (!window.YT) {
   }
 }
 
-// --- インデックス（配列位置）指定でモーダルを開く関数 ---
+// --- モーダル表示関数 ---
 function openYoutubeModalByIndex(index) {
   if (!currentVideoList || index < 0 || index >= currentVideoList.length) return;
 
   const item = currentVideoList[index];
   const videoId = item.videoId;
-  const title = item.title;
+  const title = item.title || '';
 
   const existingModal = document.getElementById('youtube-video-modal');
   if (existingModal) existingModal.remove();
@@ -528,18 +532,18 @@ function openYoutubeModalByIndex(index) {
   const modal = document.createElement('div');
   modal.id = 'youtube-video-modal';
   modal.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.85);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 9999;
-    padding: 16px;
-    box-sizing: border-box;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.85) !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    z-index: 99999 !important;
+    padding: 16px !important;
+    box-sizing: border-box !important;
     backdrop-filter: blur(4px);
   `;
 
@@ -607,79 +611,41 @@ function openYoutubeModalByIndex(index) {
     modal.remove();
   };
 
-  modal.onclick = (e) => {
+  modal.addEventListener('click', (e) => {
     if (e.target === modal) closeModal();
-  };
-  header.querySelector('#close-yt-modal').onclick = closeModal;
+  });
+  
+  header.querySelector('#close-yt-modal').addEventListener('click', closeModal);
 
   const prevBtn = header.querySelector('#yt-prev-btn');
   if (hasPrev) {
-    prevBtn.onclick = () => {
+    prevBtn.addEventListener('click', () => {
       closeModal();
       openYoutubeModalByIndex(index - 1);
-    };
+    });
   }
 
   const nextBtn = header.querySelector('#yt-next-btn');
   if (hasNext) {
-    nextBtn.onclick = () => {
+    nextBtn.addEventListener('click', () => {
       closeModal();
       openYoutubeModalByIndex(index + 1);
-    };
+    });
   }
 
   document.body.appendChild(modal);
 
-  // YouTube APIを用いた再生処理
-  const createPlayer = () => {
-    if (!document.getElementById('yt-player-target')) return;
-    
-    // APIの準備ができているか簡易フォールバック（iframe直接埋め込み）と使い分け
-    if (window.YT && window.YT.Player) {
-      player = new YT.Player('yt-player-target', {
-        videoId: videoId,
-        playerVars: {
-          autoplay: 1,
-          playsinline: 1,
-          rel: 0
-        },
-        events: {
-          onReady: (event) => {
-            event.target.playVideo();
-          }
-        }
-      });
-    } else {
-      // API読み込み前・失敗時のための直接iframeフォールバック
-      const targetDiv = document.getElementById('yt-player-target');
-      if (targetDiv) {
-        targetDiv.innerHTML = `
-          <iframe 
-            src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1" 
-            title="${title}"
-            style="width: 100%; height: 100%; border: none;"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-            allowfullscreen>
-          </iframe>
-        `;
-      }
-    }
-  };
-
-  if (window.YT && window.YT.Player) {
-    createPlayer();
-  } else {
-    let retries = 0;
-    const checkYT = setInterval(() => {
-      retries++;
-      if (window.YT && window.YT.Player) {
-        clearInterval(checkYT);
-        createPlayer();
-      } else if (retries > 10) { // 一定時間API準備ができなければフォールバック描画
-        clearInterval(checkYT);
-        createPlayer();
-      }
-    }, 50);
+  // iframeダイレクト埋め込み（動作保証を優先）
+  if (videoId) {
+    iframeContainer.innerHTML = `
+      <iframe 
+        src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1" 
+        title="${title}"
+        style="width: 100%; height: 100%; border: none;"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+        allowfullscreen>
+      </iframe>
+    `;
   }
 }
 
