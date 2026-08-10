@@ -321,13 +321,13 @@ function initTwitter() {
   foloBtn.style.textDecoration = 'none';
   foloBtn.style.transition = 'transform 0.1s ease, opacity 0.2s ease';
 
-  // アイコン画像（※拡張子が.pngでない場合はここを修正してください）
+  // アイコン画像
   const img = document.createElement('img');
   img.src = 'icons/folo.png'; 
   img.alt = 'Folo';
-  img.style.width = '64px';  // 好みに合わせてサイズ調整してください
+  img.style.width = '64px';
   img.style.height = '64px';
-  img.style.borderRadius = '16px'; // 角丸デザイン
+  img.style.borderRadius = '16px';
   img.style.objectFit = 'cover';
   img.style.display = 'block';
 
@@ -340,28 +340,14 @@ function initTwitter() {
   foloBtn.onclick = (e) => {
     e.preventDefault();
 
-    const webUrl = 'https://app.folo.is/timeline/articles/all/pending';
-    const appScheme = 'follow://'; // アプリ固有のカスタムURLスキーム
-
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
     if (isIOS) {
-      // iPhoneの場合：カスタムスキームでアプリ起動を試みる
-      // Web App (PWA) や Safari 上からでも直接 follow:// への遷移を実行
-      window.location.href = appScheme;
-
-      // アプリがインストールされていない・開かなかった場合のフォールバック（0.5秒後にWeb版へ遷移）
-      const start = Date.now();
-      setTimeout(() => {
-        // バックグラウンドに移動（アプリが正常起動）した場合は遷移を防止
-        if (Date.now() - start < 1500) {
-          window.location.href = webUrl;
-        }
-      }, 500);
-
+      // iPhoneの場合：アプリの起動のみを行う（Webサイトへの遷移タイマーは排除）
+      window.location.href = 'follow://';
     } else {
-      // PC等、iPhone以外の場合はブラウザで通常遷移
-      window.open(webUrl, '_blank', 'noopener,noreferrer');
+      // PC等、iPhone以外の場合はブラウザでWeb版を開く
+      window.open('https://app.folo.is/timeline/articles/all/pending', '_blank', 'noopener,noreferrer');
     }
   };
 
