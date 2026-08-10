@@ -395,14 +395,20 @@ async function loadAllYoutubeContent() {
     allVideos.sort((a, b) => b.pubDate - a.pubDate);
 
     container.innerHTML = '';
-// YouTubeカードのHTML生成部分（モーダル再生対応）
+
+// YouTubeカードのHTML生成部分（Shorts対応・ワンタップ直再生）
 allVideos.forEach(item => {
   const itemDiv = document.createElement('div');
   itemDiv.className = 'youtube-item';
   itemDiv.style.cursor = 'pointer';
 
-  // 動画IDの抽出（YouTube URL または item 内の動画ID）
-  const videoId = item.link.includes('v=') ? item.link.split('v=')[1]?.split('&')[0] : '';
+  // 動画IDの抽出（通常の v= パラメータ、または /shorts/ URLに対応）
+  let videoId = '';
+  if (item.link.includes('v=')) {
+    videoId = item.link.split('v=')[1]?.split('&')[0];
+  } else if (item.link.includes('/shorts/')) {
+    videoId = item.link.split('/shorts/')[1]?.split('?')[0];
+  }
 
   const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
     ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -420,7 +426,7 @@ allVideos.forEach(item => {
     </div>
   `;
 
-  // タップ時にモーダルで動画を開く
+  // 動画選択時に直接モーダルで再生（ワンタップ起動）
   itemDiv.onclick = () => {
     if (!videoId) return;
     openYoutubeModal(videoId, item.title);
@@ -487,7 +493,7 @@ function openYoutubeModal(videoId, title) {
   playerWrapper.style.cssText = `
     position: relative;
     width: 100%;
-    padding-top: 56.25%;
+    padding-top: 56.25%; /* 16:9 Aspect Ratio */
     background: #000;
   `;
 
