@@ -396,8 +396,8 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（イベント発動を強制した修正版）
-let currentVideoList = [];
+// YouTubeカードのHTML生成部分（グローバル連携・イベント確実に発火版）
+window.currentVideoList = [];
 
 // 1. 動画(通常)とShortsの自動判定・分類
 const longVideos = [];
@@ -422,80 +422,67 @@ allVideos.forEach(item => {
   }
 });
 
-// 2. タブ（動画 / Shorts）の描画
+// 2. タブ（動画 / Shorts）と容器のHTML設置
 container.innerHTML = `
-  <div class="yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 12px;">
-    <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 6px 12px; cursor: pointer;">動画</button>
-    <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 6px 12px; cursor: pointer;">Shorts</button>
+  <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+    <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer;" onclick="switchYtTab('long')">動画</button>
+    <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer;" onclick="switchYtTab('short')">Shorts</button>
   </div>
   <div id="yt-table-container"></div>
 `;
 
-const tableContainer = container.querySelector('#yt-table-container');
-const tabLongBtn = container.querySelector('#yt-tab-long');
-const tabShortsBtn = container.querySelector('#yt-tab-shorts');
+// タブ切替用グローバル関数
+window.switchYtTab = function(type) {
+  const btnLong = document.getElementById('yt-tab-long');
+  const btnShorts = document.getElementById('yt-tab-shorts');
+  if (type === 'long') {
+    if (btnLong) btnLong.classList.add('active');
+    if (btnShorts) btnShorts.classList.remove('active');
+    renderVideoTable(longVideos);
+  } else {
+    if (btnShorts) btnShorts.classList.add('active');
+    if (btnLong) btnLong.classList.remove('active');
+    renderVideoTable(shortsVideos);
+  }
+};
 
 // 3. テーブル表示関数
 function renderVideoTable(videos) {
-  currentVideoList = videos;
-  tableContainer.innerHTML = '';
+  window.currentVideoList = videos;
+  const tableContainer = document.getElementById('yt-table-container');
+  if (!tableContainer) return;
 
   if (!videos || videos.length === 0) {
-    tableContainer.innerHTML = '<div class="loading">動画がありません</div>';
+    tableContainer.innerHTML = '<div class="loading" style="padding:16px; text-align:center;">動画がありません</div>';
     return;
   }
 
-  const table = document.createElement('table');
-  table.className = 'yt-video-table';
-  table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;';
-
+  let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;">';
+  
   videos.forEach((item, index) => {
-    const tr = document.createElement('tr');
-    tr.style.cssText = 'border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer; user-select: none; -webkit-tap-highlight-color: rgba(0,0,0,0.1);';
-    tr.setAttribute('data-index', index);
-
     const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
       ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
 
-    tr.innerHTML = `
-      <td style="padding: 8px 4px; width: 70px; pointer-events: none;">
-        <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
-          ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
-          <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.2); color:#fff; font-size:10px;">▶</div>
-        </div>
-      </td>
-      <td style="padding: 8px 4px; vertical-align: middle; pointer-events: none;">
-        <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all;">${item.title || 'タイトルなし'}</div>
-        <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
-      </td>
+    html += `
+      <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer;">
+        <td style="padding: 8px 4px; width: 70px;">
+          <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
+            ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
+            <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); color:#fff; font-size:10px;">▶</div>
+          </div>
+        </td>
+        <td style="padding: 8px 4px; vertical-align: middle;">
+          <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title || 'タイトルなし'}</div>
+          <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
+        </td>
+      </tr>
     `;
-
-    // タップイベント（addEventListenerで確実に捕捉）
-    tr.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      openYoutubeModalByIndex(index);
-    });
-
-    table.appendChild(tr);
   });
 
-  tableContainer.appendChild(table);
+  html += '</table>';
+  tableContainer.innerHTML = html;
 }
-
-// タブ切り替えイベント
-tabLongBtn.addEventListener('click', () => {
-  tabLongBtn.classList.add('active');
-  tabShortsBtn.classList.remove('active');
-  renderVideoTable(longVideos);
-});
-
-tabShortsBtn.addEventListener('click', () => {
-  tabShortsBtn.classList.add('active');
-  tabLongBtn.classList.remove('active');
-  renderVideoTable(shortsVideos);
-});
 
 // 初期表示（動画タブ）
 renderVideoTable(longVideos);
@@ -506,16 +493,88 @@ renderVideoTable(longVideos);
   }
 }
 
-// --- YouTube APIスクリプトの動的読み込み ---
-if (!window.YT) {
-  const tag = document.createElement('script');
-  tag.src = "https://www.youtube.com/iframe_api";
-  const firstScriptTag = document.getElementsByTagName('script')[0];
-  if (firstScriptTag && firstScriptTag.parentNode) {
-    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-  } else {
-    document.head.appendChild(tag);
-  }
+// --- グローバル定義: モーダル表示関数 ---
+window.openYoutubeModalByIndex = function(index) {
+  const list = window.currentVideoList;
+  if (!list || index < 0 || index >= list.length) return;
+
+  const item = list[index];
+  const videoId = item.videoId;
+  const title = item.title || '';
+
+  const existingModal = document.getElementById('youtube-video-modal');
+  if (existingModal) existingModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'youtube-video-modal';
+  modal.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.85) !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    z-index: 999999 !important;
+    padding: 16px !important;
+    box-sizing: border-box !important;
+  `;
+
+  const hasPrev = index > 0;
+  const hasNext = index < list.length - 1;
+
+  modal.innerHTML = `
+    <div style="width: 100%; max-width: 800px; background: #000; border-radius: 12px; overflow: hidden; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #1c1c1e; color: #fff;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <button onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'};">▲ 前</button>
+          <button onclick="openYoutubeModalByIndex(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'};">▼ 次</button>
+        </div>
+        <div style="font-size: 13px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 10px; flex: 1; text-align: center;">${title}</div>
+        <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1;">✕</button>
+      </div>
+      <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000;">
+        <iframe 
+          src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1" 
+          title="${title}"
+          style="position: absolute; top:0; left:0; width: 100%; height: 100%; border: none;"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+          allowfullscreen>
+        </iframe>
+      </div>
+    </div>
+  `;
+
+  modal.onclick = (e) => {
+    if (e.target === modal) window.closeYoutubeModal();
+  };
+
+  document.body.appendChild(modal);
+};
+
+window.closeYoutubeModal = function() {
+  const modal = document.getElementById('youtube-video-modal');
+  if (modal) modal.remove();
+};
+
+function renderTabs(containerId, feeds, onClickCallback) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+
+  feeds.forEach((feed, idx) => {
+    const btn = document.createElement('button');
+    btn.className = `tab-btn ${idx === 0 ? 'active' : ''}`;
+    btn.textContent = feed.name;
+    btn.onclick = () => {
+      container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      onClickCallback(feed.url);
+    };
+    container.appendChild(btn);
+  });
 }
 
 // --- モーダル表示関数 ---
