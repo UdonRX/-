@@ -396,10 +396,9 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（カードヘッダー直下統合版）
+// YouTubeカードのHTML生成部分（タブ上部固定・チャンネルフィルタ機能付き）
 window.currentVideoList = [];
-window.selectedChannel = 'ALL';
-window.currentType = 'long';
+window.selectedChannel = 'ALL'; // 選択中チャンネルのグローバル保持
 
 // 1. 動画(通常)とShortsの自動判定・分類およびチャンネル一覧抽出
 const allVideoDataList = [];
@@ -424,65 +423,60 @@ allVideos.forEach(item => {
   }
 });
 
-// 2. チャンネルプルダウンの選択肢生成
+// 2. UI（スクロール固定タブ・チャンネルプルダウン・テーブルコンテナ）の生成
 const channels = Array.from(channelSet);
 let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
 channels.forEach(ch => {
   channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
 });
 
-// 3. 親のカードヘッダー（YouTubeタイトル・追加・編集ボタンが存在する要素）を取得してプルダウンとタブを注入
-const cardElem = container.closest('.card') || container.parentElement;
-if (cardElem) {
-  const cardHeader = cardElem.querySelector('.card-header');
-  if (cardHeader) {
-    // 既存の操作用コントロール要素を一時的に除外/非表示（重複防止）
-    let customHeaderControls = cardHeader.querySelector('.yt-header-controls');
-    if (!customHeaderControls) {
-      customHeaderControls = document.createElement('div');
-      customHeaderControls.className = 'yt-header-controls';
-      customHeaderControls.style.cssText = 'width: 100%; margin-top: 8px;';
-      cardHeader.appendChild(customHeaderControls);
-    }
-
-    customHeaderControls.innerHTML = `
-      <!-- ① チャンネル選択プルダウン（75%幅）＆バツボタン（残り幅） -->
-      <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center; width: 100%;">
-        <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.08); color: inherit; border: 1px solid rgba(255,255,255,0.2); font-size: 13px; box-sizing: border-box;">
-          ${channelOptionsHtml}
-        </select>
-        <div id="yt-channel-badge" style="display: none; flex: 1; min-width: 0; align-items: center; justify-content: center; background: rgba(255,255,255,0.12); border-radius: 6px; height: 31px; box-sizing: border-box;">
-          <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: inherit; opacity: 0.8; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; width: 100%; height: 100%;" title="フィルター解除">✕</button>
-        </div>
+container.innerHTML = `
+  <!-- 上部固定ヘッダーエリア -->
+  <div style="position: sticky; top: 0; z-index: 100; background: #121212; padding-top: 8px; padding-bottom: 8px;">
+    <!-- チャンネル選択プルダウン＆解除ボタン -->
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px;">
+      <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="flex: 1; padding: 6px 8px; border-radius: 6px; background: #1c1c1e; color: #fff; border: 1px solid rgba(255,255,255,0.2); font-size: 13px;">
+        ${channelOptionsHtml}
+      </select>
+      <div id="yt-channel-badge" style="display: none; align-items: center; gap: 4px; background: #333; color: #fff; padding: 4px 8px; border-radius: 12px; font-size: 12px; white-space: nowrap;">
+        <span id="yt-channel-badge-name"></span>
+        <button onclick="resetYtChannelFilter()" style="background: none; border: none; color: #aaa; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px;">✕</button>
       </div>
+    </div>
 
-      <!-- ② タブ（動画 / Shorts） -->
-      <div class="card-tabs yt-filter-tabs" style="display: flex; gap: 8px; margin-bottom: 4px;">
-        <button id="yt-tab-long" class="tab-btn active" style="flex: 1; cursor: pointer;" onclick="switchYtTab('long')">動画</button>
-        <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; cursor: pointer;" onclick="switchYtTab('short')">Shorts</button>
-      </div>
-    `;
-  }
-}
+    <!-- 動画 / Shorts 切替タブ -->
+    <div style="display: flex; gap: 8px;">
+      <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer;" onclick="switchYtTab('long')">動画</button>
+      <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer;" onclick="switchYtTab('short')">Shorts</button>
+    </div>
+  </div>
 
-// 動画リスト表示領域の初期化
-container.innerHTML = `<div id="yt-table-container"></div>`;
+  <!-- 動画テーブル出力領域 -->
+  <div id="yt-table-container"></div>
+`;
+
+window.currentType = 'long'; // 現在選択中のタイプ ('long' または 'short')
 
 // 絞り込み実行＆描画更新
 window.updateVideoDisplay = function() {
   const filtered = allVideoDataList.filter(item => {
+    // タブ（通常動画 / Shorts）判定
     const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
+    // チャンネル判定
     const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
     return matchesType && matchesChannel;
   });
 
+  // バッジ状態の更新
   const badgeDiv = document.getElementById('yt-channel-badge');
+  const badgeName = document.getElementById('yt-channel-badge-name');
   const selectElem = document.getElementById('yt-channel-select');
 
   if (selectElem) selectElem.value = window.selectedChannel;
 
   if (window.selectedChannel !== 'ALL') {
-    if (badgeDiv) badgeDiv.style.display = 'flex';
+    if (badgeDiv) badgeDiv.style.display = 'inline-flex';
+    if (badgeName) badgeName.textContent = window.selectedChannel;
   } else {
     if (badgeDiv) badgeDiv.style.display = 'none';
   }
@@ -517,7 +511,7 @@ window.resetYtChannelFilter = function() {
   updateVideoDisplay();
 };
 
-// テーブル描画関数
+// 3. テーブル描画関数
 function renderVideoTable(videos) {
   window.currentVideoList = videos;
   const tableContainer = document.getElementById('yt-table-container');
