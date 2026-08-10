@@ -396,11 +396,9 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（画面右下フローティングミニプレイヤー版）
+// YouTubeカードのHTML生成部分（右下固定ミニプレイヤー専用・拡大ボタンなし版）
 window.currentVideoList = [];
 window.selectedChannel = 'ALL'; // 選択中チャンネルのグローバル保持
-window.currentModalIndex = -1;  // 現在再生中の動画インデックス
-window.isMinimized = true;       // 初期表示は右下ミニプレイヤー
 
 // 1. 動画(通常)とShortsの自動判定・分類およびチャンネル一覧抽出
 const allVideoDataList = [];
@@ -568,12 +566,11 @@ updateVideoDisplay();
   }
 }
 
-// --- グローバル定義: 右下フローティングミニプレイヤー表示関数 ---
+// --- グローバル定義: 右下固定ミニプレイヤー表示関数 ---
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
 
-  window.currentModalIndex = index;
   const item = list[index];
   const videoId = item.videoId;
   const title = item.title || '';
@@ -588,47 +585,22 @@ window.openYoutubeModalByIndex = function(index) {
   const hasPrev = index > 0;
   const hasNext = index < list.length - 1;
 
-  // モーダル全体のスタイル（右下ミニ表示 vs 中央最大化表示）
-  const applyStyles = () => {
-    if (window.isMinimized) {
-      // 右下固定ミニプレイヤー（画面幅に応じて自動サイズ調整）
-      modal.style.cssText = `
-        position: fixed !important;
-        bottom: 16px !important;
-        right: 16px !important;
-        top: auto !important;
-        left: auto !important;
-        width: min(320px, 85vw) !important;
-        height: auto !important;
-        background: #000 !important;
-        border-radius: 8px !important;
-        overflow: hidden !important;
-        z-index: 999999 !important;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
-        border: 1px solid rgba(255,255,255,0.2) !important;
-        transition: all 0.2s ease !important;
-      `;
-    } else {
-      // 画面中央拡大表示
-      modal.style.cssText = `
-        position: fixed !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        width: min(800px, 95vw) !important;
-        height: auto !important;
-        background: #000 !important;
-        border-radius: 12px !important;
-        overflow: hidden !important;
-        z-index: 999999 !important;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.6) !important;
-        border: 1px solid rgba(255,255,255,0.2) !important;
-        transition: all 0.2s ease !important;
-      `;
-    }
-  };
-
-  applyStyles();
+  // 常に画面右下に固定配置
+  modal.style.cssText = `
+    position: fixed !important;
+    bottom: 16px !important;
+    right: 16px !important;
+    top: auto !important;
+    left: auto !important;
+    width: min(320px, 85vw) !important;
+    height: auto !important;
+    background: #000 !important;
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    z-index: 999999 !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+    border: 1px solid rgba(255,255,255,0.2) !important;
+  `;
 
   modal.innerHTML = `
     <div style="width: 100%; background: #000; position: relative;">
@@ -639,10 +611,7 @@ window.openYoutubeModalByIndex = function(index) {
           <button onclick="openYoutubeModalByIndex(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'}; font-size: 11px;">▼ 次</button>
         </div>
         <div style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">${title}</div>
-        <div style="display: flex; align-items: center; gap: 4px;">
-          <button onclick="toggleYtModalSize()" title="${window.isMinimized ? '拡大' : '最小化'}" style="background: none; border: none; color: #fff; font-size: 14px; cursor: pointer; padding: 0 4px; line-height: 1;">${window.isMinimized ? '🗖' : '🗗'}</button>
-          <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
-        </div>
+        <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
       </div>
       <!-- 埋め込みプレイヤー領域 -->
       <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000;">
@@ -658,18 +627,9 @@ window.openYoutubeModalByIndex = function(index) {
   `;
 };
 
-// プレイヤーの拡大・縮小切り替え関数
-window.toggleYtModalSize = function() {
-  window.isMinimized = !window.isMinimized;
-  if (window.currentModalIndex >= 0) {
-    openYoutubeModalByIndex(window.currentModalIndex);
-  }
-};
-
 window.closeYoutubeModal = function() {
   const modal = document.getElementById('youtube-video-modal');
   if (modal) modal.remove();
-  window.currentModalIndex = -1;
 };
 
 function renderTabs(containerId, feeds, onClickCallback) {
