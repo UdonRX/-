@@ -2,7 +2,7 @@
 const WEATHER_CODES = {
   0: "☀️", 1: "🌤️", 2: "🌤️", 3: "⛅", 4: "💨", 5: "🌫️", 6: "🪨", 7: "💨", 8: "🌪️", 9: "🏜️",
   10: "🌫️", 11: "🌫️", 12: "🌫️", 13: "🌩️", 14: "☁️", 15: "🌧️", 16: "🌧️", 17: "🌩️", 18: "💨", 19: "🌪️",
-  20: "🌦️", 21: "🌦️", 22: "🌨️", 23: "🌨️", 24: "🧊", 25: "🌦️", 26: "🌨️", 27: "🌩️", 28: "🌫️", 29: "⛈️",
+  20: "🌦️", 21: "🌦️", 22: "🌨️", 23: "🌨️", 24: "🧊", 25: "🌦️", 26: "🌨️", 27: "🌨️", 28: "🌫️", 29: "⛈️",
   30: "🏜️", 31: "🏜️", 32: "🏜️", 33: "🏜️", 34: "🏜️", 35: "🏜️", 36: "❄️", 37: "❄️", 38: "❄️", 39: "❄️",
   40: "🌫️", 41: "🌫️", 42: "🌫️", 43: "🌫️", 44: "🌫️", 45: "🌫️", 46: "🌫️", 47: "🌫️", 48: "🌫️", 49: "🌫️",
   50: "🌧️", 51: "🌧️", 52: "🌧️", 53: "🌧️", 54: "🌧️", 55: "🌧️", 56: "🧊", 57: "🧊", 58: "🌧️", 59: "🌧️",
@@ -51,6 +51,10 @@ let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 let currentNewsUrl = '';
 let currentKnowledgeUrl = '';
 
+// YouTube API 関連のグローバル変数
+let ytPlayer = null;
+let currentPlayingIndex = -1;
+
 // 初期化
 document.addEventListener('DOMContentLoaded', () => {
   newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
@@ -64,7 +68,18 @@ document.addEventListener('DOMContentLoaded', () => {
   initYoutube();
   initModals();
   registerSW();
+  loadYoutubeIframeAPI();
 });
+
+// YouTube IFrame APIの読み込み
+function loadYoutubeIframeAPI() {
+  if (!window.YT) {
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+  }
+}
 
 // Service Worker 登録
 function registerSW() {
@@ -343,10 +358,8 @@ function initTwitter() {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
     if (isIOS) {
-      // iPhoneの場合：アプリの起動のみを行う（Webサイトへの遷移タイマーは排除）
       window.location.href = 'follow://';
     } else {
-      // PC等、iPhone以外の場合はブラウザでWeb版を開く
       window.open('https://app.folo.is/timeline/articles/all/pending', '_blank', 'noopener,noreferrer');
     }
   };
@@ -396,159 +409,156 @@ async function loadAllYoutubeContent() {
 
     container.innerHTML = '';
 
-// YouTubeカードのHTML生成部分（CSS Scale縮小による高画質強制維持版）
-window.currentVideoList = [];
-window.selectedChannel = 'ALL'; // 選択中チャンネルのグローバル保持
-window.modalPos = { x: null, y: null }; // ドラッグ後の位置保持用
+    window.currentVideoList = [];
+    window.selectedChannel = 'ALL';
+    window.modalPos = { x: null, y: null };
 
-// 1. 動画(通常)とShortsの自動判定・分類およびチャンネル一覧抽出
-const allVideoDataList = [];
-const channelSet = new Set();
+    const allVideoDataList = [];
+    const channelSet = new Set();
 
-allVideos.forEach(item => {
-  let videoId = '';
-  let isShort = false;
+    allVideos.forEach(item => {
+      let videoId = '';
+      let isShort = false;
 
-  if (item.link && item.link.includes('/shorts/')) {
-    videoId = item.link.split('/shorts/')[1]?.split('?')[0]?.split('&')[0];
-    isShort = true;
-  } else if (item.link && item.link.includes('v=')) {
-    videoId = item.link.split('v=')[1]?.split('&')[0];
-  }
+      if (item.link && item.link.includes('/shorts/')) {
+        videoId = item.link.split('/shorts/')[1]?.split('?')[0]?.split('&')[0];
+        isShort = true;
+      } else if (item.link && item.link.includes('v=')) {
+        videoId = item.link.split('v=')[1]?.split('&')[0];
+      }
 
-  const videoData = { ...item, videoId, isShort };
-  allVideoDataList.push(videoData);
+      const videoData = { ...item, videoId, isShort };
+      allVideoDataList.push(videoData);
 
-  if (item.displayName) {
-    channelSet.add(item.displayName);
-  }
-});
+      if (item.displayName) {
+        channelSet.add(item.displayName);
+      }
+    });
 
-// 2. UIの生成
-const channels = Array.from(channelSet);
-let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
-channels.forEach(ch => {
-  channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
-});
+    const channels = Array.from(channelSet);
+    let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
+    channels.forEach(ch => {
+      channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
+    });
 
-container.innerHTML = `
-  <div style="position: sticky; top: 0; z-index: 100; background: #ffffff; padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
-    <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-      <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: #ffffff; color: #333333; border: 1px solid #ccc; font-size: 13px; box-sizing: border-box;">
-        ${channelOptionsHtml}
-      </select>
+    container.innerHTML = `
+      <div style="position: sticky; top: 0; z-index: 100; background: #ffffff; padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
+        <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+          <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: #ffffff; color: #333333; border: 1px solid #ccc; font-size: 13px; box-sizing: border-box;">
+            ${channelOptionsHtml}
+          </select>
 
-      <div id="yt-channel-badge" style="width: 25%; display: none; justify-content: center; align-items: center; box-sizing: border-box;">
-        <button onclick="resetYtChannelFilter()" title="フィルター解除" style="width: 100%; padding: 6px 0; background: #f0f0f0; border: 1px solid #ccc; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1;">✕</button>
-      </div>
-    </div>
-
-    <div style="display: flex; gap: 8px;">
-      <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-weight: bold;" onclick="switchYtTab('long')">動画</button>
-      <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px;" onclick="switchYtTab('short')">Shorts</button>
-    </div>
-  </div>
-
-  <div id="yt-table-container"></div>
-`;
-
-window.currentType = 'long';
-
-window.updateVideoDisplay = function() {
-  const filtered = allVideoDataList.filter(item => {
-    const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
-    const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
-    return matchesType && matchesChannel;
-  });
-
-  const badgeDiv = document.getElementById('yt-channel-badge');
-  const selectElem = document.getElementById('yt-channel-select');
-
-  if (selectElem) selectElem.value = window.selectedChannel;
-
-  if (window.selectedChannel !== 'ALL') {
-    if (badgeDiv) badgeDiv.style.display = 'flex';
-  } else {
-    if (badgeDiv) badgeDiv.style.display = 'none';
-  }
-
-  renderVideoTable(filtered);
-};
-
-window.switchYtTab = function(type) {
-  window.currentType = type;
-  const btnLong = document.getElementById('yt-tab-long');
-  const btnShorts = document.getElementById('yt-tab-shorts');
-  if (type === 'long') {
-    if (btnLong) {
-      btnLong.classList.add('active');
-      btnLong.style.fontWeight = 'bold';
-    }
-    if (btnShorts) {
-      btnShorts.classList.remove('active');
-      btnShorts.style.fontWeight = 'normal';
-    }
-  } else {
-    if (btnShorts) {
-      btnShorts.classList.add('active');
-      btnShorts.style.fontWeight = 'bold';
-    }
-    if (btnLong) {
-      btnLong.classList.remove('active');
-      btnLong.style.fontWeight = 'normal';
-    }
-  }
-  updateVideoDisplay();
-};
-
-window.filterYtByChannel = function(channelName) {
-  window.selectedChannel = channelName;
-  updateVideoDisplay();
-};
-
-window.resetYtChannelFilter = function() {
-  window.selectedChannel = 'ALL';
-  updateVideoDisplay();
-};
-
-function renderVideoTable(videos) {
-  window.currentVideoList = videos;
-  const tableContainer = document.getElementById('yt-table-container');
-  if (!tableContainer) return;
-
-  if (!videos || videos.length === 0) {
-    tableContainer.innerHTML = '<div class="loading" style="padding:16px; text-align:center;">該当する動画がありません</div>';
-    return;
-  }
-
-  let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;">';
-  
-  videos.forEach((item, index) => {
-    const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-      ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-      : '';
-
-    html += `
-      <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(0,0,0,0.1); cursor: pointer;">
-        <td style="padding: 8px 4px; width: 70px;">
-          <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
-            ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
-            <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); color:#fff; font-size:10px;">▶</div>
+          <div id="yt-channel-badge" style="width: 25%; display: none; justify-content: center; align-items: center; box-sizing: border-box;">
+            <button onclick="resetYtChannelFilter()" title="フィルター解除" style="width: 100%; padding: 6px 0; background: #f0f0f0; border: 1px solid #ccc; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1;">✕</button>
           </div>
-        </td>
-        <td style="padding: 8px 4px; vertical-align: middle;">
-          <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title || 'タイトルなし'}</div>
-          <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
-        </td>
-      </tr>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+          <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-weight: bold;" onclick="switchYtTab('long')">動画</button>
+          <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px;" onclick="switchYtTab('short')">Shorts</button>
+        </div>
+      </div>
+
+      <div id="yt-table-container"></div>
     `;
-  });
 
-  html += '</table>';
-  tableContainer.innerHTML = html;
-}
+    window.currentType = 'long';
 
-updateVideoDisplay();
+    window.updateVideoDisplay = function() {
+      const filtered = allVideoDataList.filter(item => {
+        const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
+        const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
+        return matchesType && matchesChannel;
+      });
+
+      const badgeDiv = document.getElementById('yt-channel-badge');
+      const selectElem = document.getElementById('yt-channel-select');
+
+      if (selectElem) selectElem.value = window.selectedChannel;
+
+      if (window.selectedChannel !== 'ALL') {
+        if (badgeDiv) badgeDiv.style.display = 'flex';
+      } else {
+        if (badgeDiv) badgeDiv.style.display = 'none';
+      }
+
+      renderVideoTable(filtered);
+    };
+
+    window.switchYtTab = function(type) {
+      window.currentType = type;
+      const btnLong = document.getElementById('yt-tab-long');
+      const btnShorts = document.getElementById('yt-tab-shorts');
+      if (type === 'long') {
+        if (btnLong) {
+          btnLong.classList.add('active');
+          btnLong.style.fontWeight = 'bold';
+        }
+        if (btnShorts) {
+          btnShorts.classList.remove('active');
+          btnShorts.style.fontWeight = 'normal';
+        }
+      } else {
+        if (btnShorts) {
+          btnShorts.classList.add('active');
+          btnShorts.style.fontWeight = 'bold';
+        }
+        if (btnLong) {
+          btnLong.classList.remove('active');
+          btnLong.style.fontWeight = 'normal';
+        }
+      }
+      updateVideoDisplay();
+    };
+
+    window.filterYtByChannel = function(channelName) {
+      window.selectedChannel = channelName;
+      updateVideoDisplay();
+    };
+
+    window.resetYtChannelFilter = function() {
+      window.selectedChannel = 'ALL';
+      updateVideoDisplay();
+    };
+
+    function renderVideoTable(videos) {
+      window.currentVideoList = videos;
+      const tableContainer = document.getElementById('yt-table-container');
+      if (!tableContainer) return;
+
+      if (!videos || videos.length === 0) {
+        tableContainer.innerHTML = '<div class="loading" style="padding:16px; text-align:center;">該当する動画がありません</div>';
+        return;
+      }
+
+      let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;">';
+      
+      videos.forEach((item, index) => {
+        const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+          ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : '';
+
+        html += `
+          <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(0,0,0,0.1); cursor: pointer;">
+            <td style="padding: 8px 4px; width: 70px;">
+              <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
+                ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
+                <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); color:#fff; font-size:10px;">▶</div>
+              </div>
+            </td>
+            <td style="padding: 8px 4px; vertical-align: middle;">
+              <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title || 'タイトルなし'}</div>
+              <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
+            </td>
+          </tr>
+        `;
+      });
+
+      html += '</table>';
+      tableContainer.innerHTML = html;
+    }
+
+    updateVideoDisplay();
 
   } catch (err) {
     console.error(err);
@@ -556,11 +566,38 @@ updateVideoDisplay();
   }
 }
 
-// --- 高画質維持（CSS Scale縮小）ミニプレイヤー表示関数 ---
+// Media Session API と YouTube API を連携させる設定関数
+function updateMediaSession(title, artist, artworkUrl) {
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: title || 'YouTube Video',
+      artist: artist || 'YouTube',
+      artwork: artworkUrl ? [{ src: artworkUrl, sizes: '512x512', type: 'image/jpeg' }] : []
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+    });
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      if (currentPlayingIndex > 0) openYoutubeModalByIndex(currentPlayingIndex - 1);
+    });
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      if (window.currentVideoList && currentPlayingIndex < window.currentVideoList.length - 1) {
+        openYoutubeModalByIndex(currentPlayingIndex + 1);
+      }
+    });
+  }
+}
+
+// --- 高画質維持（CSS Scale縮小）ミニプレイヤー表示関数（YouTube IFrame API対応）---
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
 
+  currentPlayingIndex = index;
   const item = list[index];
   const videoId = item.videoId;
   const title = item.title || '';
@@ -575,7 +612,6 @@ window.openYoutubeModalByIndex = function(index) {
   const hasPrev = index > 0;
   const hasNext = index < list.length - 1;
 
-  // 外枠（ミニプレイヤーサイズ: 幅320px）
   modal.style.cssText = `
     position: fixed !important;
     width: min(320px, 85vw) !important;
@@ -615,21 +651,49 @@ window.openYoutubeModalByIndex = function(index) {
 
       <!-- プレイヤーコンテナ（16:9 保持） -->
       <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; overflow: hidden;">
-        <!-- 内部で 1280x720 の大型解像度として作成し、CSSスケールで 50% 縮小表示させる -->
         <div style="position: absolute; top: 0; left: 0; width: 200%; height: 200%; transform: scale(0.5); transform-origin: 0 0;">
-          <iframe 
-            src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080" 
-            title="${title}"
-            style="width: 100%; height: 100%; border: none;"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-            allowfullscreen>
-          </iframe>
+          <div id="yt-iframe-placeholder"></div>
         </div>
       </div>
     </div>
   `;
 
   setupModalDrag(modal);
+
+  // Media Session メタデータの更新
+  updateMediaSession(item.title, item.displayName, item.thumbnail);
+
+  // YouTube Iframe API によるプレイヤー生成
+  if (ytPlayer && typeof ytPlayer.destroy === 'function') {
+    ytPlayer.destroy();
+  }
+
+  ytPlayer = new YT.Player('yt-iframe-placeholder', {
+    height: '100%',
+    width: '100%',
+    videoId: videoId,
+    playerVars: {
+      'autoplay': 1,
+      'playsinline': 1,
+      'rel': 0,
+      'enablejsapi': 1,
+      'origin': window.location.origin
+    },
+    events: {
+      'onReady': (event) => {
+        event.target.playVideo();
+      },
+      'onStateChange': (event) => {
+        if ('mediaSession' in navigator) {
+          if (event.data === YT.PlayerState.PLAYING) {
+            navigator.mediaSession.playbackState = 'playing';
+          } else if (event.data === YT.PlayerState.PAUSED) {
+            navigator.mediaSession.playbackState = 'paused';
+          }
+        }
+      }
+    }
+  });
 };
 
 function setupModalDrag(modal) {
@@ -699,6 +763,10 @@ function setupModalDrag(modal) {
 }
 
 window.closeYoutubeModal = function() {
+  if (ytPlayer && typeof ytPlayer.destroy === 'function') {
+    ytPlayer.destroy();
+    ytPlayer = null;
+  }
   const modal = document.getElementById('youtube-video-modal');
   if (modal) modal.remove();
 };
