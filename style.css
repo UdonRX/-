@@ -1,583 +1,1121 @@
 /* iOSのセーフエリア（ノッチ・ホームバー）対応 */
+
 :root {
-  --safe-top: env(safe-area-inset-top, 20px);
-  --safe-bottom: env(safe-area-inset-bottom, 20px);
-  --bg-color: #f2f2f7;
-  --card-bg: #ffffff;
-  --primary-color: #007aff;
-  --danger-color: #ff3b30;
-  --warning-color: #ff9500; /* 編集用オレンジ */
-  --text-color: #1c1c1e;
-  --text-sub: #8e8e93;
-  --border-color: #e5e5ea;
+
+--safe-top: env(safe-area-inset-top, 20px);
+
+--safe-bottom: env(safe-area-inset-bottom, 20px);
+
+--bg-color: #f2f2f7;
+
+--card-bg: #ffffff;
+
+--primary-color: #007aff;
+
+--danger-color: #ff3b30;
+
+--text-color: #1c1c1e;
+
+--text-sub: #8e8e93;
+
+--border-color: #e5e5ea;
+
 }
+
+
 
 * {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  -webkit-tap-highlight-color: transparent;
+
+box-sizing: border-box;
+
+margin: 0;
+
+padding: 0;
+
+-webkit-tap-highlight-color: transparent;
+
 }
+
+
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  padding-top: var(--safe-top);
-  padding-bottom: calc(var(--safe-bottom) + 20px);
-  padding-left: env(safe-area-inset-left, 12px);
-  padding-right: env(safe-area-inset-right, 12px);
-  /* 拡大（ズーム）防止対策 */
-  touch-action: manipulation;
+
+font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+background-color: var(--bg-color);
+
+color: var(--text-color);
+
+padding-top: var(--safe-top);
+
+padding-bottom: calc(var(--safe-bottom) + 20px);
+
+padding-left: env(safe-area-inset-left, 12px);
+
+padding-right: env(safe-area-inset-right, 12px);
+
+/* 拡大（ズーム）防止対策 */
+
+touch-action: manipulation;
+
 }
+
+
 
 /* マイ・ダッシュボード非表示化に伴う上部余白調整 */
+
 header {
-  display: none;
+
+display: none;
+
 }
+
+
 
 main {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-top: 0;
-  padding-top: 0;
+
+display: flex;
+
+flex-direction: column;
+
+gap: 16px;
+
+margin-top: 0;
+
+padding-top: 0;
+
 }
+
+
 
 /* --- セクション間の余白統一 --- */
+
 .section,
+
 #weather-section,
+
 #news-section,
+
 #knowledge-section,
+
 #twitter-section,
+
 #youtube-section {
-  margin-bottom: 24px;
+
+margin-bottom: 24px;
+
 }
+
+
 
 .card {
-  background: var(--card-bg);
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+
+background: var(--card-bg);
+
+border-radius: 16px;
+
+padding: 16px;
+
+box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+
 }
+
+
 
 .card:first-child {
-  margin-top: 0;
+
+margin-top: 0;
+
 }
+
+
 
 .card-header,
+
 .section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+
+display: flex;
+
+justify-content: space-between;
+
+align-items: center;
+
+margin-bottom: 12px;
+
 }
+
+
 
 h2 {
-  font-size: 18px;
-  font-weight: 600;
+
+font-size: 18px;
+
+font-weight: 600;
+
 }
+
+
 
 .action-buttons {
-  display: flex;
-  gap: 8px;
+
+display: flex;
+
+gap: 8px;
+
 }
+
+
 
 /* ボタン装飾 */
+
 .btn {
-  border: none;
-  background: #e5e5ea;
-  color: var(--text-color);
-  padding: 6px 12px;
-  border-radius: 14px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap; /* ボタンテキストの折り返し防止 */
+
+border: none;
+
+background: #e5e5ea;
+
+color: var(--text-color);
+
+padding: 6px 12px;
+
+border-radius: 14px;
+
+font-size: 13px;
+
+font-weight: 600;
+
+cursor: pointer;
+
+white-space: nowrap; /* ボタンテキストの折り返し防止 */
+
 }
 
-/* 追加（青背景・白文字） */
-.btn.primary,
-#weather-section .btn-add,
-#weather-section button[onclick*="add"] {
-  background: var(--primary-color);
-  color: #fff;
+
+
+.btn.primary {
+
+background: var(--primary-color);
+
+color: #fff;
+
 }
 
-/* 編集（オレンジ背景・白文字） */
-.btn.warning,
-.btn.edit,
-#weather-section .btn-edit,
-#weather-section button[onclick*="edit"] {
-  background: var(--warning-color);
-  color: #fff;
-}
+
 
 .btn.danger {
-  background: var(--danger-color);
-  color: #fff;
+
+background: var(--danger-color);
+
+color: #fff;
+
 }
+
+
 
 /* スクロールエリア定義 */
+
 .horizontal-scroll {
-  display: flex;
-  overflow-x: auto;
-  gap: 12px;
-  padding-bottom: 8px;
-  -webkit-overflow-scrolling: touch;
-  /* 3日間・1週間切替時に高さが変わらないよう固定 */
-  min-height: 100px;
-  align-items: flex-start;
+
+display: flex;
+
+overflow-x: auto;
+
+gap: 12px;
+
+padding-bottom: 8px;
+
+-webkit-overflow-scrolling: touch;
+
 }
+
+
 
 .vertical-scroll,
+
 #news-content,
+
 #knowledge-content {
-  max-height: 400px;
-  overflow-y: auto;
-  border-top: 1px solid var(--border-color);
-  padding-top: 8px;
-  -webkit-overflow-scrolling: touch;
+
+max-height: 400px;
+
+overflow-y: auto;
+
+border-top: 1px solid var(--border-color);
+
+padding-top: 8px;
+
+-webkit-overflow-scrolling: touch;
+
 }
+
+
 
 /* 天気スタイル */
+
 .weather-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 65px;
-  width: 65px;
-  height: 85px; /* 天気カード自体の大きさを固定 */
-  padding: 8px;
-  background: #f8f8f8;
-  border-radius: 12px;
-  flex-shrink: 0; /* 圧縮によるサイズ変更を防止 */
-  box-sizing: border-box;
+
+display: flex;
+
+flex-direction: column;
+
+align-items: center;
+
+min-width: 60px;
+
+padding: 8px;
+
+background: #f8f8f8;
+
+border-radius: 12px;
+
 }
+
+
 
 .weather-time {
-  font-size: 12px;
-  color: var(--text-sub);
+
+font-size: 12px;
+
+color: var(--text-sub);
+
 }
+
+
 
 .weather-icon {
-  font-size: 24px;
-  margin: 6px 0;
+
+font-size: 24px;
+
+margin: 6px 0;
+
 }
+
+
 
 .weather-temp {
-  font-size: 14px;
-  font-weight: 600;
+
+font-size: 14px;
+
+font-weight: 600;
+
 }
+
+
 
 /* タブスタイル */
+
 .tab-container,
+
 .tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  margin-bottom: 8px;
-  padding-bottom: 4px;
+
+display: flex;
+
+gap: 8px;
+
+overflow-x: auto;
+
+margin-bottom: 8px;
+
+padding-bottom: 4px;
+
 }
+
+
 
 .tab-btn {
-  padding: 6px 14px;
-  background: var(--bg-color);
-  color: var(--text-color);
-  border-radius: 16px;
-  font-size: 13px;
-  white-space: nowrap;
-  border: 1px solid var(--border-color);
-  cursor: pointer;
+
+padding: 6px 14px;
+
+background: var(--bg-color);
+
+border-radius: 16px;
+
+font-size: 13px;
+
+white-space: nowrap;
+
+border: 1px solid var(--border-color);
+
+cursor: pointer;
+
 }
+
+
 
 .tab-btn.active {
-  background: var(--bg-color);
-  color: var(--text-color);
-  border-color: var(--border-color);
+
+background: var(--primary-color);
+
+color: #fff;
+
+border-color: var(--primary-color);
+
 }
+
+
 
 /* --- ニュースリスト（左テキスト・右サムネイル対応） --- */
+
 .news-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-color);
+
+display: flex;
+
+align-items: center;
+
+justify-content: space-between;
+
+gap: 12px;
+
+padding: 12px 0;
+
+border-bottom: 1px solid var(--border-color);
+
 }
+
+
 
 .news-item:last-child {
-  border-bottom: none;
+
+border-bottom: none;
+
 }
+
+
 
 .news-content {
-  flex: 1;
-  min-width: 0; /* テキスト溢れ防止 */
+
+flex: 1;
+
+min-width: 0; /* テキスト溢れ防止 */
+
 }
+
+
 
 .news-link {
-  text-decoration: none;
-  color: var(--text-color);
-  font-weight: 500;
-  font-size: 14px;
-  display: block;
-  line-height: 1.4;
+
+text-decoration: none;
+
+color: var(--text-color);
+
+font-weight: 500;
+
+font-size: 14px;
+
+display: block;
+
+line-height: 1.4;
+
 }
+
+
 
 .news-time {
-  font-size: 11px;
-  color: var(--text-sub);
-  margin-top: 4px;
+
+font-size: 11px;
+
+color: var(--text-sub);
+
+margin-top: 4px;
+
 }
+
+
 
 .news-thumbnail {
-  width: 80px;
-  height: 60px;
-  object-fit: cover;
-  border-radius: 8px;
-  flex-shrink: 0;
-  background-color: #eee;
+
+width: 80px;
+
+height: 60px;
+
+object-fit: cover;
+
+border-radius: 8px;
+
+flex-shrink: 0;
+
+background-color: #eee;
+
 }
+
+
 
 /* --- Twitter/Nitterリスト --- */
+
 .tweet-item {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-color);
+
+padding: 12px 0;
+
+border-bottom: 1px solid var(--border-color);
+
 }
+
+
 
 .tweet-item:last-child {
-  border-bottom: none;
+
+border-bottom: none;
+
 }
+
+
 
 .tweet-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-  gap: 8px;
+
+display: flex;
+
+align-items: center;
+
+justify-content: space-between;
+
+margin-bottom: 6px;
+
+gap: 8px;
+
 }
+
+
 
 .tweet-user-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+
+display: flex;
+
+align-items: center;
+
+gap: 8px;
+
+min-width: 0;
+
 }
+
+
 
 .tweet-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-  background-color: var(--border-color);
-  flex-shrink: 0;
+
+width: 32px;
+
+height: 32px;
+
+border-radius: 50%;
+
+object-fit: cover;
+
+background-color: var(--border-color);
+
+flex-shrink: 0;
+
 }
+
+
 
 .tweet-avatar-placeholder {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: #e1e8ed;
-  color: var(--text-sub);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: bold;
-  flex-shrink: 0;
+
+width: 32px;
+
+height: 32px;
+
+border-radius: 50%;
+
+background-color: #e1e8ed;
+
+color: var(--text-sub);
+
+display: flex;
+
+align-items: center;
+
+justify-content: center;
+
+font-size: 14px;
+
+font-weight: bold;
+
+flex-shrink: 0;
+
 }
+
+
 
 .tweet-account {
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--primary-color);
+
+font-weight: 700;
+
+font-size: 14px;
+
+color: var(--primary-color);
+
 }
+
+
 
 .tweet-time {
-  font-size: 11px;
-  color: var(--text-sub);
+
+font-size: 11px;
+
+color: var(--text-sub);
+
 }
+
+
 
 .tweet-body {
-  font-size: 14px;
-  line-height: 1.4;
-  word-break: break-word;
+
+font-size: 14px;
+
+line-height: 1.4;
+
+word-break: break-word;
+
 }
+
+
 
 .tweet-body a {
-  color: var(--primary-color);
-  text-decoration: underline;
+
+color: var(--primary-color);
+
+text-decoration: underline;
+
 }
 
-.tweet-media img, 
+
+
+.tweet-media img,
+
 .tweet-media video,
+
 .tweet-body img,
+
 .tweet-body video {
-  max-width: 100%;
-  height: auto;
-  border-radius: 12px;
-  margin-top: 8px;
-  display: block;
+
+max-width: 100%;
+
+height: auto;
+
+border-radius: 12px;
+
+margin-top: 8px;
+
+display: block;
+
 }
+
+
 
 /* --- YouTubeリスト --- */
+
 .youtube-item {
-  display: flex;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-color);
+
+display: flex;
+
+gap: 12px;
+
+padding: 12px 0;
+
+border-bottom: 1px solid var(--border-color);
+
 }
+
+
 
 .youtube-item:last-child {
-  border-bottom: none;
+
+border-bottom: none;
+
 }
+
+
 
 .youtube-thumbnail {
-  width: 120px;
-  height: 67.5px; /* 16:9比率 */
-  object-fit: cover;
-  border-radius: 8px;
-  flex-shrink: 0;
-  background-color: #eee;
+
+width: 120px;
+
+height: 67.5px; /* 16:9比率 */
+
+object-fit: cover;
+
+border-radius: 8px;
+
+flex-shrink: 0;
+
+background-color: #eee;
+
 }
+
+
 
 .youtube-info {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  flex: 1;
-  min-width: 0;
+
+display: flex;
+
+flex-direction: column;
+
+justify-content: space-between;
+
+flex: 1;
+
+min-width: 0;
+
 }
+
+
 
 .youtube-channel {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-sub);
+
+font-size: 12px;
+
+font-weight: 700;
+
+color: var(--text-sub);
+
 }
+
+
 
 .youtube-link {
-  text-decoration: none;
-  color: var(--text-color);
-  font-weight: 600;
-  font-size: 13.5px;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 2px 0;
+
+text-decoration: none;
+
+color: var(--text-color);
+
+font-weight: 600;
+
+font-size: 13.5px;
+
+line-height: 1.3;
+
+display: -webkit-box;
+
+-webkit-line-clamp: 2;
+
+-webkit-box-orient: vertical;
+
+overflow: hidden;
+
+margin: 2px 0;
+
 }
+
+
 
 .youtube-time {
-  font-size: 11px;
-  color: var(--text-sub);
+
+font-size: 11px;
+
+color: var(--text-sub);
+
 }
+
+
 
 /* --- モーダル --- */
+
 .modal {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 16px;
+
+position: fixed;
+
+top: 0; left: 0; right: 0; bottom: 0;
+
+background: rgba(0,0,0,0.4);
+
+display: flex;
+
+align-items: center;
+
+justify-content: center;
+
+z-index: 1000;
+
+padding: 16px;
+
 }
+
+
 
 .modal.hidden {
-  display: none;
+
+display: none;
+
 }
+
+
 
 .modal-content {
-  background: #fff;
-  padding: 20px;
-  border-radius: 16px;
-  width: 100%;
-  max-width: 520px;
-  max-height: 85vh;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
+
+background: #fff;
+
+padding: 20px;
+
+border-radius: 16px;
+
+width: 100%;
+
+max-width: 520px;
+
+max-height: 85vh;
+
+box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+
+box-sizing: border-box;
+
+display: flex;
+
+flex-direction: column;
+
 }
+
+
 
 .modal-header {
-  flex-shrink: 0;
+
+flex-shrink: 0;
+
 }
+
+
 
 .modal-content input {
-  width: 100%;
-  padding: 10px;
-  margin: 4px 0;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 16px; 
+
+width: 100%;
+
+padding: 10px;
+
+margin: 4px 0;
+
+border: 1px solid var(--border-color);
+
+border-radius: 8px;
+
+font-size: 16px;
+
 }
+
+
 
 #modal-body {
-  overflow-y: auto;
-  max-height: 60vh;
-  padding-right: 4px;
-  margin-bottom: 12px;
+
+overflow-y: auto;
+
+max-height: 60vh;
+
+padding-right: 4px;
+
+margin-bottom: 12px;
+
 }
+
+
 
 .modal-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 8px;
-  margin-top: 16px;
-  width: 100%;
+
+display: flex;
+
+flex-wrap: wrap;
+
+align-items: center;
+
+justify-content: space-between;
+
+gap: 10px 8px;
+
+margin-top: 16px;
+
+width: 100%;
+
 }
+
+
 
 .modal-footer,
+
 #modal .modal-buttons {
-  flex-shrink: 0;
-  margin-top: auto;
+
+flex-shrink: 0;
+
+margin-top: auto;
+
 }
+
+
 
 #modal-add-row-btn {
-  margin-right: auto;
-  padding: 8px 12px;
+
+margin-right: auto;
+
+padding: 8px 12px;
+
 }
+
+
 
 .modal-actions .btn {
-  font-size: 13px;
-  padding: 8px 12px;
+
+font-size: 13px;
+
+padding: 8px 12px;
+
 }
+
+
 
 #modal-nitter-btn,
+
 #modal-cancel-btn,
+
 #modal-submit-btn {
-  margin: 0 !important;
+
+margin: 0 !important;
+
 }
+
+
 
 .delete-list-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-color);
+
+display: flex;
+
+justify-content: space-between;
+
+align-items: center;
+
+padding: 8px 0;
+
+border-bottom: 1px solid var(--border-color);
+
 }
+
+
 
 .loading {
-  font-size: 13px;
-  color: var(--text-sub);
-  padding: 16px;
-  text-align: center;
+
+font-size: 13px;
+
+color: var(--text-sub);
+
+padding: 16px;
+
+text-align: center;
+
 }
+
+
 
 /* --- YouTubeカスタムスタイル --- */
+
 .yt-fixed-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  background: var(--card-bg);
-  padding-top: 4px;
-  padding-bottom: 4px;
+
+position: sticky;
+
+top: 0;
+
+z-index: 100;
+
+background: var(--card-bg);
+
+padding-top: 4px;
+
+padding-bottom: 4px;
+
 }
+
+
 
 /* チャンネルフィルタのコンテナ */
+
 .yt-filter-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  width: 100%;
+
+display: flex;
+
+align-items: center;
+
+gap: 8px;
+
+margin-bottom: 8px;
+
+width: 100%;
+
 }
+
+
 
 /* プルダウンの幅（動画ボタン幅 100% + Shorts幅 50% に相当する約75%） */
+
 .yt-select {
-  flex: 0 0 calc(75% - 4px);
-  width: calc(75% - 4px);
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: var(--bg-color);
-  color: var(--text-color);
-  border: 1px solid var(--border-color);
-  font-size: 13px;
-  box-sizing: border-box;
+
+flex: 0 0 calc(75% - 4px);
+
+width: calc(75% - 4px);
+
+padding: 6px 8px;
+
+border-radius: 8px;
+
+background: var(--bg-color);
+
+color: var(--text-color);
+
+border: 1px solid var(--border-color);
+
+font-size: 13px;
+
+box-sizing: border-box;
+
 }
+
+
 
 /* 残り幅（約25%）に配置される✕ボタンエリア */
+
 .yt-badge {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+
+flex: 1;
+
+display: flex;
+
+justify-content: center;
+
+align-items: center;
+
 }
+
+
 
 .yt-reset-btn {
-  background: #e5e5ea;
-  border: 1px solid var(--border-color);
-  color: var(--text-color);
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+
+background: #e5e5ea;
+
+border: 1px solid var(--border-color);
+
+color: var(--text-color);
+
+width: 30px;
+
+height: 30px;
+
+border-radius: 50%;
+
+cursor: pointer;
+
+font-size: 14px;
+
+display: flex;
+
+align-items: center;
+
+justify-content: center;
+
 }
+
+
 
 /* テーブルスタイル */
+
 .yt-video-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  table-layout: fixed;
+
+width: 100%;
+
+border-collapse: collapse;
+
+font-size: 13px;
+
+table-layout: fixed;
+
 }
+
+
 
 .yt-video-table tr {
-  border-bottom: 1px solid var(--border-color);
-  cursor: pointer;
+
+border-bottom: 1px solid var(--border-color);
+
+cursor: pointer;
+
 }
+
+
 
 .yt-thumb-wrapper {
-  position: relative;
-  width: 64px;
-  height: 36px;
-  overflow: hidden;
-  border-radius: 4px;
-  background: #000;
+
+position: relative;
+
+width: 64px;
+
+height: 36px;
+
+overflow: hidden;
+
+border-radius: 4px;
+
+background: #000;
+
 }
+
+
 
 .yt-thumb-wrapper img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+
+width: 100%;
+
+height: 100%;
+
+object-fit: cover;
+
 }
+
+
 
 .yt-play-icon {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.3);
-  color: #fff;
-  font-size: 10px;
+
+position: absolute;
+
+top: 0;
+
+left: 0;
+
+width: 100%;
+
+height: 100%;
+
+display: flex;
+
+align-items: center;
+
+justify-content: center;
+
+background: rgba(0, 0, 0, 0.3);
+
+color: #fff;
+
+font-size: 10px;
+
 }
+
+
 
 .yt-title {
-  font-weight: bold;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+
+font-weight: bold;
+
+line-height: 1.3;
+
+display: -webkit-box;
+
+-webkit-line-clamp: 2;
+
+-webkit-box-orient: vertical;
+
+overflow: hidden;
+
 }
 
+
+
 .yt-meta {
-  font-size: 11px;
-  color: var(--text-sub);
-  margin-top: 2px;
+
+font-size: 11px;
+
+color: var(--text-sub);
+
+margin-top: 2px;
+
 }
