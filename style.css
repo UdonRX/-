@@ -45,6 +45,7 @@ main {
 
 /* --- セクション間の余白統一 --- */
 .section,
+#weather-section,
 #news-section,
 #knowledge-section,
 #twitter-section,
