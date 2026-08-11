@@ -441,7 +441,7 @@ async function renderWeatherData() {
 
       if (currentAreaSubIndex >= areas.length) currentAreaSubIndex = 0;
 
-      // エリア切替UI
+      // エリア切替UI（3日間モード時のみ表示）
       if (areaSelectContainer) {
         if (areas.length > 1) {
           let opts = areas.map((a, i) => `<option value="${i}" ${i === currentAreaSubIndex ? 'selected' : ''}>${a.area.name}</option>`).join('');
@@ -562,12 +562,66 @@ async function renderWeatherData() {
       `;
 
     } else {
-      // 1週間モード処理 (変更なし)
-      // ...
+      // --- 1週間モード（7日間予報） ---
+      if (areaSelectContainer) areaSelectContainer.innerHTML = ''; // プルダウンをクリア
+
+      const json1 = data[1];
+      if (!json1 || !json1.timeSeries) throw new Error("週間天気データ構造エラー");
+
+      const ts0 = json1.timeSeries[0]; // 天気コード・降水確率・日付
+      const ts1 = json1.timeSeries[1]; // 最低/最高気温
+
+      const weatherArea = ts0 && ts0.areas ? ts0.areas[0] : null;
+      const tempArea = ts1 && ts1.areas ? ts1.areas[0] : null;
+
+      if (!weatherArea) throw new Error("週間エリア情報が見つかりません");
+
+      const timeDefines = ts0.timeDefines || [];
+      const weatherCodes = weatherArea.weatherCodes || [];
+      const pops = weatherArea.pops || [];
+      const tempsMin = tempArea ? tempArea.tempsMin || [] : [];
+      const tempsMax = tempArea ? tempArea.tempsMax || [] : [];
+
+      let itemsHtml = '';
+
+      timeDefines.forEach((t, idx) => {
+        const d = new Date(t);
+        const colorStyle = getDateColorClassOrStyle(d);
+        const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`;
+        const dayStr = `（${dayOfWeek[d.getDay()]}）`;
+
+        const code = weatherCodes[idx] || "100";
+        const iconUrl = getJmaWeatherIconUrl(code, false);
+        const popVal = pops[idx] !== undefined && pops[idx] !== "" ? `${pops[idx]}%` : "--";
+        const minVal = tempsMin[idx] !== undefined && tempsMin[idx] !== "" ? `${tempsMin[idx]}°C` : "--";
+        const maxVal = tempsMax[idx] !== undefined && tempsMax[idx] !== "" ? `${tempsMax[idx]}°C` : "--";
+
+        itemsHtml += `
+          <div style="flex: 0 0 auto; width: 95px; text-align: center; border-right: 1px solid #eee; padding: 0 6px; box-sizing: border-box;">
+            <div style="font-size: 11px; font-weight: bold; margin-bottom: 2px; ${colorStyle}">
+              ${dateStr}${dayStr}
+            </div>
+            <div style="margin: 4px 0;">
+              <img src="${iconUrl}" style="width: 36px; height: 36px; display: block; margin: 0 auto;" alt="weather">
+            </div>
+            <div style="font-size: 11px; color: #007aff; font-weight: bold; margin-bottom: 4px;">☔ ${popVal}</div>
+            <div style="font-size: 10px; color: #666;">
+              <span style="color: #007aff;">${minVal}</span> / <span style="color: #ff3b30;">${maxVal}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = `
+        <div style="display: flex; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin;">
+          ${itemsHtml}
+        </div>
+      `;
     }
 
   } catch (err) {
     console.error(err);
+    if (areaSelectContainer) areaSelectContainer.innerHTML = '';
     container.innerHTML = '<div style="text-align:center; padding: 16px; color:red;">天気データの取得に失敗しました</div>';
   }
 }
@@ -678,7 +732,6 @@ function openAddWeatherModal() {
       if (result) {
         resolvedLocations.push(result);
       } else {
-        // キャンセルまたは該当なし
         resetModalButtons();
         modal.classList.add('hidden');
         return;
