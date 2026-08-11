@@ -1,16 +1,70 @@
-// Weather Code 変換マップ
-const WEATHER_CODES = {
-  0: "☀️", 1: "🌤️", 2: "🌤️", 3: "⛅", 4: "💨", 5: "🌫️", 6: "🪨", 7: "💨", 8: "🌪️", 9: "🏜️",
-  10: "🌫️", 11: "🌫️", 12: "🌫️", 13: "🌩️", 14: "☁️", 15: "🌧️", 16: "🌧️", 17: "🌩️", 18: "💨", 19: "🌪️",
-  20: "🌦️", 21: "🌦️", 22: "🌨️", 23: "🌨️", 24: "🧊", 25: "🌦️", 26: "🌨️", 27: "🌩️", 28: "🌫️", 29: "⛈️",
-  30: "🏜️", 31: "🏜️", 32: "🏜️", 33: "🏜️", 34: "🏜️", 35: "🏜️", 36: "❄️", 37: "❄️", 38: "❄️", 39: "❄️",
-  40: "🌫️", 41: "🌫️", 42: "🌫️", 43: "🌫️", 44: "🌫️", 45: "🌫️", 46: "🌫️", 47: "🌫️", 48: "🌫️", 49: "🌫️",
-  50: "🌧️", 51: "🌧️", 52: "🌧️", 53: "🌧️", 54: "🌧️", 55: "🌧️", 56: "🧊", 57: "🧊", 58: "🌧️", 59: "🌧️",
-  60: "🌧️", 61: "🌧️", 62: "🌧️", 63: "🌧️", 64: "🌧️", 65: "🌧️", 66: "🧊", 67: "🧊", 68: "🌨️", 69: "🌨️",
-  70: "🌨️", 71: "🌨️", 72: "🌨️", 73: "🌨️", 74: "❄️", 75: "❄️", 76: "💎", 77: "❄️", 78: "❄️", 79: "🧊",
-  80: "🌦️", 81: "🌧️", 82: "🌧️", 83: "🌨️", 84: "🌨️", 85: "🌨️", 86: "🌨️", 87: "🌨️", 88: "🌨️", 89: "🌩️",
-  90: "🌩️", 91: "⛈️", 92: "⛈️", 93: "⛈️", 94: "⛈️", 95: "⛈️", 96: "⛈️", 97: "⛈️", 98: "🌩️", 99: "⛈️"
-};
+// Google Weather Icon マッピング関数
+function getGoogleWeatherIconUrl(code, isNight = false) {
+  // Weather Code -> Google Weather Icon Name
+  // 昼 night: d, 夜 night: n
+  const suffix = isNight ? "n" : "d";
+  let iconName = `sunny_${suffix}`; // Default
+
+  if (code === 0) {
+    iconName = isNight ? "clear_night" : "sunny";
+  } else if (code === 1 || code === 2) {
+    iconName = `partly_cloudy_${suffix}`;
+  } else if (code === 3) {
+    iconName = "cloudy";
+  } else if (code === 4 || code === 5 || code === 6 || code === 7 || code === 8 || code === 9) {
+    iconName = "mist";
+  } else if (code >= 10 && code <= 12) {
+    iconName = "fog";
+  } else if (code === 13 || code === 17) {
+    iconName = "thunderstorm";
+  } else if (code >= 14 && code <= 16) {
+    iconName = `rain_s_cloudy_${suffix}`;
+  } else if (code === 18 || code === 19) {
+    iconName = "windy";
+  } else if (code >= 20 && code <= 21) {
+    iconName = `rain_s_cloudy_${suffix}`;
+  } else if (code === 22 || code === 23 || code === 26) {
+    iconName = `snow_s_cloudy_${suffix}`;
+  } else if (code === 24) {
+    iconName = "rain_snow";
+  } else if (code === 25) {
+    iconName = `rain_s_cloudy_${suffix}`;
+  } else if (code === 27) {
+    iconName = "sleet";
+  } else if (code === 28) {
+    iconName = "fog";
+  } else if (code === 29) {
+    iconName = "thunderstorm";
+  } else if (code >= 30 && code <= 35) {
+    iconName = "mist";
+  } else if (code >= 36 && code <= 39) {
+    iconName = "snow";
+  } else if (code >= 40 && code <= 49) {
+    iconName = "fog";
+  } else if (code >= 50 && code <= 55) {
+    iconName = "rain_light";
+  } else if (code >= 56 && code <= 57) {
+    iconName = "rain_snow";
+  } else if (code >= 58 && code <= 65) {
+    iconName = "rain";
+  } else if (code >= 66 && code <= 67) {
+    iconName = "rain_snow";
+  } else if (code >= 68 && code <= 69) {
+    iconName = "snow";
+  } else if (code >= 70 && code <= 79) {
+    iconName = "snow";
+  } else if (code >= 80 && code <= 82) {
+    iconName = "rain_heavy";
+  } else if (code >= 83 && code <= 88) {
+    iconName = "snow";
+  } else if (code >= 89 && code <= 90) {
+    iconName = "sleet";
+  } else if (code >= 91 && code <= 99) {
+    iconName = "thunderstorm";
+  }
+
+  return `https://ssl.gstatic.com/onebox/weather/64/${iconName}.png`;
+}
 
 // 天気初期データ
 const DEFAULT_WEATHER_LOCATIONS = [
@@ -307,16 +361,20 @@ async function renderWeatherData() {
 
       let itemsHtml = '';
       time.forEach((t, i) => {
-        const hour = t.split('T')[1].substring(0, 5);
+        const hourStr = t.split('T')[1].substring(0, 5);
+        const hourNum = parseInt(hourStr.split(':')[0], 10);
+        // 朝・昼(6:00〜17:59)は昼アイコン、夜(18:00〜翌5:59)は夜アイコン
+        const isNight = hourNum < 6 || hourNum >= 18;
+        
         const temp = temperature_2m[i];
         const prob = precipitation_probability[i];
         const code = weather_code[i];
-        const icon = WEATHER_CODES[code] || "❓";
+        const iconUrl = getGoogleWeatherIconUrl(code, isNight);
 
         itemsHtml += `
           <div style="flex: 0 0 auto; width: 65px; text-align: center; border-right: 1px solid #eee; padding: 0 4px;">
-            <div style="font-size: 12px; font-weight: bold; margin-bottom: 4px;">${hour}</div>
-            <div style="font-size: 22px; margin-bottom: 4px;">${icon}</div>
+            <div style="font-size: 12px; font-weight: bold; margin-bottom: 4px;">${hourStr}</div>
+            <div style="margin-bottom: 4px;"><img src="${iconUrl}" style="width: 36px; height: 36px; display: block; margin: 0 auto;" alt="weather"></div>
             <div style="font-size: 11px; color: #007aff; margin-bottom: 4px;">${prob}%</div>
             <div style="font-size: 12px; font-weight: bold;">${temp}°C</div>
           </div>
@@ -334,7 +392,7 @@ async function renderWeatherData() {
       container.innerHTML = '<div style="text-align:center; padding: 16px; color:red;">天気データの取得に失敗しました</div>';
     }
   } else {
-    // 2週間
+    // 2週間（すべて昼間ライトモード用アイコン）
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&daily=weather_code,precipitation_probability_max,temperature_2m_max,temperature_2m_min&timezone=Asia%2FTokyo&forecast_days=14`;
     try {
       const res = await fetch(url);
@@ -349,7 +407,7 @@ async function renderWeatherData() {
         const d = new Date(t);
         const dateStr = `${d.getMonth() + 1}/${d.getDate()} (${dayOfWeek[d.getDay()]})`;
         const code = weather_code[i];
-        const icon = WEATHER_CODES[code] || "❓";
+        const iconUrl = getGoogleWeatherIconUrl(code, false); // 常に昼間アイコン
         const prob = precipitation_probability_max[i];
         const maxTemp = temperature_2m_max[i];
         const minTemp = temperature_2m_min[i];
@@ -357,7 +415,7 @@ async function renderWeatherData() {
         itemsHtml += `
           <div style="flex: 0 0 auto; width: 80px; text-align: center; border-right: 1px solid #eee; padding: 0 4px;">
             <div style="font-size: 11px; font-weight: bold; margin-bottom: 4px; white-space: nowrap;">${dateStr}</div>
-            <div style="font-size: 22px; margin-bottom: 4px;">${icon}</div>
+            <div style="margin-bottom: 4px;"><img src="${iconUrl}" style="width: 36px; height: 36px; display: block; margin: 0 auto;" alt="weather"></div>
             <div style="font-size: 11px; color: #007aff; margin-bottom: 4px;">${prob}%</div>
             <div style="font-size: 12px; color: #ff3b30; font-weight: bold;">${maxTemp}°C</div>
             <div style="font-size: 12px; color: #007aff; font-weight: bold;">${minTemp}°C</div>
@@ -480,8 +538,6 @@ function openAddWeatherModal() {
     const resolvedLocations = [];
 
     for (const q of queries) {
-      // 「京都」などの1文字や単体キーワードで「都」が自動一致しないよう修正
-      // 末尾判定は2文字以上の「◯◯市」「◯◯区」「◯◯県」などの場合のみ有効化
       const hasSuffix = q.length > 1 && /(?:[都道府県市町村区])$/.test(q) && !/^(?:東京都|京都府|大阪府|北海|青森|岩手|宮城|秋田|山形|福島|茨城|栃木|群馬|埼玉|千葉|東京|神奈川|新潟|富山|石川|福井|山梨|長野|岐阜|静岡|愛知|三重|滋賀|京都|大阪|兵庫|奈良|和歌山|鳥取|島根|岡山|広島|山口|徳島|香川|愛媛|高知|福岡|佐賀|長崎|熊本|大分|宮崎|鹿児島|沖縄)$/.test(q);
 
       try {
@@ -552,7 +608,6 @@ function openAddWeatherModal() {
 
         let selectedResult = null;
 
-        // 条件が揃っている場合のみ自動選択、それ以外（「京都」など）は候補選択を呼ぶ
         if (hasSuffix || choices.length === 1) {
           selectedResult = choices[0];
         } else {
@@ -580,18 +635,15 @@ function openAddWeatherModal() {
     }
 
     if (resolvedLocations.length > 0) {
-      // 追加直前の件数を記録し、追加された最初の要素をアクティブに設定
       const newIndex = weatherLocations.length;
       weatherLocations.push(...resolvedLocations);
       saveStoredFeeds('weatherLocations', weatherLocations);
       
-      // アクティブなインデックスを更新
       currentWeatherIdx = newIndex;
 
       resetModalButtons();
       modal.classList.add('hidden');
 
-      // UIと天気データを即座に更新描画
       if (typeof renderWeatherTabs === 'function') renderWeatherTabs();
       if (typeof renderWeatherData === 'function') renderWeatherData();
       if (typeof initWeatherUI === 'function') initWeatherUI();
@@ -633,7 +685,6 @@ function promptSelectLocation(query, choices) {
 
     modalBody.appendChild(listContainer);
 
-    // キャンセルボタンを押した場合は null を返してモーダルを抜ける
     cancelBtn.onclick = () => {
       resolve(null);
     };
@@ -649,142 +700,7 @@ function openEditWeatherModal() {
 
   if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
 
-  // ボタン状態を一度リセット
   resetModalButtons();
-
-  modalTitle.textContent = "地域の編集";
-  cancelBtn.style.display = 'none'; // 編集時は完了ボタンのみにするためキャンセルを非表示
-  submitBtn.textContent = '完了';
-
-  const renderList = () => {
-    modalBody.innerHTML = '';
-    if (weatherLocations.length === 0) {
-      modalBody.innerHTML = '<div style="color: #888; font-size: 14px;">登録されていません</div>';
-      return;
-    }
-
-    weatherLocations.forEach((loc, idx) => {
-      const row = document.createElement('div');
-      row.style.cssText = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 8px; background: #f9f9f9; border-radius: 6px; border: 1px solid #ccc;";
-
-      const nameSpan = document.createElement('span');
-      nameSpan.style.cssText = "font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
-      nameSpan.textContent = loc.name;
-
-      const btnGroup = document.createElement('div');
-      btnGroup.style.cssText = "display: flex; gap: 4px;";
-
-      const upBtn = document.createElement('button');
-      upBtn.className = 'btn';
-      upBtn.style.padding = '2px 8px';
-      upBtn.textContent = '↑';
-      upBtn.disabled = idx === 0;
-      upBtn.onclick = () => {
-        const temp = weatherLocations[idx];
-        weatherLocations[idx] = weatherLocations[idx - 1];
-        weatherLocations[idx - 1] = temp;
-        saveStoredFeeds('weatherLocations', weatherLocations);
-        renderList();
-        renderWeatherTabs();
-        renderWeatherData();
-      };
-
-      const downBtn = document.createElement('button');
-      downBtn.className = 'btn';
-      downBtn.style.padding = '2px 8px';
-      downBtn.textContent = '↓';
-      downBtn.disabled = idx === weatherLocations.length - 1;
-      downBtn.onclick = () => {
-        const temp = weatherLocations[idx];
-        weatherLocations[idx] = weatherLocations[idx + 1];
-        weatherLocations[idx + 1] = temp;
-        saveStoredFeeds('weatherLocations', weatherLocations);
-        renderList();
-        renderWeatherTabs();
-        renderWeatherData();
-      };
-
-      const delBtn = document.createElement('button');
-      delBtn.className = 'btn danger';
-      delBtn.style.padding = '2px 8px';
-      delBtn.textContent = '削除';
-      delBtn.onclick = () => {
-        weatherLocations.splice(idx, 1);
-        if (currentWeatherIdx >= weatherLocations.length) {
-          currentWeatherIdx = Math.max(0, weatherLocations.length - 1);
-        }
-        saveStoredFeeds('weatherLocations', weatherLocations);
-        renderList();
-        renderWeatherTabs();
-        renderWeatherData();
-      };
-
-      btnGroup.appendChild(upBtn);
-      btnGroup.appendChild(downBtn);
-      btnGroup.appendChild(delBtn);
-
-      row.appendChild(nameSpan);
-      row.appendChild(btnGroup);
-      modalBody.appendChild(row);
-    });
-  };
-
-  submitBtn.onclick = () => {
-    resetModalButtons(); // 閉じる前にボタンの表示状態を元に戻す
-    modal.classList.add('hidden');
-  };
-
-  renderList();
-  modal.classList.remove('hidden');
-}
-
-function promptSelectLocation(query, choices) {
-  return new Promise((resolve) => {
-    const modalBody = document.getElementById('modal-body');
-    const modalTitle = document.getElementById('modal-title');
-    const submitBtn = document.getElementById('modal-submit-btn');
-    const addRowBtn = document.getElementById('modal-add-row-btn');
-
-    if (addRowBtn) addRowBtn.style.display = 'none';
-    submitBtn.style.display = 'none';
-
-    modalTitle.textContent = `「${query}」の候補選択`;
-    modalBody.innerHTML = '<div style="margin-bottom:8px; font-size:13px;">該当する地域を選択してください:</div>';
-
-    const listContainer = document.createElement('div');
-    listContainer.style.cssText = "display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;";
-
-    choices.forEach(choice => {
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.style.cssText = "text-align: left; padding: 8px; width: 100%; border: 1px solid #ccc; border-radius: 6px; background: #f9f9f9;";
-      btn.textContent = choice.displayName;
-      btn.onclick = () => {
-        submitBtn.style.display = 'inline-block';
-        if (addRowBtn) addRowBtn.style.display = 'inline-block';
-        resolve(choice);
-      };
-      listContainer.appendChild(btn);
-    });
-
-    modalBody.appendChild(listContainer);
-  });
-}
-
-function openEditWeatherModal() {
-  const modal = document.getElementById('modal');
-  const modalTitle = document.getElementById('modal-title');
-  const modalBody = document.getElementById('modal-body');
-  const cancelBtn = document.getElementById('modal-cancel-btn');
-  const submitBtn = document.getElementById('modal-submit-btn');
-
-  if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
-
-  const cleanupExtra = () => {
-    const addRowBtn = document.getElementById('modal-add-row-btn');
-    if (addRowBtn) addRowBtn.remove();
-  };
-  cleanupExtra();
 
   modalTitle.textContent = "地域の編集";
   cancelBtn.style.display = 'none';
@@ -864,7 +780,7 @@ function openEditWeatherModal() {
   };
 
   submitBtn.onclick = () => {
-    cancelBtn.style.display = 'inline-block';
+    resetModalButtons();
     modal.classList.add('hidden');
   };
 
