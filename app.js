@@ -483,55 +483,62 @@ function openAddWeatherModal() {
     for (const q of queries) {
       const hasSuffix = /[都道府県市町村区]$/.test(q);
 
-      try {
-        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=10&language=ja&format=json`;
-        const res = await fetch(geoUrl);
-        const data = await res.json();
+   // --- 国土地理院 API を使った検索への差し替え例 ---
+try {
+  // 国土地理院の住所検索API
+  const geoUrl = `https://msearch.gsi.go.jp/address-search-api/msearch/search?q=${encodeURIComponent(q)}`;
+  const res = await fetch(geoUrl);
+  const data = await res.json();
 
-        if (!data.results || data.results.length === 0) {
-          alert(`「${q}」に該当する地名はありません。`);
-          resetModalButtons();
-          return;
-        }
+  // 検索結果がない場合
+  if (!data || data.length === 0) {
+    alert(`「${q}」に該当する地名はありません。`);
+    resetModalButtons();
+    return;
+  }
 
-        let selectedResult = null;
+  // 候補の抽出 (国土地理院APIは GeoJSON 形式で配列を返します)
+  // coordinates は [経度(lon), 緯度(lat)] の順番になっています
+  const choices = data.map(item => {
+    const lon = item.geometry.coordinates[0].toFixed(4);
+    const lat = item.geometry.coordinates[1].toFixed(4);
+    const name = item.properties.title; // 例: "京都府京都市中京区..." や "香川県高松市..."
+    
+    return {
+      displayName: name,
+      lat: lat,
+      lon: lon
+    };
+  });
 
-        if (hasSuffix) {
-          selectedResult = data.results[0];
-        } else {
-          const choices = data.results.map(r => {
-            const admin = r.admin1 || '';
-            const name = r.name || '';
-            return {
-              displayName: `${admin} ${name}`.trim() || name,
-              lat: r.latitude.toFixed(4),
-              lon: r.longitude.toFixed(4)
-            };
-          });
+  let selectedResult = null;
 
-          selectedResult = await promptSelectLocation(q, choices);
-          if (!selectedResult) {
-            // 選択キャンセル時はボタン表示状態を完全にリセット
-            resetModalButtons();
-            modal.classList.add('hidden');
-            return;
-          }
-        }
-
-        if (selectedResult) {
-          resolvedLocations.push({
-            name: selectedResult.displayName || selectedResult.name || q,
-            lat: parseFloat(selectedResult.latitude || selectedResult.lat).toFixed(4),
-            lon: parseFloat(selectedResult.longitude || selectedResult.lon).toFixed(4)
-          });
-        }
-      } catch (e) {
-        console.error(e);
-        alert(`「${q}」の検索に失敗しました。`);
-        resetModalButtons();
-        return;
-      }
+  // 候補が1件のみ、または末尾が「市町村」等の場合は最初の候補を採用
+  if (choices.length === 1 || /[都道府県市町村区]$/.test(q)) {
+    selectedResult = choices[0];
+  } else {
+    // 複数の候補がある場合は選択ダイアログを表示
+    selectedResult = await promptSelectLocation(q, choices);
+    if (!selectedResult) {
+      resetModalButtons();
+      modal.classList.add('hidden');
+      return;
     }
+  }
+
+  if (selectedResult) {
+    resolvedLocations.push({
+      name: selectedResult.displayName || q,
+      lat: selectedResult.lat,
+      lon: selectedResult.lon
+    });
+  }
+} catch (e) {
+  console.error(e);
+  alert(`「${q}」の検索に失敗しました。`);
+  resetModalButtons();
+  return;
+}
 
     if (resolvedLocations.length > 0) {
       weatherLocations.push(...resolvedLocations);
