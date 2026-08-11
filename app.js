@@ -5,8 +5,8 @@ function getGoogleWeatherIconUrl(code, isNight = false) {
   if (code === 0) {
     iconName = isNight ? "clear_night" : "sunny";
   } else if (code === 1 || code === 2) {
-    // 昼は partly_cloudy、夜は partly_cloudy_n を使用
-    iconName = isNight ? "partly_cloudy_n" : "partly_cloudy";
+    // partly_cloudy_d も partly_cloudy_n も存在しないため、partly_cloudy に統一
+    iconName = "partly_cloudy";
   } else if (code === 3) {
     iconName = "cloudy";
   } else if (code >= 4 && code <= 9) {
