@@ -1,11 +1,9 @@
 function getGoogleWeatherIconUrl(code, isNight = false) {
-  const suffix = isNight ? "n" : "d";
-  let iconName = "sunny"; // Default
+  let iconName = "sunny"; // デフォルト
 
   if (code === 0) {
     iconName = isNight ? "clear_night" : "sunny";
   } else if (code === 1 || code === 2) {
-    // partly_cloudy_d も partly_cloudy_n も存在しないため、partly_cloudy に統一
     iconName = "partly_cloudy";
   } else if (code === 3) {
     iconName = "cloudy";
@@ -13,50 +11,33 @@ function getGoogleWeatherIconUrl(code, isNight = false) {
     iconName = "mist";
   } else if (code >= 10 && code <= 12) {
     iconName = "fog";
-  } else if (code === 13 || code === 17) {
-    iconName = "thunderstorm";
-  } else if (code >= 14 && code <= 16) {
-    iconName = `rain_s_cloudy_${suffix}`;
+  } else if (code === 13 || code === 17 || code === 29 || (code >= 91 && code <= 99)) {
+    // thunderstorm.png は404になるため thunderstorms.png に変更
+    iconName = "thunderstorms";
+  } else if ((code >= 14 && code <= 16) || (code >= 20 && code <= 21) || code === 25) {
+    // 接尾辞 (_d, _n) を削除して rain_s_cloudy に統一
+    iconName = "rain_s_cloudy";
   } else if (code === 18 || code === 19) {
     iconName = "windy";
-  } else if (code >= 20 && code <= 21) {
-    iconName = `rain_s_cloudy_${suffix}`;
   } else if (code === 22 || code === 23 || code === 26) {
-    iconName = `snow_s_cloudy_${suffix}`;
-  } else if (code === 24) {
+    // 接尾辞 (_d, _n) を削除して snow_s_cloudy に統一
+    iconName = "snow_s_cloudy";
+  } else if (code === 24 || code === 56 || code === 57 || (code >= 66 && code <= 67)) {
     iconName = "rain_snow";
-  } else if (code === 25) {
-    iconName = `rain_s_cloudy_${suffix}`;
-  } else if (code === 27) {
+  } else if (code === 27 || code === 89 || code === 90) {
     iconName = "sleet";
-  } else if (code === 28) {
+  } else if (code === 28 || (code >= 40 && code <= 49)) {
     iconName = "fog";
-  } else if (code === 29) {
-    iconName = "thunderstorm";
   } else if (code >= 30 && code <= 35) {
     iconName = "mist";
-  } else if (code >= 36 && code <= 39) {
+  } else if ((code >= 36 && code <= 39) || (code >= 68 && code <= 79) || (code >= 83 && code <= 88)) {
     iconName = "snow";
-  } else if (code >= 40 && code <= 49) {
-    iconName = "fog";
   } else if (code >= 50 && code <= 55) {
     iconName = "rain_light";
-  } else if (code >= 56 && code <= 57) {
-    iconName = "rain_snow";
   } else if (code >= 58 && code <= 65) {
     iconName = "rain";
-  } else if (code >= 66 && code <= 67) {
-    iconName = "rain_snow";
-  } else if (code >= 68 && code <= 79) {
-    iconName = "snow";
   } else if (code >= 80 && code <= 82) {
     iconName = "rain_heavy";
-  } else if (code >= 83 && code <= 88) {
-    iconName = "snow";
-  } else if (code >= 89 && code <= 90) {
-    iconName = "sleet";
-  } else if (code >= 91 && code <= 99) {
-    iconName = "thunderstorm";
   }
 
   return `https://ssl.gstatic.com/onebox/weather/64/${iconName}.png`;
