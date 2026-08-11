@@ -1,54 +1,127 @@
-function getGoogleWeatherIconUrl(code, isNight = false) {
-  let iconName = "sunny"; // デフォルト
+// --- JMA (気象庁API) 地域コード定義 & 地名マッピング表 ---
+const JMA_PREF_CODES = {
+  "宗谷地方": "11000",
+  "上川・留萌地方": "12000",
+  "石狩・空知・後志地方": "16000",
+  "網走・北見・紋別地方": "13000",
+  "釧路・根室地方、十勝地方": "14100",
+  "胆振・日高地方": "15000",
+  "渡島・檜山地方": "17000",
+  "青森県": "20000",
+  "秋田県": "50000",
+  "岩手県": "30000",
+  "宮城県": "40000",
+  "山形県": "60000",
+  "福島県": "70000",
+  "茨城県": "80000",
+  "栃木県": "90000",
+  "群馬県": "100000",
+  "埼玉県": "110000",
+  "東京都": "130000",
+  "千葉県": "120000",
+  "神奈川県": "140000",
+  "長野県": "200000",
+  "山梨県": "190000",
+  "静岡県": "220000",
+  "愛知県": "230000",
+  "岐阜県": "210000",
+  "三重県": "240000",
+  "新潟県": "150000",
+  "富山県": "160000",
+  "石川県": "170000",
+  "福井県": "180000",
+  "滋賀県": "250000",
+  "京都府": "260000",
+  "大阪府": "270000",
+  "兵庫県": "280000",
+  "奈良県": "290000",
+  "和歌山県": "300000",
+  "岡山県": "330000",
+  "広島県": "340000",
+  "島根県": "320000",
+  "鳥取県": "310000",
+  "徳島県": "360000",
+  "香川県": "370000",
+  "愛媛県": "380000",
+  "高知県": "390000",
+  "山口県": "350000",
+  "福岡県": "400000",
+  "大分県": "440000",
+  "長崎県": "420000",
+  "佐賀県": "410000",
+  "熊本県": "430000",
+  "宮崎県": "450000",
+  "鹿児島県、奄美地方": "460100",
+  "沖縄本島地方": "471000",
+  "大東島地方": "472000",
+  "宮古島地方": "473000",
+  "八重山地方": "474000"
+};
 
-  if (code === 0) {
-    iconName = isNight ? "clear_night" : "sunny";
-  } else if (code === 1 || code === 2) {
-    iconName = "partly_cloudy";
-  } else if (code === 3) {
-    iconName = "cloudy";
-  } else if (code >= 4 && code <= 9) {
-    iconName = "mist";
-  } else if (code >= 10 && code <= 12) {
-    iconName = "fog";
-  } else if (code === 13 || code === 17 || code === 29 || (code >= 91 && code <= 99)) {
-    // thunderstorm.png は404になるため thunderstorms.png に変更
-    iconName = "thunderstorms";
-  } else if ((code >= 14 && code <= 16) || (code >= 20 && code <= 21) || code === 25) {
-    // 接尾辞 (_d, _n) を削除して rain_s_cloudy に統一
-    iconName = "rain_s_cloudy";
-  } else if (code === 18 || code === 19) {
-    iconName = "windy";
-  } else if (code === 22 || code === 23 || code === 26) {
-    // 接尾辞 (_d, _n) を削除して snow_s_cloudy に統一
-    iconName = "snow_s_cloudy";
-  } else if (code === 24 || code === 56 || code === 57 || (code >= 66 && code <= 67)) {
-    iconName = "rain_snow";
-  } else if (code === 27 || code === 89 || code === 90) {
-    iconName = "sleet";
-  } else if (code === 28 || (code >= 40 && code <= 49)) {
-    iconName = "fog";
-  } else if (code >= 30 && code <= 35) {
-    iconName = "mist";
-  } else if ((code >= 36 && code <= 39) || (code >= 68 && code <= 79) || (code >= 83 && code <= 88)) {
-    iconName = "snow";
-  } else if (code >= 50 && code <= 55) {
-    iconName = "rain_light";
-  } else if (code >= 58 && code <= 65) {
-    iconName = "rain";
-  } else if (code >= 80 && code <= 82) {
-    iconName = "rain_heavy";
-  }
+// 実在する都道府県リスト
+const ALL_PREFECTURES = [
+  "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+  "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+  "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
+  "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
+  "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+  "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
+  "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
+];
+
+// 北海道・沖縄の振分マッピング
+const HOKKAIDO_SUB_AREAS = {
+  "稚内": "11000", "宗谷": "11000",
+  "旭川": "12000", "留萌": "12000", "上川": "12000",
+  "札幌": "16000", "石狩": "16000", "空知": "16000", "後志": "16000", "小樽": "16000",
+  "網走": "13000", "北見": "13000", "紋別": "13000",
+  "釧路": "14100", "根室": "14100", "帯広": "14100", "十勝": "14100",
+  "室蘭": "15000", "苫小牧": "15000", "胆振": "15000", "日高": "15000",
+  "函館": "17000", "渡島": "17000", "檜山": "17000"
+};
+
+const OKINAWA_SUB_AREAS = {
+  "那覇": "471000", "沖縄": "471000", "本島": "471000",
+  "南大東": "472000", "北大東": "472000", "大東": "472000",
+  "宮古": "473000", "宮古島": "473000",
+  "石垣": "474000", "八重山": "474000", "西表": "474000", "与那国": "474000"
+};
+
+// WeatherCode -> アイコン変換 (Google Weather API アイコン名参照)
+function getJmaWeatherIconUrl(code, isNight = false) {
+  const c = parseInt(code, 10);
+  let iconName = "sunny";
+
+  if (c === 100) iconName = isNight ? "clear_night" : "sunny";
+  else if (c >= 101 && c <= 119) iconName = "partly_cloudy";
+  else if (c >= 120 && c <= 181) iconName = "partly_cloudy";
+  else if (c === 200) iconName = "cloudy";
+  else if (c >= 201 && c <= 208) iconName = "cloudy";
+  else if (c === 209) iconName = "fog";
+  else if (c >= 210 && c <= 231) iconName = "cloudy";
+  else if (c === 240 || c === 250) iconName = "thunderstorms";
+  else if (c >= 260 && c <= 281) iconName = "rain_s_cloudy";
+  else if (c >= 300 && c <= 304) iconName = "rain";
+  else if (c === 306 || c === 308) iconName = "rain_heavy";
+  else if (c === 309) iconName = "rain_snow";
+  else if (c >= 311 && c <= 329) iconName = "rain";
+  else if (c === 340) iconName = "rain_snow";
+  else if (c === 350) iconName = "thunderstorms";
+  else if (c >= 361 && c <= 371) iconName = "rain";
+  else if (c >= 400 && c <= 403) iconName = "snow";
+  else if (c >= 405 && c <= 407) iconName = "snow";
+  else if (c === 409) iconName = "sleet";
+  else if (c >= 411 && c <= 427) iconName = "snow";
+  else if (c === 450) iconName = "thunderstorms";
 
   return `https://ssl.gstatic.com/onebox/weather/64/${iconName}.png`;
 }
 
-// 天気初期データ
+// 初期データ（気象庁API仕様：京都府 260000）
 const DEFAULT_WEATHER_LOCATIONS = [
   {
-    name: "京都市",
-    lat: "35.0211",
-    lon: "135.7538"
+    name: "京都府",
+    code: "260000"
   }
 ];
 
@@ -86,7 +159,8 @@ function saveStoredFeeds(key, data) {
 // グローバル変数
 let weatherLocations = loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS);
 let currentWeatherIdx = 0;
-let currentWeatherMode = 'hourly'; // 'hourly' または 'daily'
+let currentWeatherMode = '3day'; // '3day' または '1week'
+let currentAreaSubIndex = 0; // エリア切り替え用
 
 let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
 let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
@@ -240,12 +314,13 @@ function initWeatherUI() {
     <div id="weather-tabs" style="display: flex; gap: 4px; overflow-x: auto; margin-bottom: 12px; border-bottom: 1px solid var(--border-color, #ccc); padding-bottom: 4px;"></div>
     
     <div id="weather-info-box" style="background: var(--bg-card, #fff); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color, #e0e0e0);">
+      <div id="weather-area-select-container" style="margin-bottom: 8px;"></div>
       <div id="weather-data-container"></div>
     </div>
 
     <div style="display: flex; gap: 8px; margin-top: 12px;">
-      <button id="weather-hourly-btn" class="btn ${currentWeatherMode === 'hourly' ? 'active' : ''}" style="flex: 1; padding: 8px;">1時間ごと</button>
-      <button id="weather-daily-btn" class="btn ${currentWeatherMode === 'daily' ? 'active' : ''}" style="flex: 1; padding: 8px;">2週間</button>
+      <button id="weather-3day-btn" class="btn ${currentWeatherMode === '3day' ? 'active' : ''}" style="flex: 1; padding: 8px;">3日間</button>
+      <button id="weather-1week-btn" class="btn ${currentWeatherMode === '1week' ? 'active' : ''}" style="flex: 1; padding: 8px;">1週間</button>
     </div>
   `;
 
@@ -253,20 +328,22 @@ function initWeatherUI() {
   document.getElementById('add-weather-btn').onclick = openAddWeatherModal;
   document.getElementById('edit-weather-btn').onclick = openEditWeatherModal;
 
-  const hourlyBtn = document.getElementById('weather-hourly-btn');
-  const dailyBtn = document.getElementById('weather-daily-btn');
+  const btn3day = document.getElementById('weather-3day-btn');
+  const btn1week = document.getElementById('weather-1week-btn');
 
-  hourlyBtn.onclick = () => {
-    currentWeatherMode = 'hourly';
-    hourlyBtn.classList.add('active');
-    dailyBtn.classList.remove('active');
+  btn3day.onclick = () => {
+    currentWeatherMode = '3day';
+    btn3day.classList.add('active');
+    btn1week.classList.remove('active');
+    currentAreaSubIndex = 0;
     renderWeatherData();
   };
 
-  dailyBtn.onclick = () => {
-    currentWeatherMode = 'daily';
-    dailyBtn.classList.add('active');
-    hourlyBtn.classList.remove('active');
+  btn1week.onclick = () => {
+    currentWeatherMode = '1week';
+    btn1week.classList.add('active');
+    btn3day.classList.remove('active');
+    currentAreaSubIndex = 0;
     renderWeatherData();
   };
 
@@ -300,6 +377,7 @@ function renderWeatherTabs() {
     btn.textContent = loc.name;
     btn.onclick = () => {
       currentWeatherIdx = idx;
+      currentAreaSubIndex = 0;
       renderWeatherTabs();
       renderWeatherData();
     };
@@ -309,9 +387,11 @@ function renderWeatherTabs() {
 
 async function renderWeatherData() {
   const container = document.getElementById('weather-data-container');
+  const areaSelectContainer = document.getElementById('weather-area-select-container');
   if (!container) return;
 
   if (weatherLocations.length === 0) {
+    if (areaSelectContainer) areaSelectContainer.innerHTML = '';
     container.innerHTML = '<div style="text-align:center; padding: 16px; color:#888;">追加ボタンから地域を登録してください。</div>';
     return;
   }
@@ -322,80 +402,155 @@ async function renderWeatherData() {
   container.innerHTML = '<div class="loading" style="text-align:center; padding:16px;">天気情報を読み込み中...</div>';
 
   const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"];
+  const url = `https://www.jma.go.jp/bosai/forecast/data/forecast/${loc.code}.json`;
 
-  if (currentWeatherMode === 'hourly') {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=temperature_2m,precipitation_probability,weather_code&timezone=Asia%2FTokyo&forecast_days=1`;
-    try {
-      const res = await fetch(url);
-      const data = await res.json();
-      
-      if (!data.hourly) throw new Error("APIエラー");
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("気象庁API取得エラー");
+    const data = await res.json();
 
-      const { time, temperature_2m, precipitation_probability, weather_code } = data.hourly;
-      
-      const firstDate = new Date(time[0]);
-      const dateHeaderStr = `${firstDate.getMonth() + 1}月${firstDate.getDate()}日（${dayOfWeek[firstDate.getDay()]}）`;
+    if (currentWeatherMode === '3day') {
+      const json0 = data[0];
+      if (!json0 || !json0.timeSeries) throw new Error("データ構造エラー");
+
+      const ts0 = json0.timeSeries[0]; // weatherCodes
+      const ts1 = json0.timeSeries[1]; // pops
+      const ts2 = json0.timeSeries[2]; // temps
+
+      const areas = ts0 ? ts0.areas : [];
+      if (areas.length === 0) throw new Error("エリア情報が見つかりません");
+
+      if (currentAreaSubIndex >= areas.length) currentAreaSubIndex = 0;
+
+      // エリア切替UI
+      if (areaSelectContainer) {
+        if (areas.length > 1) {
+          let opts = areas.map((a, i) => `<option value="${i}" ${i === currentAreaSubIndex ? 'selected' : ''}>${a.area.name}</option>`).join('');
+          areaSelectContainer.innerHTML = `
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:12px; color:#666;">地域切替:</span>
+              <select id="jma-area-select" style="padding:2px 8px; font-size:12px; border-radius:4px; border:1px solid #ccc;">${opts}</select>
+            </div>
+          `;
+          document.getElementById('jma-area-select').onchange = (e) => {
+            currentAreaSubIndex = parseInt(e.target.value, 10);
+            renderWeatherData();
+          };
+        } else {
+          areaSelectContainer.innerHTML = '';
+        }
+      }
+
+      const weatherArea = areas[currentAreaSubIndex];
+      const weatherCodes = weatherArea ? weatherArea.weatherCodes : [];
+      const timeDefines0 = ts0.timeDefines || [];
 
       let itemsHtml = '';
-      time.forEach((t, i) => {
-        const hourStr = t.split('T')[1].substring(0, 5);
-        const hourNum = parseInt(hourStr.split(':')[0], 10);
-        // 朝・昼(6:00〜17:59)は昼アイコン、夜(18:00〜翌5:59)は夜アイコン
+
+      timeDefines0.forEach((t, idx) => {
+        const d = new Date(t);
+        const dateStr = `${d.getMonth() + 1}月${d.getDate()}日（${dayOfWeek[d.getDay()]}）`;
+        const hourNum = d.getHours();
+        const hourStr = `${hourNum}時`;
         const isNight = hourNum < 6 || hourNum >= 18;
-        
-        const temp = temperature_2m[i];
-        const prob = precipitation_probability[i];
-        const code = weather_code[i];
-        const iconUrl = getGoogleWeatherIconUrl(code, isNight);
+
+        const code = weatherCodes[idx] || "100";
+        const iconUrl = getJmaWeatherIconUrl(code, isNight);
+
+        // 降水確率の紐付け
+        let prob = "--";
+        if (ts1 && ts1.timeSeries) {
+          // Pops
+        }
+        if (ts1 && ts1.areas && ts1.areas[currentAreaSubIndex] && ts1.areas[currentAreaSubIndex].pops) {
+          prob = ts1.areas[currentAreaSubIndex].pops[idx] || ts1.areas[currentAreaSubIndex].pops[0] || "--";
+        }
+
+        // 気温の紐付け
+        let temp9 = "--";
+        let maxTemp = "--";
+        if (ts2 && ts2.areas && ts2.areas[currentAreaSubIndex] && ts2.areas[currentAreaSubIndex].temps) {
+          const temps = ts2.areas[currentAreaSubIndex].temps;
+          temp9 = temps[0] || "--";
+          maxTemp = temps[1] || "--";
+        }
 
         itemsHtml += `
-          <div style="flex: 0 0 auto; width: 65px; text-align: center; border-right: 1px solid #eee; padding: 0 4px;">
-            <div style="font-size: 12px; font-weight: bold; margin-bottom: 4px;">${hourStr}</div>
+          <div style="flex: 0 0 auto; width: 95px; text-align: center; border-right: 1px solid #eee; padding: 0 6px;">
+            <div style="font-size: 11px; font-weight: bold; margin-bottom: 2px;">${dateStr}</div>
+            <div style="font-size: 12px; color: #555; margin-bottom: 4px;">${hourStr}</div>
             <div style="margin-bottom: 4px;"><img src="${iconUrl}" style="width: 36px; height: 36px; display: block; margin: 0 auto;" alt="weather"></div>
-            <div style="font-size: 11px; color: #007aff; margin-bottom: 4px;">${prob}%</div>
-            <div style="font-size: 12px; font-weight: bold;">${temp}°C</div>
+            <div style="font-size: 11px; color: #007aff; margin-bottom: 4px;">☔ ${prob}%</div>
+            <div style="font-size: 11px; color: #555;">朝9時: ${temp9}°C</div>
+            <div style="font-size: 12px; color: #ff3b30; font-weight: bold;">最高: ${maxTemp}°C</div>
           </div>
         `;
       });
 
       container.innerHTML = `
-        <div style="font-weight: bold; font-size: 14px; margin-bottom: 8px; position: sticky; left: 0;">${dateHeaderStr}</div>
         <div style="display: flex; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin;">
           ${itemsHtml}
         </div>
       `;
-    } catch (err) {
-      console.error(err);
-      container.innerHTML = '<div style="text-align:center; padding: 16px; color:red;">天気データの取得に失敗しました</div>';
-    }
-  } else {
-    // 2週間（すべて昼間ライトモード用アイコン）
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&daily=weather_code,precipitation_probability_max,temperature_2m_max,temperature_2m_min&timezone=Asia%2FTokyo&forecast_days=14`;
-    try {
-      const res = await fetch(url);
-      const data = await res.json();
 
-      if (!data.daily) throw new Error("APIエラー");
+    } else {
+      // 1週間モード (json[1])
+      const json1 = data[1];
+      if (!json1 || !json1.timeSeries) throw new Error("1週間予測データが見つかりません");
 
-      const { time, weather_code, precipitation_probability_max, temperature_2m_max, temperature_2m_min } = data.daily;
+      const ts0 = json1.timeSeries[0]; // weatherCodes, pops
+      const ts1 = json1.timeSeries[1]; // tempsMin, tempsMax
+
+      const areas = ts0 ? ts0.areas : [];
+      if (areas.length === 0) throw new Error("エリア情報が見つかりません");
+
+      if (currentAreaSubIndex >= areas.length) currentAreaSubIndex = 0;
+
+      if (areaSelectContainer) {
+        if (areas.length > 1) {
+          let opts = areas.map((a, i) => `<option value="${i}" ${i === currentAreaSubIndex ? 'selected' : ''}>${a.area.name}</option>`).join('');
+          areaSelectContainer.innerHTML = `
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:12px; color:#666;">地域切替:</span>
+              <select id="jma-area-select" style="padding:2px 8px; font-size:12px; border-radius:4px; border:1px solid #ccc;">${opts}</select>
+            </div>
+          `;
+          document.getElementById('jma-area-select').onchange = (e) => {
+            currentAreaSubIndex = parseInt(e.target.value, 10);
+            renderWeatherData();
+          };
+        } else {
+          areaSelectContainer.innerHTML = '';
+        }
+      }
+
+      const weatherArea = areas[currentAreaSubIndex];
+      const weatherCodes = weatherArea ? weatherArea.weatherCodes : [];
+      const pops = weatherArea ? weatherArea.pops : [];
+      const timeDefines = ts0.timeDefines || [];
+
+      const tempArea = ts1 && ts1.areas ? ts1.areas[currentAreaSubIndex] || ts1.areas[0] : null;
+      const tempsMin = tempArea ? tempArea.tempsMin : [];
+      const tempsMax = tempArea ? tempArea.tempsMax : [];
 
       let itemsHtml = '';
-      time.forEach((t, i) => {
+
+      timeDefines.forEach((t, i) => {
         const d = new Date(t);
-        const dateStr = `${d.getMonth() + 1}/${d.getDate()} (${dayOfWeek[d.getDay()]})`;
-        const code = weather_code[i];
-        const iconUrl = getGoogleWeatherIconUrl(code, false); // 常に昼間アイコン
-        const prob = precipitation_probability_max[i];
-        const maxTemp = temperature_2m_max[i];
-        const minTemp = temperature_2m_min[i];
+        const dateStr = `${d.getMonth() + 1}月${d.getDate()}日（${dayOfWeek[d.getDay()]}）`;
+        const code = weatherCodes[i] || "100";
+        const iconUrl = getJmaWeatherIconUrl(code, false); // 1週間はすべて昼間ライトモード
+        const prob = pops[i] ? `${pops[i]}%` : '--';
+        const minT = tempsMin[i] !== undefined && tempsMin[i] !== "" ? `${tempsMin[i]}°C` : '--';
+        const maxT = tempsMax[i] !== undefined && tempsMax[i] !== "" ? `${tempsMax[i]}°C` : '--';
 
         itemsHtml += `
-          <div style="flex: 0 0 auto; width: 80px; text-align: center; border-right: 1px solid #eee; padding: 0 4px;">
+          <div style="flex: 0 0 auto; width: 85px; text-align: center; border-right: 1px solid #eee; padding: 0 4px;">
             <div style="font-size: 11px; font-weight: bold; margin-bottom: 4px; white-space: nowrap;">${dateStr}</div>
             <div style="margin-bottom: 4px;"><img src="${iconUrl}" style="width: 36px; height: 36px; display: block; margin: 0 auto;" alt="weather"></div>
-            <div style="font-size: 11px; color: #007aff; margin-bottom: 4px;">${prob}%</div>
-            <div style="font-size: 12px; color: #ff3b30; font-weight: bold;">${maxTemp}°C</div>
-            <div style="font-size: 12px; color: #007aff; font-weight: bold;">${minTemp}°C</div>
+            <div style="font-size: 11px; color: #007aff; margin-bottom: 4px;">☔ ${prob}</div>
+            <div style="font-size: 12px; color: #ff3b30; font-weight: bold;">最高: ${maxT}</div>
+            <div style="font-size: 12px; color: #007aff; font-weight: bold;">最低: ${minT}</div>
           </div>
         `;
       });
@@ -405,10 +560,11 @@ async function renderWeatherData() {
           ${itemsHtml}
         </div>
       `;
-    } catch (err) {
-      console.error(err);
-      container.innerHTML = '<div style="text-align:center; padding: 16px; color:red;">天気データの取得に失敗しました</div>';
     }
+
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = '<div style="text-align:center; padding: 16px; color:red;">天気データの取得に失敗しました</div>';
   }
 }
 
@@ -427,7 +583,6 @@ function resetModalButtons() {
     submitBtn.textContent = '保存';
   }
   
-  // 動的に追加された「入力欄追加」ボタン等をクリーンアップ
   const addRowBtn = document.getElementById('modal-add-row-btn');
   if (addRowBtn) addRowBtn.remove();
   const extraBtn = document.getElementById('modal-nitter-btn');
@@ -454,7 +609,7 @@ function openAddWeatherModal() {
     row.style.cssText = "display: flex; gap: 8px; margin-bottom: 8px; align-items: center;";
     
     row.innerHTML = `
-      <input type="text" class="input-location" placeholder="地名を入力 (例: 京都、高松)" style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc;" autocomplete="off">
+      <input type="text" class="input-location" placeholder="地名を入力 (例: 京都、高松、造田)" style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc;" autocomplete="off">
       <button type="button" class="btn danger remove-weather-row-btn" style="padding: 4px 8px; display: none;">✕</button>
     `;
 
@@ -510,103 +665,18 @@ function openAddWeatherModal() {
     }
 
     submitBtn.disabled = true;
-    submitBtn.textContent = "検索中...";
+    submitBtn.textContent = "確認中...";
 
     const resolvedLocations = [];
 
-    for (const q of queries) {
-      const hasSuffix = q.length > 1 && /(?:[都道府県市町村区])$/.test(q) && !/^(?:東京都|京都府|大阪府|北海|青森|岩手|宮城|秋田|山形|福島|茨城|栃木|群馬|埼玉|千葉|東京|神奈川|新潟|富山|石川|福井|山梨|長野|岐阜|静岡|愛知|三重|滋賀|京都|大阪|兵庫|奈良|和歌山|鳥取|島根|岡山|広島|山口|徳島|香川|愛媛|高知|福岡|佐賀|長崎|熊本|大分|宮崎|鹿児島|沖縄)$/.test(q);
-
-      try {
-        const geoUrl = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`;
-        const res = await fetch(geoUrl);
-        
-        if (!res.ok) throw new Error("APIエラー");
-        
-        const data = await res.json();
-
-        if (!data || data.length === 0) {
-          alert(`「${q}」に該当する地名はありません。`);
-          resetModalButtons();
-          return;
-        }
-
-        const seenNames = new Set();
-        const cityChoices = [];
-        const fallbackChoices = [];
-
-        data.forEach(item => {
-          if (!item.geometry || !item.geometry.coordinates) return;
-
-          const lon = item.geometry.coordinates[0].toFixed(4);
-          const lat = item.geometry.coordinates[1].toFixed(4);
-          const fullTitle = item.properties.title || '';
-
-          const match = fullTitle.match(/^(.+?[都道府県])?(.+?[市町村区|郡.+?[町村])?/);
-          
-          let cleanName = fullTitle;
-          let prefName = "";
-          let cityName = "";
-
-          if (match) {
-            prefName = match[1] || "";
-            cityName = match[2] || "";
-            cleanName = prefName + cityName;
-          }
-
-          if (!cleanName) cleanName = fullTitle;
-
-          if (!seenNames.has(cleanName)) {
-            seenNames.add(cleanName);
-
-            const choiceObj = {
-              displayName: cleanName,
-              lat: lat,
-              lon: lon
-            };
-
-            const isMatchedTarget = (prefName && prefName.includes(q)) || (cityName && cityName.includes(q));
-
-            if (isMatchedTarget) {
-              cityChoices.push(choiceObj);
-            } else {
-              fallbackChoices.push(choiceObj);
-            }
-          }
-        });
-
-        const choices = cityChoices.length > 0 ? cityChoices : fallbackChoices;
-
-        if (choices.length === 0) {
-          alert(`「${q}」に該当する地名はありません。`);
-          resetModalButtons();
-          return;
-        }
-
-        let selectedResult = null;
-
-        if (hasSuffix || choices.length === 1) {
-          selectedResult = choices[0];
-        } else {
-          selectedResult = await promptSelectLocation(q, choices);
-          if (!selectedResult) {
-            resetModalButtons();
-            modal.classList.add('hidden');
-            return;
-          }
-        }
-
-        if (selectedResult) {
-          resolvedLocations.push({
-            name: selectedResult.displayName || q,
-            lat: selectedResult.lat,
-            lon: selectedResult.lon
-          });
-        }
-      } catch (e) {
-        console.error(e);
-        alert(`「${q}」の検索に失敗しました。`);
+    for (const rawQuery of queries) {
+      const result = await processLocationQuery(rawQuery);
+      if (result) {
+        resolvedLocations.push(result);
+      } else {
+        // キャンセルまたは該当なし
         resetModalButtons();
+        modal.classList.add('hidden');
         return;
       }
     }
@@ -621,9 +691,8 @@ function openAddWeatherModal() {
       resetModalButtons();
       modal.classList.add('hidden');
 
-      if (typeof renderWeatherTabs === 'function') renderWeatherTabs();
-      if (typeof renderWeatherData === 'function') renderWeatherData();
-      if (typeof initWeatherUI === 'function') initWeatherUI();
+      renderWeatherTabs();
+      renderWeatherData();
     } else {
       resetModalButtons();
     }
@@ -632,7 +701,102 @@ function openAddWeatherModal() {
   modal.classList.remove('hidden');
 }
 
-function promptSelectLocation(query, choices) {
+// 入力地名の解析・都道府県判定ロジック
+async function processLocationQuery(query) {
+  let targetPref = null;
+  let isDirectMatch = false;
+
+  // 1. ○○都/道/府/県、または都/道/府/県を付けた場合実在するか判定
+  if (ALL_PREFECTURES.includes(query)) {
+    targetPref = query;
+    isDirectMatch = true;
+  } else {
+    for (const suffix of ["都", "府", "県", "道"]) {
+      const cand = query + suffix;
+      if (ALL_PREFECTURES.includes(cand)) {
+        targetPref = cand;
+        break;
+      }
+    }
+  }
+
+  // 直で都道府県と特定できた場合（例: 京都 -> 京都府）
+  if (targetPref) {
+    if (!isDirectMatch) {
+      const confirmOk = await showCustomConfirm(`${targetPref}ですか？`, true);
+      if (!confirmOk) return null;
+    }
+    const code = resolveJmaCode(targetPref, query);
+    return code ? { name: targetPref, code: code } : null;
+  }
+
+  // 2. 実在しない場合、市町村を国土地理院API等で逆引き検索
+  try {
+    const geoUrl = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(query)}`;
+    const res = await fetch(geoUrl);
+    if (!res.ok) throw new Error("APIエラー");
+    const data = await res.json();
+
+    if (!data || data.length === 0) {
+      await showCustomConfirm("ありません", false);
+      return null;
+    }
+
+    let foundPref = null;
+    for (const item of data) {
+      const fullTitle = item.properties.title || '';
+      for (const pref of ALL_PREFECTURES) {
+        if (fullTitle.startsWith(pref)) {
+          foundPref = pref;
+          break;
+        }
+      }
+      if (foundPref) break;
+    }
+
+    if (foundPref) {
+      const confirmOk = await showCustomConfirm(`${foundPref}ですか？`, true);
+      if (!confirmOk) return null;
+
+      const code = resolveJmaCode(foundPref, query);
+      return code ? { name: foundPref, code: code } : null;
+    } else {
+      await showCustomConfirm("ありません", false);
+      return null;
+    }
+
+  } catch (e) {
+    console.error(e);
+    await showCustomConfirm("ありません", false);
+    return null;
+  }
+}
+
+// 北海道・沖縄の地域コード自動判別含むコード解決
+function resolveJmaCode(prefName, originalQuery) {
+  if (prefName === "北海道") {
+    for (const key in HOKKAIDO_SUB_AREAS) {
+      if (originalQuery.includes(key)) {
+        return HOKKAIDO_SUB_AREAS[key];
+      }
+    }
+    return "16000"; // デフォルト: 石狩・空知・後志地方
+  }
+
+  if (prefName === "沖縄県") {
+    for (const key in OKINAWA_SUB_AREAS) {
+      if (originalQuery.includes(key)) {
+        return OKINAWA_SUB_AREAS[key];
+      }
+    }
+    return "471000"; // デフォルト: 沖縄本島地方
+  }
+
+  return JMA_PREF_CODES[prefName] || null;
+}
+
+// カスタムダイアログ（OK / Cancel あるいは Cancelのみ）
+function showCustomConfirm(message, showOk = true) {
   return new Promise((resolve) => {
     const modalBody = document.getElementById('modal-body');
     const modalTitle = document.getElementById('modal-title');
@@ -641,30 +805,21 @@ function promptSelectLocation(query, choices) {
     const addRowBtn = document.getElementById('modal-add-row-btn');
 
     if (addRowBtn) addRowBtn.style.display = 'none';
-    submitBtn.style.display = 'none';
 
-    modalTitle.textContent = `「${query}」の候補選択`;
-    modalBody.innerHTML = '<div style="margin-bottom:8px; font-size:13px;">該当する地域を選択してください:</div>';
+    modalTitle.textContent = "確認";
+    modalBody.innerHTML = `<div style="text-align: center; padding: 16px; font-size: 16px; font-weight: bold;">${message}</div>`;
 
-    const listContainer = document.createElement('div');
-    listContainer.style.cssText = "display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;";
+    if (showOk) {
+      submitBtn.style.display = 'inline-block';
+      submitBtn.textContent = 'OK';
+      submitBtn.disabled = false;
+      submitBtn.onclick = () => resolve(true);
+    } else {
+      submitBtn.style.display = 'none';
+    }
 
-    choices.forEach(choice => {
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.style.cssText = "text-align: left; padding: 8px; width: 100%; border: 1px solid #ccc; border-radius: 6px; background: #f9f9f9;";
-      btn.textContent = choice.displayName;
-      btn.onclick = () => {
-        resolve(choice);
-      };
-      listContainer.appendChild(btn);
-    });
-
-    modalBody.appendChild(listContainer);
-
-    cancelBtn.onclick = () => {
-      resolve(null);
-    };
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = () => resolve(false);
   });
 }
 
