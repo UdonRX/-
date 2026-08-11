@@ -117,6 +117,17 @@ function getJmaWeatherIconUrl(code, isNight = false) {
   return `https://ssl.gstatic.com/onebox/weather/64/${iconName}.png`;
 }
 
+// 日付に応じた曜日カラーを取得するヘルパー関数
+function getDateColorClassOrStyle(dateObj) {
+  const day = dateObj.getDay();
+  if (day === 0) {
+    return 'color: #ff3b30;'; // 日曜日（赤）
+  } else if (day === 6) {
+    return 'color: #007aff;'; // 土曜日（青）
+  }
+  return 'color: #333333;'; // 平日
+}
+
 // 初期データ（気象庁API仕様：京都府 260000）
 const DEFAULT_WEATHER_LOCATIONS = [
   {
@@ -397,7 +408,11 @@ async function renderWeatherData() {
   }
 
   const loc = weatherLocations[currentWeatherIdx];
-  if (!loc) return;
+  if (!loc || !loc.code) {
+    if (areaSelectContainer) areaSelectContainer.innerHTML = '';
+    container.innerHTML = '<div style="text-align:center; padding: 16px; color:#888;">地域コードが無効です。地域を再登録してください。</div>';
+    return;
+  }
 
   container.innerHTML = '<div class="loading" style="text-align:center; padding:16px;">天気情報を読み込み中...</div>';
 
