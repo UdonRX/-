@@ -6,7 +6,7 @@
   --card-bg: #ffffff;
   --primary-color: #007aff;
   --danger-color: #ff3b30;
-  --warning-color: #ff9500; /* 編集用オレンジカラー */
+  --warning-color: #ff9500; /* 編集用オレンジ */
   --text-color: #1c1c1e;
   --text-sub: #8e8e93;
   --border-color: #e5e5ea;
@@ -27,9 +27,11 @@ body {
   padding-bottom: calc(var(--safe-bottom) + 20px);
   padding-left: env(safe-area-inset-left, 12px);
   padding-right: env(safe-area-inset-right, 12px);
+  /* 拡大（ズーム）防止対策 */
   touch-action: manipulation;
 }
 
+/* マイ・ダッシュボード非表示化に伴う上部余白調整 */
 header {
   display: none;
 }
@@ -81,139 +83,53 @@ h2 {
   gap: 8px;
 }
 
-/* ==========================================
-   ボタンサイズ・スタイルの完全統一
-   ========================================== */
-.btn,
-.action-buttons button,
-#weather-section button,
-#news-section button,
-#knowledge-section button,
-#youtube-section button {
-  height: 30px !important;
-  padding: 0 12px !important;
-  border-radius: 14px !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  border: none !important;
-  cursor: pointer !important;
-  white-space: nowrap !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  box-sizing: border-box !important;
-}
-
-/* 追加ボタン（青背景・白文字） */
-.btn.primary,
-.btn-add,
-#weather-section .btn-add,
-#weather-section button:first-child {
-  background-color: var(--primary-color) !important;
-  color: #ffffff !important;
-}
-
-/* 編集ボタン（オレンジ背景・白文字） */
-.btn.warning,
-.btn.edit,
-.btn-edit,
-#weather-section .btn-edit,
-#weather-section button:nth-child(2) {
-  background-color: var(--warning-color) !important;
-  color: #ffffff !important;
-}
-
-/* 削除・危険系ボタン（赤背景・白文字） */
-.btn.danger {
-  background-color: var(--danger-color) !important;
-  color: #ffffff !important;
-}
-
-/* ==========================================
-   タブ（3日間・1週間）のスタイリング
-   ========================================== */
-.tab-container,
-.tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  margin-bottom: 12px;
-  padding-bottom: 4px;
-}
-
-/* グレー背景・黒文字（非選択時・選択時ともに絶対維持） */
-.tab-btn,
-.tab-btn.active {
-  background: var(--bg-color) !important;
-  color: var(--text-color) !important;
-  border-radius: 16px !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  white-space: nowrap !important;
-  border: 1px solid var(--border-color) !important;
-  cursor: pointer !important;
-  padding: 6px 14px !important;
-  height: 32px !important;
-}
-
-/* アクティブなタブのみ枠線と文字を強調（背景色・文字色は変更しない） */
-.tab-btn.active {
-  border-color: #8e8e93 !important;
-  background-color: #e5e5ea !important;
-}
-
-/* ==========================================
-   天気表示エリア（絶対固定設定）
-   ========================================== */
-.horizontal-scroll,
-#weather-section .horizontal-scroll {
-  display: flex !important;
-  overflow-x: auto !important;
-  gap: 12px !important;
-  padding: 4px 0 8px 0 !important;
-  -webkit-overflow-scrolling: touch;
-  /* 高さを絶対に伸縮させない設定 */
-  height: 108px !important;
-  min-height: 108px !important;
-  max-height: 108px !important;
-  box-sizing: border-box !important;
-  align-items: center !important;
-}
-
-.weather-item {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-width: 68px !important;
-  width: 68px !important;
-  height: 92px !important;
-  padding: 6px !important;
-  background: #f8f8f8 !important;
-  border-radius: 12px !important;
-  flex-shrink: 0 !important;
-  box-sizing: border-box !important;
-}
-
-.weather-time {
-  font-size: 12px;
-  color: var(--text-sub);
-  line-height: 1.2;
-}
-
-.weather-icon {
-  font-size: 22px;
-  margin: 2px 0;
-  line-height: 1;
-}
-
-.weather-temp {
+/* ボタン装飾 */
+.btn {
+  border: none;
+  background: #e5e5ea;
+  color: var(--text-color);
+  padding: 6px 12px;
+  border-radius: 14px;
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap; /* ボタンテキストの折り返し防止 */
 }
 
-/* --- その他のリスト設定 --- */
+/* 追加（青背景・白文字） */
+.btn.primary,
+#weather-section .btn-add,
+#weather-section button[onclick*="add"] {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+/* 編集（オレンジ背景・白文字） */
+.btn.warning,
+.btn.edit,
+#weather-section .btn-edit,
+#weather-section button[onclick*="edit"] {
+  background: var(--warning-color);
+  color: #fff;
+}
+
+.btn.danger {
+  background: var(--danger-color);
+  color: #fff;
+}
+
+/* スクロールエリア定義 */
+.horizontal-scroll {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+  /* 3日間・1週間切替時に高さが変わらないよう固定 */
+  min-height: 100px;
+  align-items: flex-start;
+}
+
 .vertical-scroll,
 #news-content,
 #knowledge-content {
@@ -224,7 +140,65 @@ h2 {
   -webkit-overflow-scrolling: touch;
 }
 
-/* --- ニュースリスト --- */
+/* 天気スタイル */
+.weather-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 65px;
+  width: 65px;
+  height: 85px; /* 天気カード自体の大きさを固定 */
+  padding: 8px;
+  background: #f8f8f8;
+  border-radius: 12px;
+  flex-shrink: 0; /* 圧縮によるサイズ変更を防止 */
+  box-sizing: border-box;
+}
+
+.weather-time {
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.weather-icon {
+  font-size: 24px;
+  margin: 6px 0;
+}
+
+.weather-temp {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* タブスタイル */
+.tab-container,
+.tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+}
+
+.tab-btn {
+  padding: 6px 14px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  border-radius: 16px;
+  font-size: 13px;
+  white-space: nowrap;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  background: var(--bg-color);
+  color: var(--text-color);
+  border-color: var(--border-color);
+}
+
+/* --- ニュースリスト（左テキスト・右サムネイル対応） --- */
 .news-item {
   display: flex;
   align-items: center;
@@ -240,7 +214,7 @@ h2 {
 
 .news-content {
   flex: 1;
-  min-width: 0;
+  min-width: 0; /* テキスト溢れ防止 */
 }
 
 .news-link {
@@ -362,7 +336,7 @@ h2 {
 
 .youtube-thumbnail {
   width: 120px;
-  height: 67.5px;
+  height: 67.5px; /* 16:9比率 */
   object-fit: cover;
   border-radius: 8px;
   flex-shrink: 0;
@@ -468,6 +442,12 @@ h2 {
 
 #modal-add-row-btn {
   margin-right: auto;
+  padding: 8px 12px;
+}
+
+.modal-actions .btn {
+  font-size: 13px;
+  padding: 8px 12px;
 }
 
 #modal-nitter-btn,
@@ -501,6 +481,7 @@ h2 {
   padding-bottom: 4px;
 }
 
+/* チャンネルフィルタのコンテナ */
 .yt-filter-container {
   display: flex;
   align-items: center;
@@ -509,6 +490,7 @@ h2 {
   width: 100%;
 }
 
+/* プルダウンの幅（動画ボタン幅 100% + Shorts幅 50% に相当する約75%） */
 .yt-select {
   flex: 0 0 calc(75% - 4px);
   width: calc(75% - 4px);
@@ -521,6 +503,7 @@ h2 {
   box-sizing: border-box;
 }
 
+/* 残り幅（約25%）に配置される✕ボタンエリア */
 .yt-badge {
   flex: 1;
   display: flex;
@@ -542,6 +525,7 @@ h2 {
   justify-content: center;
 }
 
+/* テーブルスタイル */
 .yt-video-table {
   width: 100%;
   border-collapse: collapse;
