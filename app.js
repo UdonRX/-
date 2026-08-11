@@ -1,17 +1,15 @@
-// Google Weather Icon マッピング関数
 function getGoogleWeatherIconUrl(code, isNight = false) {
-  // Weather Code -> Google Weather Icon Name
-  // 昼 night: d, 夜 night: n
   const suffix = isNight ? "n" : "d";
-  let iconName = `sunny_${suffix}`; // Default
+  let iconName = "sunny"; // Default
 
   if (code === 0) {
     iconName = isNight ? "clear_night" : "sunny";
   } else if (code === 1 || code === 2) {
-    iconName = `partly_cloudy_${suffix}`;
+    // 昼は partly_cloudy、夜は partly_cloudy_n を使用
+    iconName = isNight ? "partly_cloudy_n" : "partly_cloudy";
   } else if (code === 3) {
     iconName = "cloudy";
-  } else if (code === 4 || code === 5 || code === 6 || code === 7 || code === 8 || code === 9) {
+  } else if (code >= 4 && code <= 9) {
     iconName = "mist";
   } else if (code >= 10 && code <= 12) {
     iconName = "fog";
@@ -49,9 +47,7 @@ function getGoogleWeatherIconUrl(code, isNight = false) {
     iconName = "rain";
   } else if (code >= 66 && code <= 67) {
     iconName = "rain_snow";
-  } else if (code >= 68 && code <= 69) {
-    iconName = "snow";
-  } else if (code >= 70 && code <= 79) {
+  } else if (code >= 68 && code <= 79) {
     iconName = "snow";
   } else if (code >= 80 && code <= 82) {
     iconName = "rain_heavy";
