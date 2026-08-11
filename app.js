@@ -538,7 +538,9 @@ try {
   alert(`「${q}」の検索に失敗しました。`);
   resetModalButtons();
   return;
+ }
 }
+    
 
     if (resolvedLocations.length > 0) {
       weatherLocations.push(...resolvedLocations);
