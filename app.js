@@ -408,7 +408,6 @@ function openAddWeatherModal() {
 
   if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
 
-  // ボタン状態をリセット
   resetModalButtons();
 
   modalTitle.textContent = "地名の追加";
@@ -420,7 +419,7 @@ function openAddWeatherModal() {
     row.style.cssText = "display: flex; gap: 8px; margin-bottom: 8px; align-items: center;";
     
     row.innerHTML = `
-      <input type="text" class="input-location" placeholder="地名を入力 (例: 京都、京都市)" style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc;" autocomplete="off">
+      <input type="text" class="input-location" placeholder="地名を入力 (例: 京都、高松)" style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc;" autocomplete="off">
       <button type="button" class="btn danger remove-weather-row-btn" style="padding: 4px 8px; display: none;">✕</button>
     `;
 
@@ -480,120 +479,122 @@ function openAddWeatherModal() {
 
     const resolvedLocations = [];
 
-for (const q of queries) {
-  const hasSuffix = /[都道府県市町村区]$/.test(q);
+    for (const q of queries) {
+      // 「京都」などの1文字や単体キーワードで「都」が自動一致しないよう修正
+      // 末尾判定は2文字以上の「◯◯市」「◯◯区」「◯◯県」などの場合のみ有効化
+      const hasSuffix = q.length > 1 && /(?:[都道府県市町村区])$/.test(q) && !/^(?:東京都|京都府|大阪府|北海|青森|岩手|宮城|秋田|山形|福島|茨城|栃木|群馬|埼玉|千葉|東京|神奈川|新潟|富山|石川|福井|山梨|長野|岐阜|静岡|愛知|三重|滋賀|京都|大阪|兵庫|奈良|和歌山|鳥取|島根|岡山|広島|山口|徳島|香川|愛媛|高知|福岡|佐賀|長崎|熊本|大分|宮崎|鹿児島|沖縄)$/.test(q);
 
-  try {
-    const geoUrl = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`;
-    const res = await fetch(geoUrl);
-    
-    if (!res.ok) throw new Error("APIエラー");
-    
-    const data = await res.json();
+      try {
+        const geoUrl = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`;
+        const res = await fetch(geoUrl);
+        
+        if (!res.ok) throw new Error("APIエラー");
+        
+        const data = await res.json();
 
-    if (!data || data.length === 0) {
-      alert(`「${q}」に該当する地名はありません。`);
-      resetModalButtons();
-      return;
-    }
-
-    const seenNames = new Set();
-    const cityChoices = [];    // 都道府県・市区町村レベルに合致した本命候補
-    const fallbackChoices = [];// 一致しなかった場合の予備候補
-
-    data.forEach(item => {
-      if (!item.geometry || !item.geometry.coordinates) return;
-
-      const lon = item.geometry.coordinates[0].toFixed(4);
-      const lat = item.geometry.coordinates[1].toFixed(4);
-      const fullTitle = item.properties.title || '';
-
-      // 都道府県・市区町村レベルまで切り出す（例: "香川県高松市番町..." -> "香川県高松市"）
-      // グループ1: 都道府県名 (例: 香川県)
-      // グループ2: 市区町村名 (例: 高松市、中京区、余市郡余市町 など)
-      const match = fullTitle.match(/^(.+?[都道府県])?(.+?[市町村区|郡.+?[町村])?/);
-      
-      let cleanName = fullTitle;
-      let prefName = "";
-      let cityName = "";
-
-      if (match) {
-        prefName = match[1] || "";
-        cityName = match[2] || "";
-        cleanName = prefName + cityName;
-      }
-
-      if (!cleanName) cleanName = fullTitle;
-
-      if (!seenNames.has(cleanName)) {
-        seenNames.add(cleanName);
-
-        const choiceObj = {
-          displayName: cleanName,
-          lat: lat,
-          lon: lon
-        };
-
-        // 入力キーワード(q)が「都道府県名」または「市区町村名」に含まれているか判定
-        // 例: q="高松" の場合、cityName("高松市") に含まれるため判定PASS
-        // 例: "北海道夕張市高松" の場合、cityName("夕張市") に "高松" は含まれないため判定FAIL
-        const isMatchedTarget = (prefName && prefName.includes(q)) || (cityName && cityName.includes(q));
-
-        if (isMatchedTarget) {
-          cityChoices.push(choiceObj);
-        } else {
-          fallbackChoices.push(choiceObj);
+        if (!data || data.length === 0) {
+          alert(`「${q}」に該当する地名はありません。`);
+          resetModalButtons();
+          return;
         }
-      }
-    });
 
-    // 条件に合う市町村候補があればそれを優先、なければ従来の候補を使用
-    const choices = cityChoices.length > 0 ? cityChoices : fallbackChoices;
+        const seenNames = new Set();
+        const cityChoices = [];
+        const fallbackChoices = [];
 
-    if (choices.length === 0) {
-      alert(`「${q}」に該当する地名はありません。`);
-      resetModalButtons();
-      return;
-    }
+        data.forEach(item => {
+          if (!item.geometry || !item.geometry.coordinates) return;
 
-    let selectedResult = null;
+          const lon = item.geometry.coordinates[0].toFixed(4);
+          const lat = item.geometry.coordinates[1].toFixed(4);
+          const fullTitle = item.properties.title || '';
 
-    // ① 末尾に「都道府県市町村区」が付いている場合、または候補が1つしかない場合は最初の候補を選択
-    if (hasSuffix || choices.length === 1) {
-      selectedResult = choices[0];
-    } else {
-      // ② 付いていない場合はフィルタリングされた候補（例: 香川県高松市、石川県かほく市高松 など）を提示
-      selectedResult = await promptSelectLocation(q, choices);
-      if (!selectedResult) {
+          const match = fullTitle.match(/^(.+?[都道府県])?(.+?[市町村区|郡.+?[町村])?/);
+          
+          let cleanName = fullTitle;
+          let prefName = "";
+          let cityName = "";
+
+          if (match) {
+            prefName = match[1] || "";
+            cityName = match[2] || "";
+            cleanName = prefName + cityName;
+          }
+
+          if (!cleanName) cleanName = fullTitle;
+
+          if (!seenNames.has(cleanName)) {
+            seenNames.add(cleanName);
+
+            const choiceObj = {
+              displayName: cleanName,
+              lat: lat,
+              lon: lon
+            };
+
+            const isMatchedTarget = (prefName && prefName.includes(q)) || (cityName && cityName.includes(q));
+
+            if (isMatchedTarget) {
+              cityChoices.push(choiceObj);
+            } else {
+              fallbackChoices.push(choiceObj);
+            }
+          }
+        });
+
+        const choices = cityChoices.length > 0 ? cityChoices : fallbackChoices;
+
+        if (choices.length === 0) {
+          alert(`「${q}」に該当する地名はありません。`);
+          resetModalButtons();
+          return;
+        }
+
+        let selectedResult = null;
+
+        // 条件が揃っている場合のみ自動選択、それ以外（「京都」など）は候補選択を呼ぶ
+        if (hasSuffix || choices.length === 1) {
+          selectedResult = choices[0];
+        } else {
+          selectedResult = await promptSelectLocation(q, choices);
+          if (!selectedResult) {
+            resetModalButtons();
+            modal.classList.add('hidden');
+            return;
+          }
+        }
+
+        if (selectedResult) {
+          resolvedLocations.push({
+            name: selectedResult.displayName || q,
+            lat: selectedResult.lat,
+            lon: selectedResult.lon
+          });
+        }
+      } catch (e) {
+        console.error(e);
+        alert(`「${q}」の検索に失敗しました。`);
         resetModalButtons();
-        modal.classList.add('hidden');
         return;
       }
     }
 
-    if (selectedResult) {
-      resolvedLocations.push({
-        name: selectedResult.displayName || q,
-        lat: selectedResult.lat,
-        lon: selectedResult.lon
-      });
-    }
-  } catch (e) {
-    console.error(e);
-    alert(`「${q}」の検索に失敗しました。`);
-    resetModalButtons();
-    return;
-  }
-}
-    
-
     if (resolvedLocations.length > 0) {
+      // 追加直前の件数を記録し、追加された最初の要素をアクティブに設定
+      const newIndex = weatherLocations.length;
       weatherLocations.push(...resolvedLocations);
       saveStoredFeeds('weatherLocations', weatherLocations);
-      currentWeatherIdx = weatherLocations.length - resolvedLocations.length;
+      
+      // アクティブなインデックスを更新
+      currentWeatherIdx = newIndex;
+
       resetModalButtons();
       modal.classList.add('hidden');
-      initWeatherUI();
+
+      // UIと天気データを即座に更新描画
+      if (typeof renderWeatherTabs === 'function') renderWeatherTabs();
+      if (typeof renderWeatherData === 'function') renderWeatherData();
+      if (typeof initWeatherUI === 'function') initWeatherUI();
     } else {
       resetModalButtons();
     }
