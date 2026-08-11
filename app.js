@@ -353,10 +353,10 @@ function initYoutube() {
   loadAllYoutubeContent();
 }
 
-// ユーティリティ: 遅延関数
+// リクエストの連投を防ぐウェイト関数
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function loadAllYoutubeContent(forceRefresh = false) {
+async function loadAllYoutubeContent() {
   const container = document.getElementById('youtube-content');
   if (!container) return;
 
@@ -365,79 +365,70 @@ async function loadAllYoutubeContent(forceRefresh = false) {
     return;
   }
 
-  // キャッシュの利用（15分間保持してリクエスト制限を防ぐ）
-  const CACHE_KEY = 'yt_videos_cache';
-  const CACHE_TIME_KEY = 'yt_videos_cache_time';
-  const CACHE_EXPIRE = 15 * 60 * 1000; // 15分
-
+  // 前回の取得キャッシュチェック（5分以内の再読み込みならキャッシュを表示）
+  const CACHE_KEY = 'yt_feed_cache_data';
+  const CACHE_TIME_KEY = 'yt_feed_cache_time';
   const cachedData = localStorage.getItem(CACHE_KEY);
   const cachedTime = localStorage.getItem(CACHE_TIME_KEY);
-  const now = Date.now();
 
-  if (!forceRefresh && cachedData && cachedTime && (now - parseInt(cachedTime, 10) < CACHE_EXPIRE)) {
+  const now = Date.now();
+  // 5分(300,000ms)以内であればキャッシュを利用
+  if (cachedData && cachedTime && (now - parseInt(cachedTime, 10) < 300000)) {
     try {
       const parsedVideos = JSON.parse(cachedData);
-      // 日付オブジェクトの復元
-      parsedVideos.forEach(v => { v.pubDate = new Date(v.pubDate); });
-      renderYoutubeSection(parsedVideos, container);
+      renderYoutubeUI(parsedVideos, container);
       return;
     } catch (e) {
-      console.error("Cache parse error", e);
+      console.error('Failed to parse YouTube cache', e);
     }
   }
 
   container.innerHTML = '<div class="loading">動画を読み込み中...</div>';
 
-  let allVideos = [];
-  let errorCount = 0;
-
-  // 連続アクセスを緩和するため順次処理（150ms間隔）
-  for (const feed of youtubeFeeds) {
-    try {
-      const items = await fetchYoutubeRSS(feed.url);
-      const mappedItems = items.map(item => ({
-        ...item,
-        displayName: feed.name || item.channelName
-      }));
-      allVideos.push(...mappedItems);
-    } catch (err) {
-      console.error(`Failed to fetch YouTube feed for ${feed.name}:`, err);
-      errorCount++;
-    }
-    await sleep(150); // ディレイを挿入
-  }
-
-  if (allVideos.length === 0) {
-    if (errorCount > 0) {
-      container.innerHTML = '<div class="loading">YouTubeサーバーへのアクセス制限中か、接続に失敗しました。<br><small style="opacity:0.7">時間をおいて再試行してください。</small></div>';
-    } else {
-      container.innerHTML = '<div class="loading">動画が見つかりませんでした</div>';
-    }
-    return;
-  }
-
-  allVideos.sort((a, b) => b.pubDate - a.pubDate);
-
-  // キャッシュの保存
   try {
+    const results = [];
+    
+    // Promise.all による一斉送信を避け、順次リクエスト＋100msウェイトで負荷軽減
+    for (const feed of youtubeFeeds) {
+      try {
+        const items = await fetchYoutubeRSS(feed.url);
+        results.push(items.map(item => ({
+          ...item,
+          displayName: feed.name || item.channelName
+        })));
+      } catch (err) {
+        console.error(`Failed to fetch YouTube feed for ${feed.name}:`, err);
+      }
+      await sleep(100); 
+    }
+
+    let allVideos = results.flat();
+
+    if (allVideos.length === 0) {
+      container.innerHTML = '<div class="loading">動画を取得できませんでした</div>';
+      return;
+    }
+
+    allVideos.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+
+    // キャッシュ保存
     localStorage.setItem(CACHE_KEY, JSON.stringify(allVideos));
     localStorage.setItem(CACHE_TIME_KEY, now.toString());
-  } catch (e) {
-    console.error("Failed to save YouTube cache", e);
-  }
 
-  renderYoutubeSection(allVideos, container);
+    renderYoutubeUI(allVideos, container);
+
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = '<div class="loading">YouTube情報の取得中にエラーが発生しました</div>';
+  }
 }
 
-function renderYoutubeSection(allVideos, container) {
-  container.innerHTML = '';
-
-  // YouTubeカードのHTML生成部分（CSS Scale縮小による高画質強制維持版）
+// 取得結果の描画ロジックを分離
+function renderYoutubeUI(allVideos, container) {
   window.currentVideoList = [];
-  window.selectedChannel = 'ALL'; // 選択中チャンネルのグローバル保持
-  window.modalPos = { x: null, y: null }; // ドラッグ後の位置保持用
+  window.selectedChannel = 'ALL';
+  window.modalPos = { x: null, y: null };
 
-  // 1. 動画(通常)とShortsの自動判定・分類およびチャンネル一覧抽出
   const allVideoDataList = [];
   const channelSet = new Set();
 
@@ -452,7 +443,12 @@ function renderYoutubeSection(allVideos, container) {
       videoId = item.link.split('v=')[1]?.split('&')[0];
     }
 
-    const videoData = { ...item, videoId, isShort };
+    const videoData = { 
+      ...item, 
+      videoId, 
+      isShort,
+      pubDate: new Date(item.pubDate) 
+    };
     allVideoDataList.push(videoData);
 
     if (item.displayName) {
@@ -460,7 +456,6 @@ function renderYoutubeSection(allVideos, container) {
     }
   });
 
-  // 2. UIの生成
   const channels = Array.from(channelSet);
   let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
   channels.forEach(ch => {
@@ -510,6 +505,9 @@ function renderYoutubeSection(allVideos, container) {
 
     renderVideoTable(filtered);
   };
+
+  updateVideoDisplay();
+}
 
   window.switchYtTab = function(type) {
     window.currentType = type;
