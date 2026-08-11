@@ -377,7 +377,28 @@ async function renderWeatherData() {
   }
 }
 
-// --- 天気 モーダル処理 ---
+// モーダル全体の表示状態を初期化するヘルパー関数
+function resetModalButtons() {
+  const cancelBtn = document.getElementById('modal-cancel-btn');
+  const submitBtn = document.getElementById('modal-submit-btn');
+  
+  if (cancelBtn) {
+    cancelBtn.style.display = 'inline-block';
+    cancelBtn.textContent = 'キャンセル';
+  }
+  if (submitBtn) {
+    submitBtn.style.display = 'inline-block';
+    submitBtn.disabled = false;
+    submitBtn.textContent = '保存';
+  }
+  
+  // 動的に追加された「入力欄追加」ボタン等をクリーンアップ
+  const addRowBtn = document.getElementById('modal-add-row-btn');
+  if (addRowBtn) addRowBtn.remove();
+  const extraBtn = document.getElementById('modal-nitter-btn');
+  if (extraBtn) extraBtn.remove();
+}
+
 function openAddWeatherModal() {
   const modal = document.getElementById('modal');
   const modalTitle = document.getElementById('modal-title');
@@ -387,12 +408,8 @@ function openAddWeatherModal() {
 
   if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
 
-  // 追加ボタン等クリーンアップ
-  const cleanupExtra = () => {
-    const addRowBtn = document.getElementById('modal-add-row-btn');
-    if (addRowBtn) addRowBtn.remove();
-  };
-  cleanupExtra();
+  // ボタン状態をリセット
+  resetModalButtons();
 
   modalTitle.textContent = "地名の追加";
   modalBody.innerHTML = '';
@@ -407,9 +424,7 @@ function openAddWeatherModal() {
       <button type="button" class="btn danger remove-weather-row-btn" style="padding: 4px 8px; display: none;">✕</button>
     `;
 
-    const input = row.querySelector('.input-location');
     const removeBtn = row.querySelector('.remove-weather-row-btn');
-
     removeBtn.onclick = () => {
       row.remove();
       updateWeatherRowButtons();
@@ -422,11 +437,7 @@ function openAddWeatherModal() {
     const rows = modalBody.querySelectorAll('.modal-weather-row');
     rows.forEach(r => {
       const btn = r.querySelector('.remove-weather-row-btn');
-      if (rows.length > 1) {
-        btn.style.display = 'inline-block';
-      } else {
-        btn.style.display = 'none';
-      }
+      btn.style.display = rows.length > 1 ? 'inline-block' : 'none';
     });
   };
 
@@ -446,14 +457,11 @@ function openAddWeatherModal() {
 
   cancelBtn.parentNode.insertBefore(addRowBtn, cancelBtn);
 
-  cancelBtn.textContent = 'キャンセル';
-  cancelBtn.style.display = 'inline-block';
   cancelBtn.onclick = () => {
-    cleanupExtra();
+    resetModalButtons();
     modal.classList.add('hidden');
   };
 
-  submitBtn.textContent = '保存';
   submitBtn.onclick = async () => {
     const inputs = modalBody.querySelectorAll('.input-location');
     const queries = [];
@@ -470,11 +478,9 @@ function openAddWeatherModal() {
     submitBtn.disabled = true;
     submitBtn.textContent = "検索中...";
 
-    // 各地名入力に対してジオコーディングを実施・解析
     const resolvedLocations = [];
 
     for (const q of queries) {
-      // 末尾判定 (都道府県市町村がついているか)
       const hasSuffix = /[都道府県市町村区]$/.test(q);
 
       try {
@@ -484,8 +490,7 @@ function openAddWeatherModal() {
 
         if (!data.results || data.results.length === 0) {
           alert(`「${q}」に該当する地名はありません。`);
-          submitBtn.disabled = false;
-          submitBtn.textContent = '保存';
+          resetModalButtons();
           return;
         }
 
@@ -494,7 +499,6 @@ function openAddWeatherModal() {
         if (hasSuffix) {
           selectedResult = data.results[0];
         } else {
-          // 選択候補モーダルの構築
           const choices = data.results.map(r => {
             const admin = r.admin1 || '';
             const name = r.name || '';
@@ -505,12 +509,12 @@ function openAddWeatherModal() {
             };
           });
 
-          // 候補選択ダイアログ表示のためにプロンプト一時停止
           selectedResult = await promptSelectLocation(q, choices);
           if (!selectedResult) {
-            submitBtn.disabled = false;
-            submitBtn.textContent = '保存';
-            return; // キャンセルされた場合
+            // 選択キャンセル時はボタン表示状態を完全にリセット
+            resetModalButtons();
+            modal.classList.add('hidden');
+            return;
           }
         }
 
@@ -524,8 +528,7 @@ function openAddWeatherModal() {
       } catch (e) {
         console.error(e);
         alert(`「${q}」の検索に失敗しました。`);
-        submitBtn.disabled = false;
-        submitBtn.textContent = '保存';
+        resetModalButtons();
         return;
       }
     }
@@ -534,15 +537,149 @@ function openAddWeatherModal() {
       weatherLocations.push(...resolvedLocations);
       saveStoredFeeds('weatherLocations', weatherLocations);
       currentWeatherIdx = weatherLocations.length - resolvedLocations.length;
-      cleanupExtra();
+      resetModalButtons();
       modal.classList.add('hidden');
       initWeatherUI();
+    } else {
+      resetModalButtons();
     }
-
-    submitBtn.disabled = false;
-    submitBtn.textContent = '保存';
   };
 
+  modal.classList.remove('hidden');
+}
+
+function promptSelectLocation(query, choices) {
+  return new Promise((resolve) => {
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+    const submitBtn = document.getElementById('modal-submit-btn');
+    const cancelBtn = document.getElementById('modal-cancel-btn');
+    const addRowBtn = document.getElementById('modal-add-row-btn');
+
+    if (addRowBtn) addRowBtn.style.display = 'none';
+    submitBtn.style.display = 'none';
+
+    modalTitle.textContent = `「${query}」の候補選択`;
+    modalBody.innerHTML = '<div style="margin-bottom:8px; font-size:13px;">該当する地域を選択してください:</div>';
+
+    const listContainer = document.createElement('div');
+    listContainer.style.cssText = "display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;";
+
+    choices.forEach(choice => {
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.style.cssText = "text-align: left; padding: 8px; width: 100%; border: 1px solid #ccc; border-radius: 6px; background: #f9f9f9;";
+      btn.textContent = choice.displayName;
+      btn.onclick = () => {
+        resolve(choice);
+      };
+      listContainer.appendChild(btn);
+    });
+
+    modalBody.appendChild(listContainer);
+
+    // キャンセルボタンを押した場合は null を返してモーダルを抜ける
+    cancelBtn.onclick = () => {
+      resolve(null);
+    };
+  });
+}
+
+function openEditWeatherModal() {
+  const modal = document.getElementById('modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+  const cancelBtn = document.getElementById('modal-cancel-btn');
+  const submitBtn = document.getElementById('modal-submit-btn');
+
+  if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
+
+  // ボタン状態を一度リセット
+  resetModalButtons();
+
+  modalTitle.textContent = "地域の編集";
+  cancelBtn.style.display = 'none'; // 編集時は完了ボタンのみにするためキャンセルを非表示
+  submitBtn.textContent = '完了';
+
+  const renderList = () => {
+    modalBody.innerHTML = '';
+    if (weatherLocations.length === 0) {
+      modalBody.innerHTML = '<div style="color: #888; font-size: 14px;">登録されていません</div>';
+      return;
+    }
+
+    weatherLocations.forEach((loc, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 8px; background: #f9f9f9; border-radius: 6px; border: 1px solid #ccc;";
+
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = "font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+      nameSpan.textContent = loc.name;
+
+      const btnGroup = document.createElement('div');
+      btnGroup.style.cssText = "display: flex; gap: 4px;";
+
+      const upBtn = document.createElement('button');
+      upBtn.className = 'btn';
+      upBtn.style.padding = '2px 8px';
+      upBtn.textContent = '↑';
+      upBtn.disabled = idx === 0;
+      upBtn.onclick = () => {
+        const temp = weatherLocations[idx];
+        weatherLocations[idx] = weatherLocations[idx - 1];
+        weatherLocations[idx - 1] = temp;
+        saveStoredFeeds('weatherLocations', weatherLocations);
+        renderList();
+        renderWeatherTabs();
+        renderWeatherData();
+      };
+
+      const downBtn = document.createElement('button');
+      downBtn.className = 'btn';
+      downBtn.style.padding = '2px 8px';
+      downBtn.textContent = '↓';
+      downBtn.disabled = idx === weatherLocations.length - 1;
+      downBtn.onclick = () => {
+        const temp = weatherLocations[idx];
+        weatherLocations[idx] = weatherLocations[idx + 1];
+        weatherLocations[idx + 1] = temp;
+        saveStoredFeeds('weatherLocations', weatherLocations);
+        renderList();
+        renderWeatherTabs();
+        renderWeatherData();
+      };
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn danger';
+      delBtn.style.padding = '2px 8px';
+      delBtn.textContent = '削除';
+      delBtn.onclick = () => {
+        weatherLocations.splice(idx, 1);
+        if (currentWeatherIdx >= weatherLocations.length) {
+          currentWeatherIdx = Math.max(0, weatherLocations.length - 1);
+        }
+        saveStoredFeeds('weatherLocations', weatherLocations);
+        renderList();
+        renderWeatherTabs();
+        renderWeatherData();
+      };
+
+      btnGroup.appendChild(upBtn);
+      btnGroup.appendChild(downBtn);
+      btnGroup.appendChild(delBtn);
+
+      row.appendChild(nameSpan);
+      row.appendChild(btnGroup);
+      modalBody.appendChild(row);
+    });
+  };
+
+  submitBtn.onclick = () => {
+    resetModalButtons(); // 閉じる前にボタンの表示状態を元に戻す
+    modal.classList.add('hidden');
+  };
+
+  renderList();
   modal.classList.remove('hidden');
 }
 
