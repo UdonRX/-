@@ -480,65 +480,89 @@ function openAddWeatherModal() {
 
     const resolvedLocations = [];
 
-    for (const q of queries) {
-      const hasSuffix = /[都道府県市町村区]$/.test(q);
+for (const q of queries) {
+  // 末尾に都道府県市町村区が付いているかチェック
+  const hasSuffix = /[都道府県市町村区]$/.test(q);
 
-   // --- 国土地理院 API を使った検索への差し替え例 ---
-try {
-  // 国土地理院の住所検索API
-  const geoUrl = `https://msearch.gsi.go.jp/address-search-api/msearch/search?q=${encodeURIComponent(q)}`;
-  const res = await fetch(geoUrl);
-  const data = await res.json();
+  try {
+    // 正しい国土地理院 API の URL
+    const geoUrl = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`;
+    const res = await fetch(geoUrl);
+    
+    if (!res.ok) throw new Error("APIエラー");
+    
+    const data = await res.json();
 
-  // 検索結果がない場合
-  if (!data || data.length === 0) {
-    alert(`「${q}」に該当する地名はありません。`);
+    if (!data || data.length === 0) {
+      alert(`「${q}」に該当する地名はありません。`);
+      resetModalButtons();
+      return;
+    }
+
+    // 重複除去用の重複チェックマップ
+    const seenNames = new Set();
+    const choices = [];
+
+    data.forEach(item => {
+      if (!item.geometry || !item.geometry.coordinates) return;
+
+      // 国土地理院APIの座標は [経度(lon), 緯度(lat)]
+      const lon = item.geometry.coordinates[0].toFixed(4);
+      const lat = item.geometry.coordinates[1].toFixed(4);
+      const fullTitle = item.properties.title || '';
+
+      // 住所文字列から市区町村レベルまでの名称を抽出（例: "香川県高松市番町..." -> "香川県高松市"）
+      let cleanName = fullTitle;
+      const match = fullTitle.match(/^(.+?[都道府県](?:.+?[郡市町村区])?)/);
+      if (match) {
+        cleanName = match[1];
+      }
+
+      // 重複候補を除外してリストに追加
+      if (!seenNames.has(cleanName)) {
+        seenNames.add(cleanName);
+        choices.push({
+          displayName: cleanName,
+          lat: lat,
+          lon: lon
+        });
+      }
+    });
+
+    if (choices.length === 0) {
+      alert(`「${q}」に該当する地名はありません。`);
+      resetModalButtons();
+      return;
+    }
+
+    let selectedResult = null;
+
+    // ① 末尾に「都道府県市町村区」が付いている場合、または候補が1つしかない場合は最初を選択
+    if (hasSuffix || choices.length === 1) {
+      selectedResult = choices[0];
+    } else {
+      // ② 付いていない場合は存在する都道府県・市町村の候補を出して選択させる
+      selectedResult = await promptSelectLocation(q, choices);
+      if (!selectedResult) {
+        resetModalButtons();
+        modal.classList.add('hidden');
+        return;
+      }
+    }
+
+    if (selectedResult) {
+      resolvedLocations.push({
+        name: selectedResult.displayName || q,
+        lat: selectedResult.lat,
+        lon: selectedResult.lon
+      });
+    }
+  } catch (e) {
+    console.error(e);
+    alert(`「${q}」の検索に失敗しました。`);
     resetModalButtons();
     return;
   }
-
-  // 候補の抽出 (国土地理院APIは GeoJSON 形式で配列を返します)
-  // coordinates は [経度(lon), 緯度(lat)] の順番になっています
-  const choices = data.map(item => {
-    const lon = item.geometry.coordinates[0].toFixed(4);
-    const lat = item.geometry.coordinates[1].toFixed(4);
-    const name = item.properties.title; // 例: "京都府京都市中京区..." や "香川県高松市..."
-    
-    return {
-      displayName: name,
-      lat: lat,
-      lon: lon
-    };
-  });
-
-  let selectedResult = null;
-
-  // 候補が1件のみ、または末尾が「市町村」等の場合は最初の候補を採用
-  if (choices.length === 1 || /[都道府県市町村区]$/.test(q)) {
-    selectedResult = choices[0];
-  } else {
-    // 複数の候補がある場合は選択ダイアログを表示
-    selectedResult = await promptSelectLocation(q, choices);
-    if (!selectedResult) {
-      resetModalButtons();
-      modal.classList.add('hidden');
-      return;
-    }
-  }
-
-  if (selectedResult) {
-    resolvedLocations.push({
-      name: selectedResult.displayName || q,
-      lat: selectedResult.lat,
-      lon: selectedResult.lon
-    });
-  }
-} catch (e) {
-  console.error(e);
-  alert(`「${q}」の検索に失敗しました。`);
-  resetModalButtons();
-  return;
- }
 }
     
 
