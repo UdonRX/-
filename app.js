@@ -2,7 +2,7 @@
 const WEATHER_CODES = {
   0: "☀️", 1: "🌤️", 2: "🌤️", 3: "⛅", 4: "💨", 5: "🌫️", 6: "🪨", 7: "💨", 8: "🌪️", 9: "🏜️",
   10: "🌫️", 11: "🌫️", 12: "🌫️", 13: "🌩️", 14: "☁️", 15: "🌧️", 16: "🌧️", 17: "🌩️", 18: "💨", 19: "🌪️",
-  20: "🌦️", 21: "🌦️", 22: "🌨️", 23: "🌨️", 24: "🧊", 25: "🌦️", 26: "🌨️", 27: "🌨️", 28: "🌫️", 29: "⛈️",
+  20: "🌦️", 21: "🌦️", 22: "🌨️", 23: "🌨️", 24: "🧊", 25: "🌦️", 26: "🌨️", 27: "🌩️", 28: "🌫️", 29: "⛈️",
   30: "🏜️", 31: "🏜️", 32: "🏜️", 33: "🏜️", 34: "🏜️", 35: "🏜️", 36: "❄️", 37: "❄️", 38: "❄️", 39: "❄️",
   40: "🌫️", 41: "🌫️", 42: "🌫️", 43: "🌫️", 44: "🌫️", 45: "🌫️", 46: "🌫️", 47: "🌫️", 48: "🌫️", 49: "🌫️",
   50: "🌧️", 51: "🌧️", 52: "🌧️", 53: "🌧️", 54: "🌧️", 55: "🌧️", 56: "🧊", 57: "🧊", 58: "🌧️", 59: "🌧️",
@@ -12,7 +12,16 @@ const WEATHER_CODES = {
   90: "🌩️", 91: "⛈️", 92: "⛈️", 93: "⛈️", 94: "⛈️", 95: "⛈️", 96: "⛈️", 97: "⛈️", 98: "🌩️", 99: "⛈️"
 };
 
-// 初期データ
+// 天気初期データ
+const DEFAULT_WEATHER_LOCATIONS = [
+  {
+    name: "京都市",
+    lat: "35.0211",
+    lon: "135.7538"
+  }
+];
+
+// 他の初期データ
 const DEFAULT_NEWS = [
   { name: "朝日新聞(政治)", url: "https://www.asahi.com/rss/asahi/politics.rdf" },
   { name: "Yahoo!ニュース", url: "https://news.yahoo.co.jp/rss/media/aptsushinv/all.xml" }
@@ -44,6 +53,10 @@ function saveStoredFeeds(key, data) {
 }
 
 // グローバル変数
+let weatherLocations = loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS);
+let currentWeatherIdx = 0;
+let currentWeatherMode = 'hourly'; // 'hourly' または 'daily'
+
 let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
 let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
 let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
@@ -51,16 +64,14 @@ let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 let currentNewsUrl = '';
 let currentKnowledgeUrl = '';
 
-// 待機ユーティリティ
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 // 初期化
 document.addEventListener('DOMContentLoaded', () => {
+  weatherLocations = loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS);
   newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
   knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
   youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 
-  initWeather();
+  initWeatherUI();
   initNews();
   initKnowledge();
   initTwitter();
@@ -179,40 +190,497 @@ async function fetchYoutubeRSS(channelId) {
   });
 }
 
-// --- 天気 ---
-async function initWeather() {
-  const container = document.getElementById('weather-container');
-  if (!container) return;
-  const url = 'https://api.open-meteo.com/v1/forecast?latitude=35.0211&longitude=135.7538&hourly=temperature_2m,weather_code&timezone=Asia%2FTokyo&forecast_days=1';
+// --- 天気機能 コンポーネント描画 ＆ 制御 ---
+function initWeatherUI() {
+  const weatherSection = document.getElementById('weather-section') || document.querySelector('.weather-section') || document.getElementById('weather-container')?.parentNode;
   
-  try {
-    const res = await fetch(url);
-    const data = await res.json();
+  if (!weatherSection) return;
+
+  // 構造のリセットと再構築
+  weatherSection.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <span style="font-weight: bold; font-size: 16px;">天気</span>
+      <div style="display: flex; gap: 8px;">
+        <button id="add-weather-btn" class="btn" style="padding: 4px 8px; font-size: 12px;">追加</button>
+        <button id="edit-weather-btn" class="btn" style="padding: 4px 8px; font-size: 12px;">編集</button>
+      </div>
+    </div>
     
-    container.innerHTML = '';
-    const { time, temperature_2m, weather_code } = data.hourly;
+    <div id="weather-tabs" style="display: flex; gap: 4px; overflow-x: auto; margin-bottom: 12px; border-bottom: 1px solid var(--border-color, #ccc); padding-bottom: 4px;"></div>
+    
+    <div id="weather-info-box" style="background: var(--bg-card, #fff); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color, #e0e0e0);">
+      <div id="weather-data-container"></div>
+    </div>
 
-    time.forEach((t, i) => {
-      const hour = t.split('T')[1].substring(0, 5);
-      const temp = temperature_2m[i];
-      const code = weather_code[i];
-      const icon = WEATHER_CODES[code] || "❓";
+    <div style="display: flex; gap: 8px; margin-top: 12px;">
+      <button id="weather-hourly-btn" class="btn ${currentWeatherMode === 'hourly' ? 'active' : ''}" style="flex: 1; padding: 8px;">1時間ごと</button>
+      <button id="weather-daily-btn" class="btn ${currentWeatherMode === 'daily' ? 'active' : ''}" style="flex: 1; padding: 8px;">2週間</button>
+    </div>
+  `;
 
-      const item = document.createElement('div');
-      item.className = 'weather-item';
-      item.innerHTML = `
-        <div class="weather-time">${hour}</div>
-        <div class="weather-icon">${icon}</div>
-        <div class="weather-temp">${temp}°C</div>
+  // イベントバインド
+  document.getElementById('add-weather-btn').onclick = openAddWeatherModal;
+  document.getElementById('edit-weather-btn').onclick = openEditWeatherModal;
+
+  const hourlyBtn = document.getElementById('weather-hourly-btn');
+  const dailyBtn = document.getElementById('weather-daily-btn');
+
+  hourlyBtn.onclick = () => {
+    currentWeatherMode = 'hourly';
+    hourlyBtn.classList.add('active');
+    dailyBtn.classList.remove('active');
+    renderWeatherData();
+  };
+
+  dailyBtn.onclick = () => {
+    currentWeatherMode = 'daily';
+    dailyBtn.classList.add('active');
+    hourlyBtn.classList.remove('active');
+    renderWeatherData();
+  };
+
+  renderWeatherTabs();
+  renderWeatherData();
+}
+
+function renderWeatherTabs() {
+  const tabsContainer = document.getElementById('weather-tabs');
+  if (!tabsContainer) return;
+  tabsContainer.innerHTML = '';
+
+  if (weatherLocations.length === 0) {
+    tabsContainer.innerHTML = '<span style="font-size: 12px; color: #888;">登録されている地域がありません</span>';
+    return;
+  }
+
+  if (currentWeatherIdx >= weatherLocations.length) {
+    currentWeatherIdx = 0;
+  }
+
+  weatherLocations.forEach((loc, idx) => {
+    const btn = document.createElement('button');
+    btn.className = `tab-btn ${idx === currentWeatherIdx ? 'active' : ''}`;
+    btn.style.cssText = "padding: 4px 12px; border: 1px solid #ccc; border-radius: 16px; background: #fff; cursor: pointer; font-size: 13px; white-space: nowrap;";
+    if (idx === currentWeatherIdx) {
+      btn.style.background = "#007aff";
+      btn.style.color = "#fff";
+      btn.style.borderColor = "#007aff";
+    }
+    btn.textContent = loc.name;
+    btn.onclick = () => {
+      currentWeatherIdx = idx;
+      renderWeatherTabs();
+      renderWeatherData();
+    };
+    tabsContainer.appendChild(btn);
+  });
+}
+
+async function renderWeatherData() {
+  const container = document.getElementById('weather-data-container');
+  if (!container) return;
+
+  if (weatherLocations.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding: 16px; color:#888;">追加ボタンから地域を登録してください。</div>';
+    return;
+  }
+
+  const loc = weatherLocations[currentWeatherIdx];
+  if (!loc) return;
+
+  container.innerHTML = '<div class="loading" style="text-align:center; padding:16px;">天気情報を読み込み中...</div>';
+
+  const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"];
+
+  if (currentWeatherMode === 'hourly') {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&hourly=temperature_2m,precipitation_probability,weather_code&timezone=Asia%2FTokyo&forecast_days=1`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      
+      if (!data.hourly) throw new Error("APIエラー");
+
+      const { time, temperature_2m, precipitation_probability, weather_code } = data.hourly;
+      
+      const firstDate = new Date(time[0]);
+      const dateHeaderStr = `${firstDate.getMonth() + 1}月${firstDate.getDate()}日（${dayOfWeek[firstDate.getDay()]}）`;
+
+      let itemsHtml = '';
+      time.forEach((t, i) => {
+        const hour = t.split('T')[1].substring(0, 5);
+        const temp = temperature_2m[i];
+        const prob = precipitation_probability[i];
+        const code = weather_code[i];
+        const icon = WEATHER_CODES[code] || "❓";
+
+        itemsHtml += `
+          <div style="flex: 0 0 auto; width: 65px; text-align: center; border-right: 1px solid #eee; padding: 0 4px;">
+            <div style="font-size: 12px; font-weight: bold; margin-bottom: 4px;">${hour}</div>
+            <div style="font-size: 22px; margin-bottom: 4px;">${icon}</div>
+            <div style="font-size: 11px; color: #007aff; margin-bottom: 4px;">${prob}%</div>
+            <div style="font-size: 12px; font-weight: bold;">${temp}°C</div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = `
+        <div style="font-weight: bold; font-size: 14px; margin-bottom: 8px; position: sticky; left: 0;">${dateHeaderStr}</div>
+        <div style="display: flex; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin;">
+          ${itemsHtml}
+        </div>
       `;
-      container.appendChild(item);
-    });
-  } catch (err) {
-    container.innerHTML = '<div class="loading">天気データの取得に失敗しました</div>';
+    } catch (err) {
+      console.error(err);
+      container.innerHTML = '<div style="text-align:center; padding: 16px; color:red;">天気データの取得に失敗しました</div>';
+    }
+  } else {
+    // 2週間
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&daily=weather_code,precipitation_probability_max,temperature_2m_max,temperature_2m_min&timezone=Asia%2FTokyo&forecast_days=14`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!data.daily) throw new Error("APIエラー");
+
+      const { time, weather_code, precipitation_probability_max, temperature_2m_max, temperature_2m_min } = data.daily;
+
+      let itemsHtml = '';
+      time.forEach((t, i) => {
+        const d = new Date(t);
+        const dateStr = `${d.getMonth() + 1}/${d.getDate()} (${dayOfWeek[d.getDay()]})`;
+        const code = weather_code[i];
+        const icon = WEATHER_CODES[code] || "❓";
+        const prob = precipitation_probability_max[i];
+        const maxTemp = temperature_2m_max[i];
+        const minTemp = temperature_2m_min[i];
+
+        itemsHtml += `
+          <div style="flex: 0 0 auto; width: 80px; text-align: center; border-right: 1px solid #eee; padding: 0 4px;">
+            <div style="font-size: 11px; font-weight: bold; margin-bottom: 4px; white-space: nowrap;">${dateStr}</div>
+            <div style="font-size: 22px; margin-bottom: 4px;">${icon}</div>
+            <div style="font-size: 11px; color: #007aff; margin-bottom: 4px;">${prob}%</div>
+            <div style="font-size: 12px; color: #ff3b30; font-weight: bold;">${maxTemp}°C</div>
+            <div style="font-size: 12px; color: #007aff; font-weight: bold;">${minTemp}°C</div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = `
+        <div style="display: flex; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin;">
+          ${itemsHtml}
+        </div>
+      `;
+    } catch (err) {
+      console.error(err);
+      container.innerHTML = '<div style="text-align:center; padding: 16px; color:red;">天気データの取得に失敗しました</div>';
+    }
   }
 }
 
-// --- ニュース ---
+// --- 天気 モーダル処理 ---
+function openAddWeatherModal() {
+  const modal = document.getElementById('modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+  const cancelBtn = document.getElementById('modal-cancel-btn');
+  const submitBtn = document.getElementById('modal-submit-btn');
+
+  if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
+
+  // 追加ボタン等クリーンアップ
+  const cleanupExtra = () => {
+    const addRowBtn = document.getElementById('modal-add-row-btn');
+    if (addRowBtn) addRowBtn.remove();
+  };
+  cleanupExtra();
+
+  modalTitle.textContent = "地名の追加";
+  modalBody.innerHTML = '';
+
+  const createLocationRow = () => {
+    const row = document.createElement('div');
+    row.className = 'modal-weather-row';
+    row.style.cssText = "display: flex; gap: 8px; margin-bottom: 8px; align-items: center;";
+    
+    row.innerHTML = `
+      <input type="text" class="input-location" placeholder="地名を入力 (例: 京都、京都市)" style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc;" autocomplete="off">
+      <button type="button" class="btn danger remove-weather-row-btn" style="padding: 4px 8px; display: none;">✕</button>
+    `;
+
+    const input = row.querySelector('.input-location');
+    const removeBtn = row.querySelector('.remove-weather-row-btn');
+
+    removeBtn.onclick = () => {
+      row.remove();
+      updateWeatherRowButtons();
+    };
+
+    return row;
+  };
+
+  const updateWeatherRowButtons = () => {
+    const rows = modalBody.querySelectorAll('.modal-weather-row');
+    rows.forEach(r => {
+      const btn = r.querySelector('.remove-weather-row-btn');
+      if (rows.length > 1) {
+        btn.style.display = 'inline-block';
+      } else {
+        btn.style.display = 'none';
+      }
+    });
+  };
+
+  modalBody.appendChild(createLocationRow());
+
+  const addRowBtn = document.createElement('button');
+  addRowBtn.id = 'modal-add-row-btn';
+  addRowBtn.type = 'button';
+  addRowBtn.className = 'btn';
+  addRowBtn.textContent = '+ 入力欄を追加';
+  
+  addRowBtn.onclick = (e) => {
+    e.preventDefault();
+    modalBody.appendChild(createLocationRow());
+    updateWeatherRowButtons();
+  };
+
+  cancelBtn.parentNode.insertBefore(addRowBtn, cancelBtn);
+
+  cancelBtn.textContent = 'キャンセル';
+  cancelBtn.style.display = 'inline-block';
+  cancelBtn.onclick = () => {
+    cleanupExtra();
+    modal.classList.add('hidden');
+  };
+
+  submitBtn.textContent = '保存';
+  submitBtn.onclick = async () => {
+    const inputs = modalBody.querySelectorAll('.input-location');
+    const queries = [];
+    inputs.forEach(inp => {
+      const val = inp.value.trim();
+      if (val) queries.push(val);
+    });
+
+    if (queries.length === 0) {
+      alert("地名を入力してください");
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "検索中...";
+
+    // 各地名入力に対してジオコーディングを実施・解析
+    const resolvedLocations = [];
+
+    for (const q of queries) {
+      // 末尾判定 (都道府県市町村がついているか)
+      const hasSuffix = /[都道府県市町村区]$/.test(q);
+
+      try {
+        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=10&language=ja&format=json`;
+        const res = await fetch(geoUrl);
+        const data = await res.json();
+
+        if (!data.results || data.results.length === 0) {
+          alert(`「${q}」に該当する地名はありません。`);
+          submitBtn.disabled = false;
+          submitBtn.textContent = '保存';
+          return;
+        }
+
+        let selectedResult = null;
+
+        if (hasSuffix) {
+          selectedResult = data.results[0];
+        } else {
+          // 選択候補モーダルの構築
+          const choices = data.results.map(r => {
+            const admin = r.admin1 || '';
+            const name = r.name || '';
+            return {
+              displayName: `${admin} ${name}`.trim() || name,
+              lat: r.latitude.toFixed(4),
+              lon: r.longitude.toFixed(4)
+            };
+          });
+
+          // 候補選択ダイアログ表示のためにプロンプト一時停止
+          selectedResult = await promptSelectLocation(q, choices);
+          if (!selectedResult) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '保存';
+            return; // キャンセルされた場合
+          }
+        }
+
+        if (selectedResult) {
+          resolvedLocations.push({
+            name: selectedResult.displayName || selectedResult.name || q,
+            lat: parseFloat(selectedResult.latitude || selectedResult.lat).toFixed(4),
+            lon: parseFloat(selectedResult.longitude || selectedResult.lon).toFixed(4)
+          });
+        }
+      } catch (e) {
+        console.error(e);
+        alert(`「${q}」の検索に失敗しました。`);
+        submitBtn.disabled = false;
+        submitBtn.textContent = '保存';
+        return;
+      }
+    }
+
+    if (resolvedLocations.length > 0) {
+      weatherLocations.push(...resolvedLocations);
+      saveStoredFeeds('weatherLocations', weatherLocations);
+      currentWeatherIdx = weatherLocations.length - resolvedLocations.length;
+      cleanupExtra();
+      modal.classList.add('hidden');
+      initWeatherUI();
+    }
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = '保存';
+  };
+
+  modal.classList.remove('hidden');
+}
+
+function promptSelectLocation(query, choices) {
+  return new Promise((resolve) => {
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+    const submitBtn = document.getElementById('modal-submit-btn');
+    const addRowBtn = document.getElementById('modal-add-row-btn');
+
+    if (addRowBtn) addRowBtn.style.display = 'none';
+    submitBtn.style.display = 'none';
+
+    modalTitle.textContent = `「${query}」の候補選択`;
+    modalBody.innerHTML = '<div style="margin-bottom:8px; font-size:13px;">該当する地域を選択してください:</div>';
+
+    const listContainer = document.createElement('div');
+    listContainer.style.cssText = "display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;";
+
+    choices.forEach(choice => {
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.style.cssText = "text-align: left; padding: 8px; width: 100%; border: 1px solid #ccc; border-radius: 6px; background: #f9f9f9;";
+      btn.textContent = choice.displayName;
+      btn.onclick = () => {
+        submitBtn.style.display = 'inline-block';
+        if (addRowBtn) addRowBtn.style.display = 'inline-block';
+        resolve(choice);
+      };
+      listContainer.appendChild(btn);
+    });
+
+    modalBody.appendChild(listContainer);
+  });
+}
+
+function openEditWeatherModal() {
+  const modal = document.getElementById('modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+  const cancelBtn = document.getElementById('modal-cancel-btn');
+  const submitBtn = document.getElementById('modal-submit-btn');
+
+  if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
+
+  const cleanupExtra = () => {
+    const addRowBtn = document.getElementById('modal-add-row-btn');
+    if (addRowBtn) addRowBtn.remove();
+  };
+  cleanupExtra();
+
+  modalTitle.textContent = "地域の編集";
+  cancelBtn.style.display = 'none';
+  submitBtn.textContent = '完了';
+
+  const renderList = () => {
+    modalBody.innerHTML = '';
+    if (weatherLocations.length === 0) {
+      modalBody.innerHTML = '<div style="color: #888; font-size: 14px;">登録されていません</div>';
+      return;
+    }
+
+    weatherLocations.forEach((loc, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 8px; background: #f9f9f9; border-radius: 6px; border: 1px solid #ccc;";
+
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = "font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+      nameSpan.textContent = loc.name;
+
+      const btnGroup = document.createElement('div');
+      btnGroup.style.cssText = "display: flex; gap: 4px;";
+
+      const upBtn = document.createElement('button');
+      upBtn.className = 'btn';
+      upBtn.style.padding = '2px 8px';
+      upBtn.textContent = '↑';
+      upBtn.disabled = idx === 0;
+      upBtn.onclick = () => {
+        const temp = weatherLocations[idx];
+        weatherLocations[idx] = weatherLocations[idx - 1];
+        weatherLocations[idx - 1] = temp;
+        saveStoredFeeds('weatherLocations', weatherLocations);
+        renderList();
+        renderWeatherTabs();
+        renderWeatherData();
+      };
+
+      const downBtn = document.createElement('button');
+      downBtn.className = 'btn';
+      downBtn.style.padding = '2px 8px';
+      downBtn.textContent = '↓';
+      downBtn.disabled = idx === weatherLocations.length - 1;
+      downBtn.onclick = () => {
+        const temp = weatherLocations[idx];
+        weatherLocations[idx] = weatherLocations[idx + 1];
+        weatherLocations[idx + 1] = temp;
+        saveStoredFeeds('weatherLocations', weatherLocations);
+        renderList();
+        renderWeatherTabs();
+        renderWeatherData();
+      };
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn danger';
+      delBtn.style.padding = '2px 8px';
+      delBtn.textContent = '削除';
+      delBtn.onclick = () => {
+        weatherLocations.splice(idx, 1);
+        if (currentWeatherIdx >= weatherLocations.length) {
+          currentWeatherIdx = Math.max(0, weatherLocations.length - 1);
+        }
+        saveStoredFeeds('weatherLocations', weatherLocations);
+        renderList();
+        renderWeatherTabs();
+        renderWeatherData();
+      };
+
+      btnGroup.appendChild(upBtn);
+      btnGroup.appendChild(downBtn);
+      btnGroup.appendChild(delBtn);
+
+      row.appendChild(nameSpan);
+      row.appendChild(btnGroup);
+      modalBody.appendChild(row);
+    });
+  };
+
+  submitBtn.onclick = () => {
+    cancelBtn.style.display = 'inline-block';
+    modal.classList.add('hidden');
+  };
+
+  renderList();
+  modal.classList.remove('hidden');
+}
+
+// --- ニュース機能 ---
 function initNews() {
   renderTabs('news-tabs', newsFeeds, loadNewsContent);
   if (newsFeeds.length > 0) {
@@ -259,7 +727,7 @@ async function loadNewsContent(url) {
   }
 }
 
-// --- 知識 ---
+// --- 知識機能 ---
 function initKnowledge() {
   renderTabs('knowledge-tabs', knowledgeFeeds, loadKnowledgeContent);
   if (knowledgeFeeds.length > 0) {
@@ -306,7 +774,7 @@ async function loadKnowledgeContent(url) {
   }
 }
 
-// --- Twitter ---
+// --- Twitter 領域 ---
 function initTwitter() {
   const container = document.getElementById('twitter-content');
   if (!container) return;
@@ -354,7 +822,7 @@ function initTwitter() {
   container.appendChild(foloWrapper);
 }
 
-// --- YouTube ---
+// --- YouTube 領域 ---
 function initYoutube() {
   loadAllYoutubeContent();
 }
@@ -368,42 +836,23 @@ async function loadAllYoutubeContent() {
     return;
   }
 
-  // ローカルキャッシュ機能（5分以内なら再リクエストせずに保持データを使う）
-  const CACHE_KEY = 'yt_feed_cache_data';
-  const CACHE_TIME_KEY = 'yt_feed_cache_time';
-  const cachedData = localStorage.getItem(CACHE_KEY);
-  const cachedTime = localStorage.getItem(CACHE_TIME_KEY);
-
-  const now = Date.now();
-  if (cachedData && cachedTime && (now - parseInt(cachedTime, 10) < 300000)) {
-    try {
-      const parsedVideos = JSON.parse(cachedData);
-      renderYoutubeUI(parsedVideos, container);
-      return;
-    } catch (e) {
-      console.error('Failed to parse YouTube cache', e);
-    }
-  }
-
   container.innerHTML = '<div class="loading">動画を読み込み中...</div>';
 
   try {
-    const results = [];
-    
-    // 一括Promise.allを避け、100msウェイトを挟みながら順次リクエスト
-    for (const feed of youtubeFeeds) {
+    const fetchPromises = youtubeFeeds.map(async (feed) => {
       try {
         const items = await fetchYoutubeRSS(feed.url);
-        results.push(items.map(item => ({
+        return items.map(item => ({
           ...item,
           displayName: feed.name || item.channelName
-        })));
+        }));
       } catch (err) {
         console.error(`Failed to fetch YouTube feed for ${feed.name}:`, err);
+        return [];
       }
-      await sleep(100); 
-    }
+    });
 
+    const results = await Promise.all(fetchPromises);
     let allVideos = results.flat();
 
     if (allVideos.length === 0) {
@@ -411,12 +860,160 @@ async function loadAllYoutubeContent() {
       return;
     }
 
-    allVideos.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+    allVideos.sort((a, b) => b.pubDate - a.pubDate);
 
-    localStorage.setItem(CACHE_KEY, JSON.stringify(allVideos));
-    localStorage.setItem(CACHE_TIME_KEY, now.toString());
+    container.innerHTML = '';
 
-    renderYoutubeUI(allVideos, container);
+    window.currentVideoList = [];
+    window.selectedChannel = 'ALL';
+    window.modalPos = { x: null, y: null };
+
+    const allVideoDataList = [];
+    const channelSet = new Set();
+
+    allVideos.forEach(item => {
+      let videoId = '';
+      let isShort = false;
+
+      if (item.link && item.link.includes('/shorts/')) {
+        videoId = item.link.split('/shorts/')[1]?.split('?')[0]?.split('&')[0];
+        isShort = true;
+      } else if (item.link && item.link.includes('v=')) {
+        videoId = item.link.split('v=')[1]?.split('&')[0];
+      }
+
+      const videoData = { ...item, videoId, isShort };
+      allVideoDataList.push(videoData);
+
+      if (item.displayName) {
+        channelSet.add(item.displayName);
+      }
+    });
+
+    const channels = Array.from(channelSet);
+    let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
+    channels.forEach(ch => {
+      channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
+    });
+
+    container.innerHTML = `
+      <div style="position: sticky; top: 0; z-index: 100; background: #ffffff; padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
+        <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+          <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: #ffffff; color: #333333; border: 1px solid #ccc; font-size: 13px; box-sizing: border-box;">
+            ${channelOptionsHtml}
+          </select>
+
+          <div id="yt-channel-badge" style="width: 25%; display: none; justify-content: center; align-items: center; box-sizing: border-box;">
+            <button onclick="resetYtChannelFilter()" title="フィルター解除" style="width: 100%; padding: 6px 0; background: #f0f0f0; border: 1px solid #ccc; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1;">✕</button>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+          <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-weight: bold;" onclick="switchYtTab('long')">動画</button>
+          <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px;" onclick="switchYtTab('short')">Shorts</button>
+        </div>
+      </div>
+
+      <div id="yt-table-container"></div>
+    `;
+
+    window.currentType = 'long';
+
+    window.updateVideoDisplay = function() {
+      const filtered = allVideoDataList.filter(item => {
+        const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
+        const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
+        return matchesType && matchesChannel;
+      });
+
+      const badgeDiv = document.getElementById('yt-channel-badge');
+      const selectElem = document.getElementById('yt-channel-select');
+
+      if (selectElem) selectElem.value = window.selectedChannel;
+
+      if (window.selectedChannel !== 'ALL') {
+        if (badgeDiv) badgeDiv.style.display = 'flex';
+      } else {
+        if (badgeDiv) badgeDiv.style.display = 'none';
+      }
+
+      renderVideoTable(filtered);
+    };
+
+    window.switchYtTab = function(type) {
+      window.currentType = type;
+      const btnLong = document.getElementById('yt-tab-long');
+      const btnShorts = document.getElementById('yt-tab-shorts');
+      if (type === 'long') {
+        if (btnLong) {
+          btnLong.classList.add('active');
+          btnLong.style.fontWeight = 'bold';
+        }
+        if (btnShorts) {
+          btnShorts.classList.remove('active');
+          btnShorts.style.fontWeight = 'normal';
+        }
+      } else {
+        if (btnShorts) {
+          btnShorts.classList.add('active');
+          btnShorts.style.fontWeight = 'bold';
+        }
+        if (btnLong) {
+          btnLong.classList.remove('active');
+          btnLong.style.fontWeight = 'normal';
+        }
+      }
+      updateVideoDisplay();
+    };
+
+    window.filterYtByChannel = function(channelName) {
+      window.selectedChannel = channelName;
+      updateVideoDisplay();
+    };
+
+    window.resetYtChannelFilter = function() {
+      window.selectedChannel = 'ALL';
+      updateVideoDisplay();
+    };
+
+    function renderVideoTable(videos) {
+      window.currentVideoList = videos;
+      const tableContainer = document.getElementById('yt-table-container');
+      if (!tableContainer) return;
+
+      if (!videos || videos.length === 0) {
+        tableContainer.innerHTML = '<div class="loading" style="padding:16px; text-align:center;">該当する動画がありません</div>';
+        return;
+      }
+
+      let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;">';
+      
+      videos.forEach((item, index) => {
+        const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
+          ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : '';
+
+        html += `
+          <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(0,0,0,0.1); cursor: pointer;">
+            <td style="padding: 8px 4px; width: 70px;">
+              <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
+                ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
+                <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); color:#fff; font-size:10px;">▶</div>
+              </div>
+            </td>
+            <td style="padding: 8px 4px; vertical-align: middle;">
+              <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title || 'タイトルなし'}</div>
+              <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
+            </td>
+          </tr>
+        `;
+      });
+
+      html += '</table>';
+      tableContainer.innerHTML = html;
+    }
+
+    updateVideoDisplay();
 
   } catch (err) {
     console.error(err);
@@ -424,167 +1021,7 @@ async function loadAllYoutubeContent() {
   }
 }
 
-function renderYoutubeUI(allVideos, container) {
-  window.currentVideoList = [];
-  window.selectedChannel = 'ALL';
-  window.modalPos = { x: null, y: null };
-
-  const allVideoDataList = [];
-  const channelSet = new Set();
-
-  allVideos.forEach(item => {
-    let videoId = '';
-    let isShort = false;
-
-    if (item.link && item.link.includes('/shorts/')) {
-      videoId = item.link.split('/shorts/')[1]?.split('?')[0]?.split('&')[0];
-      isShort = true;
-    } else if (item.link && item.link.includes('v=')) {
-      videoId = item.link.split('v=')[1]?.split('&')[0];
-    }
-
-    const pubDateObj = item.pubDate ? new Date(item.pubDate) : new Date();
-
-    const videoData = { 
-      ...item, 
-      videoId, 
-      isShort,
-      pubDate: pubDateObj 
-    };
-    allVideoDataList.push(videoData);
-
-    if (item.displayName) {
-      channelSet.add(item.displayName);
-    }
-  });
-
-  const channels = Array.from(channelSet);
-  let channelOptionsHtml = '<option value="ALL">すべてのチャンネル</option>';
-  channels.forEach(ch => {
-    channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
-  });
-
-  container.innerHTML = `
-    <div style="position: sticky; top: 0; z-index: 100; background: #ffffff; padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
-      <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-        <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: #ffffff; color: #333333; border: 1px solid #ccc; font-size: 13px; box-sizing: border-box;">
-          ${channelOptionsHtml}
-        </select>
-
-        <div id="yt-channel-badge" style="width: 25%; display: none; justify-content: center; align-items: center; box-sizing: border-box;">
-          <button onclick="resetYtChannelFilter()" title="フィルター解除" style="width: 100%; padding: 6px 0; background: #f0f0f0; border: 1px solid #ccc; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1;">✕</button>
-        </div>
-      </div>
-
-      <div style="display: flex; gap: 8px;">
-        <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-weight: bold;" onclick="switchYtTab('long')">動画</button>
-        <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px;" onclick="switchYtTab('short')">Shorts</button>
-      </div>
-    </div>
-
-    <div id="yt-table-container"></div>
-  `;
-
-  window.currentType = 'long';
-
-  window.updateVideoDisplay = function() {
-    const filtered = allVideoDataList.filter(item => {
-      const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
-      const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
-      return matchesType && matchesChannel;
-    });
-
-    const badgeDiv = document.getElementById('yt-channel-badge');
-    const selectElem = document.getElementById('yt-channel-select');
-
-    if (selectElem) selectElem.value = window.selectedChannel;
-
-    if (window.selectedChannel !== 'ALL') {
-      if (badgeDiv) badgeDiv.style.display = 'flex';
-    } else {
-      if (badgeDiv) badgeDiv.style.display = 'none';
-    }
-
-    renderVideoTable(filtered);
-  };
-
-  window.switchYtTab = function(type) {
-    window.currentType = type;
-    const btnLong = document.getElementById('yt-tab-long');
-    const btnShorts = document.getElementById('yt-tab-shorts');
-    if (type === 'long') {
-      if (btnLong) {
-        btnLong.classList.add('active');
-        btnLong.style.fontWeight = 'bold';
-      }
-      if (btnShorts) {
-        btnShorts.classList.remove('active');
-        btnShorts.style.fontWeight = 'normal';
-      }
-    } else {
-      if (btnShorts) {
-        btnShorts.classList.add('active');
-        btnShorts.style.fontWeight = 'bold';
-      }
-      if (btnLong) {
-        btnLong.classList.remove('active');
-        btnLong.style.fontWeight = 'normal';
-      }
-    }
-    updateVideoDisplay();
-  };
-
-  window.filterYtByChannel = function(channelName) {
-    window.selectedChannel = channelName;
-    updateVideoDisplay();
-  };
-
-  window.resetYtChannelFilter = function() {
-    window.selectedChannel = 'ALL';
-    updateVideoDisplay();
-  };
-
-  updateVideoDisplay();
-}
-
-function renderVideoTable(videos) {
-  window.currentVideoList = videos;
-  const tableContainer = document.getElementById('yt-table-container');
-  if (!tableContainer) return;
-
-  if (!videos || videos.length === 0) {
-    tableContainer.innerHTML = '<div class="loading" style="padding:16px; text-align:center;">該当する動画がありません</div>';
-    return;
-  }
-
-  let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;">';
-  
-  videos.forEach((item, index) => {
-    const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-      ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-      : '';
-
-    html += `
-      <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(0,0,0,0.1); cursor: pointer;">
-        <td style="padding: 8px 4px; width: 70px;">
-          <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
-            ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
-            <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); color:#fff; font-size:10px;">▶</div>
-          </div>
-        </td>
-        <td style="padding: 8px 4px; vertical-align: middle;">
-          <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title || 'タイトルなし'}</div>
-          <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
-        </td>
-      </tr>
-    `;
-  });
-
-  html += '</table>';
-  tableContainer.innerHTML = html;
-}
-
-// --- ミニプレイヤーモーダル ---
+// --- ミニプレイヤー表示関数 ---
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
@@ -616,7 +1053,7 @@ window.openYoutubeModalByIndex = function(index) {
     touch-action: none;
   `;
 
-  if (window.modalPos && window.modalPos.x !== null && window.modalPos.y !== null) {
+  if (window.modalPos.x !== null && window.modalPos.y !== null) {
     modal.style.left = `${window.modalPos.x}px`;
     modal.style.top = `${window.modalPos.y}px`;
     modal.style.bottom = 'auto';
@@ -705,7 +1142,6 @@ function setupModalDrag(modal) {
     modal.style.left = `${newLeft}px`;
     modal.style.top = `${newTop}px`;
 
-    if (!window.modalPos) window.modalPos = {};
     window.modalPos.x = newLeft;
     window.modalPos.y = newTop;
   };
@@ -882,6 +1318,7 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
+  // 1. ニュース追加ボタン
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
     addNewsBtn.onclick = () => {
@@ -893,6 +1330,7 @@ function initModals() {
     };
   }
 
+  // 2. ニュース削除（管理）ボタン
   const delNewsBtn = document.getElementById('del-news-btn');
   if (delNewsBtn) {
     delNewsBtn.onclick = () => {
@@ -903,6 +1341,7 @@ function initModals() {
     };
   }
 
+  // 3. 知識追加ボタン
   const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
   if (addKnowledgeBtn) {
     addKnowledgeBtn.onclick = () => {
@@ -914,6 +1353,7 @@ function initModals() {
     };
   }
 
+  // 4. 知識削除（管理）ボタン
   const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
@@ -924,15 +1364,13 @@ function initModals() {
     };
   }
 
+  // 5. YouTube追加ボタン
   const addYoutubeBtn = document.getElementById('add-youtube-btn');
   if (addYoutubeBtn) {
     addYoutubeBtn.onclick = () => {
       setupMultiAddModal('YouTubeチャンネルを追加', '配信先', 'チャンネルID', (newItems) => {
         youtubeFeeds.push(...newItems);
         saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-        // キャッシュクリアして即時反映
-        localStorage.removeItem('yt_feed_cache_data');
-        localStorage.removeItem('yt_feed_cache_time');
         initYoutube();
       });
 
@@ -948,14 +1386,13 @@ function initModals() {
     };
   }
 
+  // 6. YouTube削除（管理）ボタン
   const delYoutubeBtn = document.getElementById('del-youtube-btn');
   if (delYoutubeBtn) {
     delYoutubeBtn.onclick = () => {
       setupManageModal('YouTubeチャンネルの管理', youtubeFeeds, (updated) => {
         youtubeFeeds = updated;
         saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-        localStorage.removeItem('yt_feed_cache_data');
-        localStorage.removeItem('yt_feed_cache_time');
       }, initYoutube);
     };
   }
