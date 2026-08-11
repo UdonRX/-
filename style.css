@@ -5,7 +5,8 @@
   --bg-color: #f2f2f7;
   --card-bg: #ffffff;
   --primary-color: #007aff;
-  --danger-color: #ff3b30;
+  --danger-color: #ff9500; /* 編集用（オレンジ） */
+  --danger-color-red: #ff3b30;
   --text-color: #1c1c1e;
   --text-sub: #8e8e93;
   --border-color: #e5e5ea;
@@ -82,27 +83,36 @@ h2 {
   gap: 8px;
 }
 
-/* ボタン装飾 */
+/* ボタン装飾（共通サイズ統一） */
 .btn {
   border: none;
   background: #e5e5ea;
   color: var(--text-color);
-  padding: 6px 12px;
+  padding: 8px 14px;
   border-radius: 14px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap; /* ボタンテキストの折り返し防止 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.btn.primary {
-  background: var(--primary-color);
-  color: #fff;
+.btn.primary,
+.btn-primary,
+#weather-add-btn,
+#weather-section .btn:first-child {
+  background: var(--primary-color) !important;
+  color: #fff !important;
 }
 
-.btn.danger {
-  background: var(--danger-color);
-  color: #fff;
+.btn.danger,
+.btn-danger,
+#weather-edit-btn,
+#weather-section .btn:nth-child(2) {
+  background: var(--danger-color) !important;
+  color: #fff !important;
 }
 
 /* スクロールエリア定義 */
@@ -125,10 +135,18 @@ h2 {
 }
 
 /* 天気スタイル */
+/* 3日間・1週間の切替時に高さが変わらないよう最小高さを固定 */
+#weather-content,
+#weather-section .horizontal-scroll {
+  min-height: 110px;
+  align-items: stretch;
+}
+
 .weather-item {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   min-width: 60px;
   padding: 8px;
   background: #f8f8f8;
