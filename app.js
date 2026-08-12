@@ -547,14 +547,23 @@ async function renderWeatherData() {
         const popItems = popMapByDate[dateKey] || [];
         let popHtml = '';
         if (popItems.length > 0) {
+          // 3日間データ (時間帯ごとのリスト) がある場合
           popHtml = popItems.map(item => `
             <div style="display: flex; justify-content: space-between; gap: 4px; font-size: 10px; color: #007aff; line-height: 1.2;">
               <span style="color: #666;">${item.label}</span>
               <span style="font-weight: bold;">${isNaN(item.val) ? '--' : item.val + '%'}</span>
             </div>
           `).join('');
+        } else if (weekDataMap[dateKey] && weekDataMap[dateKey].pop !== undefined && weekDataMap[dateKey].pop !== "") {
+          // 翌々日等で3日間データに存在しない場合、1週間予報データから補完 (○%)
+          const popVal = weekDataMap[dateKey].pop;
+          popHtml = `
+            <div style="font-size: 11px; color: #007aff; font-weight: bold; text-align: center; padding: 2px 0;">
+              ${popVal}%
+            </div>
+          `;
         } else {
-          popHtml = `<div style="font-size: 11px; color: #999;">--</div>`;
+          popHtml = `<div style="font-size: 11px; color: #999; text-align: center;">--</div>`;
         }
 
         // 気温表示
