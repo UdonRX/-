@@ -396,6 +396,14 @@ function renderWeatherTabs() {
   });
 }
 
+// 日付フォーマット変換 (YYYY-MM-DD)
+function toYYYYMMDD(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const d = String(dateObj.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 async function renderWeatherData() {
   const container = document.getElementById('weather-data-container');
   const areaSelectContainer = document.getElementById('weather-area-select-container');
@@ -424,112 +432,159 @@ async function renderWeatherData() {
     if (!res.ok) throw new Error("気象庁API取得エラー");
     const data = await res.json();
 
-    if (currentWeatherMode === '3day') {
-      const json0 = data[0];
-      if (!json0 || !json0.timeSeries) throw new Error("データ構造エラー");
+    const json0 = data[0];
+    const json1 = data[1];
 
-      // 発表当日（reportDatetime）の日付文字列 (YYYY-MM-DD)
-      const reportDate = new Date(json0.reportDatetime);
-      const reportDateStr = reportDate.toDateString();
+    if (!json0 || !json0.timeSeries) throw new Error("データ構造エラー");
 
-      const ts0 = json0.timeSeries[0]; // 天気コード・日付
-      const ts1 = json0.timeSeries[1]; // 降水確率 (6時間ごと)
-      const ts2 = json0.timeSeries[2]; // 気温
+    // --- 共通データ構文解析 (json[0]: 短期予報) ---
+    const ts0 = json0.timeSeries[0]; // 天気
+    const ts1 = json0.timeSeries[1]; // 降水確率
+    const ts2 = json0.timeSeries[2]; // 短期気温
 
-      const areas = ts0 ? ts0.areas : [];
-      if (areas.length === 0) throw new Error("エリア情報が見つかりません");
+    const areas = ts0 ? ts0.areas : [];
+    if (areas.length === 0) throw new Error("エリア情報が見つかりません");
+    if (currentAreaSubIndex >= areas.length) currentAreaSubIndex = 0;
 
-      if (currentAreaSubIndex >= areas.length) currentAreaSubIndex = 0;
-
-      // エリア切替UI（3日間モード時のみ表示）
-      if (areaSelectContainer) {
-        if (areas.length > 1) {
-          let opts = areas.map((a, i) => `<option value="${i}" ${i === currentAreaSubIndex ? 'selected' : ''}>${a.area.name}</option>`).join('');
-          areaSelectContainer.innerHTML = `
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-size:12px; color:#666;">地域切替:</span>
-              <select id="jma-area-select" style="padding:2px 8px; font-size:12px; border-radius:4px; border:1px solid #ccc;">${opts}</select>
-            </div>
-          `;
-          document.getElementById('jma-area-select').onchange = (e) => {
-            currentAreaSubIndex = parseInt(e.target.value, 10);
-            renderWeatherData();
-          };
-        } else {
-          areaSelectContainer.innerHTML = '';
-        }
+    // --- エリア切替UI ---
+    if (areaSelectContainer) {
+      if (currentWeatherMode === '3day' && areas.length > 1) {
+        let opts = areas.map((a, i) => `<option value="${i}" ${i === currentAreaSubIndex ? 'selected' : ''}>${a.area.name}</option>`).join('');
+        areaSelectContainer.innerHTML = `
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:12px; color:#666;">地域切替:</span>
+            <select id="jma-area-select" style="padding:2px 8px; font-size:12px; border-radius:4px; border:1px solid #ccc;">${opts}</select>
+          </div>
+        `;
+        document.getElementById('jma-area-select').onchange = (e) => {
+          currentAreaSubIndex = parseInt(e.target.value, 10);
+          renderWeatherData();
+        };
+      } else {
+        areaSelectContainer.innerHTML = '';
       }
+    }
 
-      const weatherArea = areas[currentAreaSubIndex];
-      const weatherCodes = weatherArea ? weatherArea.weatherCodes : [];
-      const timeDefines0 = ts0.timeDefines || [];
+    const weatherArea = areas[currentAreaSubIndex];
+    const weatherCodes = weatherArea ? weatherArea.weatherCodes : [];
+    const timeDefines0 = ts0.timeDefines || [];
 
-      // 降水確率（ts1）データの解析
-      const popTimes = ts1 ? ts1.timeDefines || [] : [];
-      const popArea = ts1 && ts1.areas ? ts1.areas[currentAreaSubIndex] || ts1.areas[0] : null;
-      const pops = popArea ? popArea.pops || [] : [];
+    // 降水確率データ解析 (日付キー map)
+    const popTimes = ts1 ? ts1.timeDefines || [] : [];
+    const popArea = ts1 && ts1.areas ? ts1.areas[currentAreaSubIndex] || ts1.areas[0] : null;
+    const pops = popArea ? popArea.pops || [] : [];
 
-      // 日付ごとに降水確率をグループ化するマップ作成
-      const popMapByDate = {};
-      popTimes.forEach((tStr, idx) => {
-        const d = new Date(tStr);
-        const dateKey = d.toDateString();
-        const startHour = String(d.getHours()).padStart(2, '0');
-        const endHour = String((d.getHours() + 6) % 24).padStart(2, '0');
-        const label = `${startHour}-${endHour}`;
-        const val = pops[idx] !== undefined && pops[idx] !== "" ? pops[idx] : "--";
+    const popMapByDate = {};
+    popTimes.forEach((tStr, idx) => {
+      const d = new Date(tStr);
+      const dateKey = toYYYYMMDD(d);
+      const startHour = String(d.getHours()).padStart(2, '0');
+      const endHour = String((d.getHours() + 6) % 24).padStart(2, '0');
+      const label = `${startHour}-${endHour}`;
+      const val = pops[idx] !== undefined && pops[idx] !== "" ? pops[idx] : "--";
 
-        if (!popMapByDate[dateKey]) {
-          popMapByDate[dateKey] = [];
-        }
-        popMapByDate[dateKey].push({ label, val });
-      });
+      if (!popMapByDate[dateKey]) {
+        popMapByDate[dateKey] = [];
+      }
+      popMapByDate[dateKey].push({ label, val: parseInt(val, 10) });
+    });
 
-      // 気温（ts2）データの解析
-      const tempArea = ts2 && ts2.areas ? ts2.areas[currentAreaSubIndex] || ts2.areas[0] : null;
-      const temps = tempArea ? tempArea.temps || [] : [];
-      const temp9 = temps[0] || "--";
-      const tempMax = temps[1] || "--";
+    // 気温データ解析 (timeSeries[2] の配列要素を日付単位に紐付け)
+    const tempArea2 = ts2 && ts2.areas ? ts2.areas[0] : null;
+    const tempTimes2 = ts2 ? ts2.timeDefines || [] : [];
+    const temps2 = tempArea2 ? tempArea2.temps || [] : [];
 
-      let itemsHtml = '';
+    const tempMapByDate = {};
+    tempTimes2.forEach((tStr, idx) => {
+      const d = new Date(tStr);
+      const dateKey = toYYYYMMDD(d);
+      if (!tempMapByDate[dateKey]) tempMapByDate[dateKey] = [];
+      tempMapByDate[dateKey].push(temps2[idx]);
+    });
 
+    // 1週間予報データ解析 (json[1])
+    const weekTs0 = json1 && json1.timeSeries ? json1.timeSeries[0] : null;
+    const weekTs1 = json1 && json1.timeSeries ? json1.timeSeries[1] : null;
+    const weekWeatherArea = weekTs0 && weekTs0.areas ? weekTs0.areas[0] : null;
+    const weekTempArea = weekTs1 && weekTs1.areas ? weekTs1.areas[0] : null;
+
+    const weekTimeDefines = weekTs0 ? weekTs0.timeDefines || [] : [];
+    const weekWeatherCodes = weekWeatherArea ? weekWeatherArea.weatherCodes || [] : [];
+    const weekPops = weekWeatherArea ? weekWeatherArea.pops || [] : [];
+    const weekTempsMin = weekTempArea ? weekTempArea.tempsMin || [] : [];
+    const weekTempsMax = weekTempArea ? weekTempArea.tempsMax || [] : [];
+
+    const weekDataMap = {};
+    weekTimeDefines.forEach((tStr, idx) => {
+      const d = new Date(tStr);
+      const dateKey = toYYYYMMDD(d);
+      weekDataMap[dateKey] = {
+        weatherCode: weekWeatherCodes[idx],
+        pop: weekPops[idx],
+        tempMin: weekTempsMin[idx],
+        tempMax: weekTempsMax[idx]
+      };
+    });
+
+    let itemsHtml = '';
+
+    if (currentWeatherMode === '3day') {
+      // --- 3日間表示 ---
       timeDefines0.forEach((t, idx) => {
         const d = new Date(t);
-        const dateKey = d.toDateString();
-        const isToday = (dateKey === reportDateStr);
+        const dateKey = toYYYYMMDD(d);
 
-        // --- 1. 日付・曜日のカラースタイル設定 ---
         const colorStyle = getDateColorClassOrStyle(d);
         const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`;
         const dayStr = `（${dayOfWeek[d.getDay()]}）`;
 
-        // --- 2. アイコン・時間表記 ---
         const hourNum = d.getHours();
         const isNight = hourNum < 6 || hourNum >= 18;
         const code = weatherCodes[idx] || "100";
         const iconUrl = getJmaWeatherIconUrl(code, isNight);
 
-        // --- 3. 6時間ごとの降水確率レイアウト作成 ---
+        // 降水確率表示
         const popItems = popMapByDate[dateKey] || [];
         let popHtml = '';
         if (popItems.length > 0) {
           popHtml = popItems.map(item => `
             <div style="display: flex; justify-content: space-between; gap: 4px; font-size: 10px; color: #007aff; line-height: 1.2;">
               <span style="color: #666;">${item.label}</span>
-              <span style="font-weight: bold;">${item.val}%</span>
+              <span style="font-weight: bold;">${isNaN(item.val) ? '--' : item.val + '%'}</span>
             </div>
           `).join('');
         } else {
           popHtml = `<div style="font-size: 11px; color: #999;">--</div>`;
         }
 
-        // --- 4. 気温の表示制御（当日のみ表示） ---
+        // 気温表示
         let tempHtml = '';
-        if (isToday) {
+        const dayTemps = tempMapByDate[dateKey];
+
+        if (dayTemps && dayTemps.length >= 2) {
+          // 短期予報(ts2)にデータが存在する場合 (朝9時, 日中最高)
+          const temp9 = dayTemps[0] !== undefined ? dayTemps[0] : "--";
+          const tempMax = dayTemps[1] !== undefined ? dayTemps[1] : "--";
           tempHtml = `
             <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #eee;">
-              <div style="font-size: 10px; color: #555;">朝9時: ${temp9}°C</div>
+              <div style="font-size: 10px; color: #007aff;">朝9時: ${temp9}°C</div>
               <div style="font-size: 11px; color: #ff3b30; font-weight: bold;">最高: ${tempMax}°C</div>
+            </div>
+          `;
+        } else if (weekDataMap[dateKey]) {
+          // 翌々日など1週間データ側から補完する場合
+          const minVal = weekDataMap[dateKey].tempMin || "--";
+          const maxVal = weekDataMap[dateKey].tempMax || "--";
+          tempHtml = `
+            <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #eee;">
+              <div style="font-size: 10px; color: #007aff;">最低: ${minVal}°C</div>
+              <div style="font-size: 11px; color: #ff3b30; font-weight: bold;">最高: ${maxVal}°C</div>
+            </div>
+          `;
+        } else {
+          tempHtml = `
+            <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #eee;">
+              <div style="font-size: 10px; color: #999;">--</div>
             </div>
           `;
         }
@@ -543,58 +598,86 @@ async function renderWeatherData() {
               <img src="${iconUrl}" style="width: 36px; height: 36px; display: block; margin: 0 auto;" alt="weather">
             </div>
             
-            <!-- 降水確率（6時間ごと可変表示） -->
             <div style="background: #f4f8ff; padding: 4px; border-radius: 4px; margin: 4px 0;">
               <div style="font-size: 9px; color: #007aff; font-weight: bold; margin-bottom: 2px;">☔ 降水確率</div>
               ${popHtml}
             </div>
 
-            <!-- 気温（当日のみ表示） -->
             ${tempHtml}
           </div>
         `;
       });
 
-      container.innerHTML = `
-        <div style="display: flex; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin;">
-          ${itemsHtml}
-        </div>
-      `;
-
     } else {
-      // --- 1週間モード（7日間予報） ---
-      if (areaSelectContainer) areaSelectContainer.innerHTML = ''; // プルダウンをクリア
+      // --- 1週間表示（取得当日〜） ---
+      const allDatesList = [];
+      const dateKeySet = new Set();
 
-      const json1 = data[1];
-      if (!json1 || !json1.timeSeries) throw new Error("週間天気データ構造エラー");
-
-      const ts0 = json1.timeSeries[0]; // 天気コード・降水確率・日付
-      const ts1 = json1.timeSeries[1]; // 最低/最高気温
-
-      const weatherArea = ts0 && ts0.areas ? ts0.areas[0] : null;
-      const tempArea = ts1 && ts1.areas ? ts1.areas[0] : null;
-
-      if (!weatherArea) throw new Error("週間エリア情報が見つかりません");
-
-      const timeDefines = ts0.timeDefines || [];
-      const weatherCodes = weatherArea.weatherCodes || [];
-      const pops = weatherArea.pops || [];
-      const tempsMin = tempArea ? tempArea.tempsMin || [] : [];
-      const tempsMax = tempArea ? tempArea.tempsMax || [] : [];
-
-      let itemsHtml = '';
-
-      timeDefines.forEach((t, idx) => {
+      // 当日〜翌日のデータをタイムシリーズから収集
+      timeDefines0.forEach((t, idx) => {
         const d = new Date(t);
+        const dateKey = toYYYYMMDD(d);
+        if (!dateKeySet.has(dateKey)) {
+          dateKeySet.add(dateKey);
+          allDatesList.push({
+            date: d,
+            dateKey: dateKey,
+            weatherCode: weatherCodes[idx]
+          });
+        }
+      });
+
+      // 1週間予報から追加分を取得
+      weekTimeDefines.forEach((t, idx) => {
+        const d = new Date(t);
+        const dateKey = toYYYYMMDD(d);
+        if (!dateKeySet.has(dateKey)) {
+          dateKeySet.add(dateKey);
+          allDatesList.push({
+            date: d,
+            dateKey: dateKey,
+            weatherCode: weekWeatherCodes[idx]
+          });
+        }
+      });
+
+      allDatesList.forEach(item => {
+        const d = item.date;
+        const dateKey = item.dateKey;
+
         const colorStyle = getDateColorClassOrStyle(d);
         const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`;
         const dayStr = `（${dayOfWeek[d.getDay()]}）`;
 
-        const code = weatherCodes[idx] || "100";
+        const code = item.weatherCode || (weekDataMap[dateKey] ? weekDataMap[dateKey].weatherCode : "100");
         const iconUrl = getJmaWeatherIconUrl(code, false);
-        const popVal = pops[idx] !== undefined && pops[idx] !== "" ? `${pops[idx]}%` : "--";
-        const minVal = tempsMin[idx] !== undefined && tempsMin[idx] !== "" ? `${tempsMin[idx]}°C` : "--";
-        const maxVal = tempsMax[idx] !== undefined && tempsMax[idx] !== "" ? `${tempsMax[idx]}°C` : "--";
+
+        // 降水確率の計算（3日間データの平均値、存在しない場合は週間予報値）
+        let popValStr = "--";
+        const popItems = popMapByDate[dateKey] || [];
+
+        if (popItems.length > 0) {
+          const validPops = popItems.map(p => p.val).filter(v => !isNaN(v));
+          if (validPops.length > 0) {
+            const avg = Math.round(validPops.reduce((a, b) => a + b, 0) / validPops.length);
+            popValStr = `${avg}%`;
+          }
+        } else if (weekDataMap[dateKey] && weekDataMap[dateKey].pop !== undefined && weekDataMap[dateKey].pop !== "") {
+          popValStr = `${weekDataMap[dateKey].pop}%`;
+        }
+
+        // 気温の計算（青字：朝9時/最低、赤字：最高）
+        let tempMinStr = "--";
+        let tempMaxStr = "--";
+        const dayTemps = tempMapByDate[dateKey];
+
+        if (dayTemps && dayTemps.length >= 2) {
+          tempMinStr = dayTemps[0] !== undefined ? `${dayTemps[0]}°C` : "--";
+          tempMaxStr = dayTemps[1] !== undefined ? `${dayTemps[1]}°C` : "--";
+        } else if (weekDataMap[dateKey]) {
+          tempMinStr = weekDataMap[dateKey].tempMin !== undefined && weekDataMap[dateKey].tempMin !== "" ? `${weekDataMap[dateKey].tempMin}°C` : "--";
+          tempMaxStr = weekDataMap[dateKey].tempMax !== undefined && weekDataMap[dateKey].tempMax !== "" ? `${weekDataMap[dateKey].tempMax}°C` : "--";
+        }
 
         itemsHtml += `
           <div style="flex: 0 0 auto; width: 95px; text-align: center; border-right: 1px solid #eee; padding: 0 6px; box-sizing: border-box;">
@@ -604,20 +687,20 @@ async function renderWeatherData() {
             <div style="margin: 4px 0;">
               <img src="${iconUrl}" style="width: 36px; height: 36px; display: block; margin: 0 auto;" alt="weather">
             </div>
-            <div style="font-size: 11px; color: #007aff; font-weight: bold; margin-bottom: 4px;">☔ ${popVal}</div>
+            <div style="font-size: 11px; color: #007aff; font-weight: bold; margin-bottom: 4px;">☔ ${popValStr}</div>
             <div style="font-size: 10px; color: #666;">
-              <span style="color: #007aff;">${minVal}</span> / <span style="color: #ff3b30;">${maxVal}</span>
+              <span style="color: #007aff;">${tempMinStr}</span> / <span style="color: #ff3b30;">${tempMaxStr}</span>
             </div>
           </div>
         `;
       });
-
-      container.innerHTML = `
-        <div style="display: flex; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin;">
-          ${itemsHtml}
-        </div>
-      `;
     }
+
+    container.innerHTML = `
+      <div style="display: flex; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin;">
+        ${itemsHtml}
+      </div>
+    `;
 
   } catch (err) {
     console.error(err);
