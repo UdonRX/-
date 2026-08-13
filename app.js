@@ -131,6 +131,27 @@ function getDateColorClassOrStyle(dateObj) {
   return 'color: #333333;'; // 平日
 }
 
+// 共通の日付フォーマット関数（当日：時刻のみ、それ以外：月/日 時刻）
+function formatCustomDate(dateObj) {
+  if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) return '';
+  const today = new Date();
+  const isToday = dateObj.getFullYear() === today.getFullYear() &&
+                  dateObj.getMonth() === today.getMonth() &&
+                  dateObj.getDate() === today.getDate();
+
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+  const timeStr = `${hours}:${minutes}`;
+
+  if (isToday) {
+    return timeStr;
+  } else {
+    const month = dateObj.getMonth() + 1;
+    const day = dateObj.getDate();
+    return `${month}/${day} ${timeStr}`;
+  }
+}
+
 // 初期データ（気象庁API仕様：京都府 260000）
 const DEFAULT_WEATHER_LOCATIONS = [
   {
@@ -1136,26 +1157,12 @@ async function loadNewsContent(url) {
     }
 
     container.innerHTML = '';
-    const today = new Date();
 
     items.forEach(item => {
       const newsDiv = document.createElement('div');
       newsDiv.className = 'news-item';
       
-      let dateStr = '';
-      if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
-        const isToday = item.pubDate.getFullYear() === today.getFullYear() &&
-                        item.pubDate.getMonth() === today.getMonth() &&
-                        item.pubDate.getDate() === today.getDate();
-
-        if (isToday) {
-          const hours = String(item.pubDate.getHours()).padStart(2, '0');
-          const minutes = String(item.pubDate.getMinutes()).padStart(2, '0');
-          dateStr = `${hours}:${minutes}`;
-        } else {
-          dateStr = item.pubDate.toLocaleString('ja-JP');
-        }
-      }
+      const dateStr = formatCustomDate(item.pubDate);
 
       newsDiv.innerHTML = `
         <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
@@ -1197,26 +1204,12 @@ async function loadKnowledgeContent(url) {
     }
 
     container.innerHTML = '';
-    const today = new Date();
 
     items.forEach(item => {
       const newsDiv = document.createElement('div');
       newsDiv.className = 'news-item';
       
-      let dateStr = '';
-      if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
-        const isToday = item.pubDate.getFullYear() === today.getFullYear() &&
-                        item.pubDate.getMonth() === today.getMonth() &&
-                        item.pubDate.getDate() === today.getDate();
-
-        if (isToday) {
-          const hours = String(item.pubDate.getHours()).padStart(2, '0');
-          const minutes = String(item.pubDate.getMinutes()).padStart(2, '0');
-          dateStr = `${hours}:${minutes}`;
-        } else {
-          dateStr = item.pubDate.toLocaleString('ja-JP');
-        }
-      }
+      const dateStr = formatCustomDate(item.pubDate);
 
       newsDiv.innerHTML = `
         <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
@@ -1691,8 +1684,6 @@ async function loadTwitterContent() {
 
     container.innerHTML = '';
 
-    const today = new Date();
-
     items.forEach(item => {
       const title = item.querySelector('title')?.textContent || '';
       const link = item.querySelector('link')?.textContent || '#';
@@ -1705,21 +1696,7 @@ async function loadTwitterContent() {
       }
 
       let pubDate = new Date(pubDateRaw);
-      let dateStr = pubDateRaw;
-      
-      if (!isNaN(pubDate.getTime())) {
-        const isToday = pubDate.getFullYear() === today.getFullYear() &&
-                        pubDate.getMonth() === today.getMonth() &&
-                        pubDate.getDate() === today.getDate();
-
-        if (isToday) {
-          const hours = String(pubDate.getHours()).padStart(2, '0');
-          const minutes = String(pubDate.getMinutes()).padStart(2, '0');
-          dateStr = `${hours}:${minutes}`;
-        } else {
-          dateStr = pubDate.toLocaleString('ja-JP');
-        }
-      }
+      let dateStr = !isNaN(pubDate.getTime()) ? formatCustomDate(pubDate) : pubDateRaw;
 
       const contentDoc = parser.parseFromString(`<div>${description}</div>`, 'text/html');
 
@@ -1837,7 +1814,7 @@ async function loadTwitterContent() {
           targetVideoUrl = media.src || media.querySelector('source')?.src || '';
         }
 
-        if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com') || targetVideoUrl.endsWith('.mp4'))) {
+        if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com'] || targetVideoUrl.endsWith('.mp4'))) {
           const videoLinkBox = document.createElement('a');
           videoLinkBox.href = targetVideoUrl;
           videoLinkBox.target = '_blank';
@@ -2059,11 +2036,11 @@ async function loadAllYoutubeContent() {
         let isLive = item.liveStatus === 'live';
 
         if (item.liveStatus === 'upcoming' && item.scheduledStartTime) {
-          dateStr = `予定: ${item.scheduledStartTime.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}開始`;
+          dateStr = `予定: ${formatCustomDate(item.scheduledStartTime)}開始`;
         } else if (isLive) {
           dateStr = ''; // 「配信中」の文字を消去
         } else if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
-          dateStr = item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          dateStr = formatCustomDate(item.pubDate);
         }
 
         // 配信中の場合は背景色を #FEF0E5 にする
@@ -2149,17 +2126,11 @@ async function loadFutocyanContent() {
       
       let dateStr = '';
       if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
-        dateStr = item.pubDate.toLocaleString('ja-JP', {
-          month: 'numeric',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
+        dateStr = formatCustomDate(item.pubDate);
       }
 
       const tr = document.createElement('tr');
       
-      // 配信中の場合は背景色を #FEF0E5 に設定し、「配信中」のテキストバッジを非表示にする
       const rowBgStyle = isLive ? 'background-color: #FEF0E5;' : '';
       tr.style.cssText = `border-bottom: 1px solid rgba(0,0,0,0.1); ${rowBgStyle}`;
 
