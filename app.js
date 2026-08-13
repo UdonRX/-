@@ -1442,7 +1442,7 @@ async function loadTwitterContent() {
 
       let contentHtml = contentDoc.body.innerHTML;
 
-      // カード要素
+   // カード要素
       const tweetCard = document.createElement('div');
       tweetCard.style.cssText = `
         border-bottom: 2px solid #000000;
@@ -1452,12 +1452,12 @@ async function loadTwitterContent() {
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 4px; /* 要素間の隙間を密着・統一 */
       `;
 
       // ユーザー情報ヘッダー
       const userHeaderHtml = `
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 0;">
           <a href="${link}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; display: flex; align-items: baseline; gap: 6px; overflow: hidden;">
             <span style="font-weight: bold; font-size: 15px; color: var(--text-main, #111);">${displayName}</span>
             ${userId ? `<span style="font-size: 12px; color: #666; font-weight: normal;">${userId}</span>` : ''}
@@ -1468,17 +1468,11 @@ async function loadTwitterContent() {
 
       tweetCard.innerHTML = userHeaderHtml;
 
-      // ポスト本文が存在する場合のみ追加
-      if (contentDoc.body.textContent.trim() !== '' || contentDoc.body.children.length > 0) {
+      // ポスト本文が存在する場合のみ追加（余計な改行ノードをトリム）
+      const cleanedTextContent = contentDoc.body.textContent.trim();
+      if (cleanedTextContent !== '' || contentDoc.body.children.length > 0) {
         const bodyWrapper = document.createElement('div');
-        bodyWrapper.className = 'tweet-text';
-        bodyWrapper.style.cssText = `
-          font-size: 13px;
-          line-height: 1.4;
-          color: var(--text-main, #333);
-          word-break: break-word;
-          overflow-wrap: break-word;
-        `;
+        bodyWrapper.className = 'tweet-body';
         bodyWrapper.innerHTML = contentHtml;
         tweetCard.appendChild(bodyWrapper);
       }
@@ -1486,12 +1480,10 @@ async function loadTwitterContent() {
       // メディア要素コンテナ
       const mediaContainer = document.createElement('div');
       mediaContainer.className = 'tweet-media-container';
-      mediaContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
 
       mediaElements.forEach(media => {
         const tagName = media.tagName.toLowerCase();
         
-        // 動画URL取得処理（a要素、video要素、またはポスター等の処理）
         let targetVideoUrl = '';
         if (tagName === 'a') {
           targetVideoUrl = media.href;
@@ -1500,13 +1492,11 @@ async function loadTwitterContent() {
         }
 
         if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com') || targetVideoUrl.endsWith('.mp4'))) {
-          // 動画URLの場合はタップで直接URLを開くプレビューカードを生成
           const videoLinkBox = document.createElement('a');
           videoLinkBox.href = targetVideoUrl;
           videoLinkBox.target = '_blank';
           videoLinkBox.rel = 'noopener noreferrer';
           
-          // 再生・移動時のスクロールジャンプを防止
           videoLinkBox.onclick = (e) => {
             e.stopPropagation();
             window.open(targetVideoUrl, '_blank', 'noopener,noreferrer');
@@ -1527,20 +1517,18 @@ async function loadTwitterContent() {
             box-sizing: border-box;
             border: 1px solid #38444d;
             cursor: pointer;
-            transition: background 0.2s;
           `;
           videoLinkBox.innerHTML = `
-            <div style="width: 44px; height: 44px; border-radius: 50%; background: rgba(29, 161, 242, 0.9); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+            <div style="width: 44px; height: 44px; border-radius: 50%; background: rgba(29, 161, 242, 0.9); display: flex; align-items: center; justify-content: center;">
               <span style="color: #fff; font-size: 20px; margin-left: 3px;">▶</span>
             </div>
             <span style="font-size: 13px; font-weight: bold; color: #1da1f2;">動画をタップして再生（外部で開く）</span>
           `;
           mediaContainer.appendChild(videoLinkBox);
         } else if (tagName === 'img') {
-          // 画像表示 ＆ タップ時モーダル拡大処理
           media.style.maxWidth = '100%';
           media.style.height = 'auto';
-          media.style.borderRadius = '8px';
+          media.style.borderRadius = '12px';
           media.style.display = 'block';
           media.style.cursor = 'pointer';
           media.onclick = (e) => {
