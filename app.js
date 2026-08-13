@@ -1163,6 +1163,92 @@ async function loadKnowledgeContent(url) {
   }
 }
 
+// 画像プレビュー・モーダル表示（ピンチズーム・ダブルタップ拡大機能付き）
+function openImagePreviewModal(src) {
+  let modal = document.getElementById('image-lightbox-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'image-lightbox-modal';
+    document.body.appendChild(modal);
+  }
+
+  modal.style.cssText = `
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.85); z-index: 999999;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; touch-action: none;
+  `;
+
+  modal.innerHTML = `
+    <button id="close-lightbox-btn" style="position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 24px; border-radius: 50%; width: 40px; height: 40px; cursor: pointer; z-index: 1000000; display: flex; align-items: center; justify-content: center;">✕</button>
+    <div id="lightbox-img-container" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+      <img id="lightbox-img" src="${src}" style="max-width: 90%; max-height: 90%; object-fit: contain; transition: transform 0.1s linear; transform-origin: center center; cursor: grab;" />
+    </div>
+  `;
+
+  const img = modal.querySelector('#lightbox-img');
+  const container = modal.querySelector('#lightbox-img-container');
+  const closeBtn = modal.querySelector('#close-lightbox-btn');
+
+  let scale = 1;
+  let pointX = 0;
+  let pointY = 0;
+  let startScale = 1;
+  let startDistance = 0;
+  let lastTapTime = 0;
+
+  const updateTransform = () => {
+    img.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
+  };
+
+  closeBtn.onclick = () => modal.remove();
+  modal.onclick = (e) => {
+    if (e.target === modal || e.target === container) modal.remove();
+  };
+
+  // ピンチイン・ピンチアウト / ダブルタップ 操作実装
+  container.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      startDistance = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      startScale = scale;
+    } else if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - lastTapTime < 300) {
+        // ダブルタップでズームトグル
+        if (scale > 1) {
+          scale = 1;
+          pointX = 0;
+          pointY = 0;
+        } else {
+          scale = 2.5;
+        }
+        updateTransform();
+      }
+      lastTapTime = now;
+    }
+  }, { passive: true });
+
+  container.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      if (startDistance > 0) {
+        scale = Math.min(Math.max(1, startScale * (dist / startDistance)), 4);
+        if (scale === 1) {
+          pointX = 0;
+          pointY = 0;
+        }
+        updateTransform();
+      }
+    }
+  }, { passive: true });
+}
+
 // --- Twitter 領域 ---
 async function initTwitter() {
   const twitterSection = document.getElementById('twitter-section') || document.querySelector('.twitter-section') || document.getElementById('twitter-content')?.parentNode;
@@ -1246,6 +1332,14 @@ async function loadTwitterContent() {
       // ユーザーアイコン要素を完全に除去
       contentDoc.querySelectorAll('img.avatar, img[src*="profile_images"]').forEach(img => img.remove());
 
+      // 外部リンク（aタグ）の属性補正：外部タブで必ず開くように設定
+      contentDoc.querySelectorAll('a').forEach(a => {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        a.style.color = '#1da1f2';
+        a.style.textDecoration = 'none';
+      });
+
       // ユーザー名・ID抽出
       let displayName = author || title.split(':')[0] || 'Twitter User';
       let userId = '';
@@ -1259,43 +1353,44 @@ async function loadTwitterContent() {
         displayName = displayName.replace(/^@/, '');
       }
 
-      // 引用リツイート要素のスタイル付け (<div class="quote-box"> で囲む)
+      // 引用リツイート要素のスタイル付け（角丸四角形・灰色枠線）
       const blockquotes = contentDoc.querySelectorAll('blockquote');
       blockquotes.forEach(bq => {
         const quoteBox = contentDoc.createElement('div');
         quoteBox.className = 'quote-box';
         quoteBox.style.cssText = `
-          border: 1px solid var(--border-color, #e0e0e0);
-          border-radius: 8px;
-          padding: 8px 12px;
+          border: 1px solid #888888;
+          border-radius: 12px;
+          padding: 10px 12px;
           margin-top: 8px;
-          background: rgba(0, 0, 0, 0.02);
+          background: rgba(0, 0, 0, 0.03);
           font-size: 12px;
+          line-height: 1.4;
         `;
         quoteBox.innerHTML = bq.innerHTML;
         bq.parentNode.replaceChild(quoteBox, bq);
       });
 
-      // 画像/メディア要素を一旦退避し、テキスト直下に正しく配置
-      const mediaElements = Array.from(contentDoc.querySelectorAll('img, video, iframe'));
+      // 画像/メディア要素を抽出して調整
+      const mediaElements = Array.from(contentDoc.querySelectorAll('img, video, iframe, a[href*="video.twimg.com"], a[href$=".mp4"]'));
       mediaElements.forEach(media => media.remove());
 
       let contentHtml = contentDoc.body.innerHTML;
 
-      // DOM要素構築
+      // DOM要素構築（ツイート間の区切り線を「濃い黒」に変更）
       const tweetCard = document.createElement('div');
       tweetCard.style.cssText = `
-        border-bottom: 1px solid var(--border-color, #eee);
+        border-bottom: 2px solid #000000;
         padding: 12px 8px;
         box-sizing: border-box;
         width: 100%;
         overflow: hidden;
       `;
 
-      // ユーザー情報ヘッダー（太字・大きめのフォント）
+      // ユーザー情報ヘッダー
       const userHeaderHtml = `
         <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; flex-wrap: wrap;">
-          <a href="${link}" target="_blank" rel="noopener" style="text-decoration: none; display: flex; align-items: baseline; gap: 6px; overflow: hidden;">
+          <a href="${link}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; display: flex; align-items: baseline; gap: 6px; overflow: hidden;">
             <span style="font-weight: bold; font-size: 15px; color: var(--text-main, #111);">${displayName}</span>
             ${userId ? `<span style="font-size: 12px; color: #666; font-weight: normal;">${userId}</span>` : ''}
           </a>
@@ -1321,18 +1416,49 @@ async function loadTwitterContent() {
       mediaContainer.style.cssText = 'margin-top: 8px;';
 
       mediaElements.forEach(media => {
-        media.style.maxWidth = '100%';
-        media.style.height = 'auto';
-        media.style.borderRadius = '8px';
-        media.style.marginTop = '6px';
-        media.style.display = 'block';
-        media.style.boxSizing = 'border-box';
-        mediaContainer.appendChild(media);
+        if (media.tagName.toLowerCase() === 'img') {
+          // 画像表示 ＆ タップ時モーダル拡大処理
+          media.style.maxWidth = '100%';
+          media.style.height = 'auto';
+          media.style.borderRadius = '8px';
+          media.style.marginTop = '6px';
+          media.style.display = 'block';
+          media.style.cursor = 'pointer';
+          media.onclick = (e) => {
+            e.stopPropagation();
+            openImagePreviewModal(media.src);
+          };
+          mediaContainer.appendChild(media);
+        } else if (media.tagName.toLowerCase() === 'a' && (media.href.includes('video.twimg.com') || media.href.endsWith('.mp4'))) {
+          // 直リンク形式の動画URLをタップ再生可能なvideo要素に置換
+          const videoElem = document.createElement('video');
+          videoElem.src = media.href;
+          videoElem.controls = true;
+          videoElem.playsInline = true;
+          videoElem.style.width = '100%';
+          videoElem.style.maxHeight = '350px';
+          videoElem.style.borderRadius = '8px';
+          videoElem.style.marginTop = '6px';
+          videoElem.style.backgroundColor = '#000';
+          mediaContainer.appendChild(videoElem);
+        } else if (media.tagName.toLowerCase() === 'video') {
+          // 既存のvideoタグの設定・補正
+          media.controls = true;
+          media.playsInline = true;
+          media.style.width = '100%';
+          media.style.maxHeight = '350px';
+          media.style.borderRadius = '8px';
+          media.style.marginTop = '6px';
+          media.style.backgroundColor = '#000';
+          mediaContainer.appendChild(media);
+        } else {
+          mediaContainer.appendChild(media);
+        }
       });
 
       tweetCard.innerHTML = userHeaderHtml;
       tweetCard.appendChild(bodyWrapper);
-      if (mediaElements.length > 0) {
+      if (mediaContainer.children.length > 0) {
         tweetCard.appendChild(mediaContainer);
       }
 
