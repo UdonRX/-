@@ -1482,6 +1482,39 @@ async function loadTwitterContent() {
       mediaContainer.className = 'tweet-media-container';
       mediaContainer.style.cssText = 'margin-top: 8px;';
 
+      // 動画要素を作成・初期化するヘルパー関数
+      const buildVideoElement = (srcUrl, posterUrl = '') => {
+        const videoElem = document.createElement('video');
+        videoElem.controls = true;
+        videoElem.playsInline = true;
+        videoElem.muted = true; // iOS Safari での確実な再生準備とエラー防止のために必須
+        videoElem.setAttribute('playsinline', '');
+        videoElem.setAttribute('webkit-playsinline', '');
+        videoElem.preload = 'metadata';
+        if (posterUrl) videoElem.poster = posterUrl;
+        videoElem.style.width = '100%';
+        videoElem.style.maxHeight = '350px';
+        videoElem.style.borderRadius = '8px';
+        videoElem.style.marginTop = '6px';
+        videoElem.style.backgroundColor = '#000';
+
+        const sourceElem = document.createElement('source');
+        sourceElem.src = srcUrl;
+        if (srcUrl.includes('.mp4')) {
+          sourceElem.type = 'video/mp4';
+        }
+        videoElem.appendChild(sourceElem);
+
+        // タップ時に自動再生のブロックを回避して再生を開始
+        videoElem.addEventListener('click', () => {
+          if (videoElem.paused) {
+            videoElem.play().catch(e => console.log('Playback error:', e));
+          }
+        });
+
+        return videoElem;
+      };
+
       mediaElements.forEach(media => {
         const tagName = media.tagName.toLowerCase();
         if (tagName === 'img') {
@@ -1497,33 +1530,22 @@ async function loadTwitterContent() {
             openImagePreviewModal(media.src);
           };
           mediaContainer.appendChild(media);
-        } else if (tagName === 'a' && (media.href.includes('video.twimg.com') || media.href.endsWith('.mp4'))) {
+        } else if (tagName === 'a' && (media.href.includes('video.twimg.com') || media.href.includes('.mp4'))) {
           // 直リンク形式の動画URLをタップ再生可能なvideo要素に置換
-          const videoElem = document.createElement('video');
-          videoElem.src = media.href;
-          videoElem.controls = true;
-          videoElem.playsInline = true;
-          videoElem.style.width = '100%';
-          videoElem.style.maxHeight = '350px';
-          videoElem.style.borderRadius = '8px';
-          videoElem.style.marginTop = '6px';
-          videoElem.style.backgroundColor = '#000';
+          const videoElem = buildVideoElement(media.href);
           mediaContainer.appendChild(videoElem);
         } else if (tagName === 'video') {
-          // 既存のvideoタグの設定・補正
-          media.controls = true;
-          media.playsInline = true;
-          media.style.width = '100%';
-          media.style.maxHeight = '350px';
-          media.style.borderRadius = '8px';
-          media.style.marginTop = '6px';
-          media.style.backgroundColor = '#000';
-          
-          // ソース(src)が含まれているか確認して追加
-          if (!media.src && media.querySelector('source')) {
-            media.src = media.querySelector('source').src;
+          // 既存のvideoタグの再構築・修正
+          let videoSrc = media.src;
+          if (!videoSrc) {
+            const source = media.querySelector('source');
+            if (source) videoSrc = source.src;
           }
-          mediaContainer.appendChild(media);
+
+          if (videoSrc) {
+            const videoElem = buildVideoElement(videoSrc, media.poster || '');
+            mediaContainer.appendChild(videoElem);
+          }
         }
       });
 
@@ -2141,7 +2163,7 @@ function renderManageList(feeds, saveCallback, onEdit) {
     row.style.border = feed.isError ? '1px solid #ff4d4f' : '1px solid var(--border-color)';
 
     const errorBadge = feed.isError 
-      ? `<span title="データを受け取れませんでした。ID/URLが間違っている可能性があります" style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; background-color:#ff4d4f; color:#fff; border-radius:50%; font-weight:bold; font-size:12px; margin-right:8px; flex-shrink:0;">!</span>`
+      ? `<span title="データを受け取れませんでした。ID/URLが間違っている可能性があります" style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; background-color:#ff4d4f; color:#fff; font-weight:bold; font-size:12px; margin-right:8px; flex-shrink:0;">!</span>`
       : '';
 
     const nameWrapper = document.createElement('div');
