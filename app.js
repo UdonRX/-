@@ -1164,51 +1164,127 @@ async function loadKnowledgeContent(url) {
 }
 
 // --- Twitter 領域 ---
-function initTwitter() {
+async function initTwitter() {
   const container = document.getElementById('twitter-content');
   if (!container) return;
 
-  container.innerHTML = '';
-  
-  const foloWrapper = document.createElement('div');
-  foloWrapper.style.display = 'flex';
-  foloWrapper.style.justifyContent = 'center';
-  foloWrapper.style.alignItems = 'center';
-  foloWrapper.style.padding = '20px 0';
+  container.innerHTML = '<div class="loading">ツイートを読み込み中...</div>';
 
-  const foloBtn = document.createElement('a');
-  foloBtn.href = '#';
-  foloBtn.style.display = 'inline-block';
-  foloBtn.style.textDecoration = 'none';
-  foloBtn.style.transition = 'transform 0.1s ease, opacity 0.2s ease';
+  const feedUrl = 'https://rsshub-latest-wekl.onrender.com/twitter/list/2087706843519111304';
+  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
 
-  const img = document.createElement('img');
-  img.src = 'icons/folo.png'; 
-  img.alt = 'Folo';
-  img.style.width = '64px';
-  img.style.height = '64px';
-  img.style.borderRadius = '16px';
-  img.style.objectFit = 'cover';
-  img.style.display = 'block';
+  try {
+    const response = await fetch(apiUrl);
+    if (!response.ok) throw new Error('ツイートの取得に失敗しました');
+    const xmlText = await response.text();
 
-  foloBtn.appendChild(img);
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
 
-  foloBtn.addEventListener('touchstart', () => { foloBtn.style.transform = 'scale(0.92)'; });
-  foloBtn.addEventListener('touchend', () => { foloBtn.style.transform = 'scale(1)'; });
-
-  foloBtn.onclick = (e) => {
-    e.preventDefault();
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-    if (isIOS) {
-      window.location.href = 'follow://';
-    } else {
-      window.open('https://app.folo.is/timeline/articles/all/pending', '_blank', 'noopener,noreferrer');
+    if (xmlDoc.querySelector('parsererror')) {
+      throw new Error('XMLパースエラー');
     }
-  };
 
-  foloWrapper.appendChild(foloBtn);
-  container.appendChild(foloWrapper);
+    const items = Array.from(xmlDoc.querySelectorAll('item'));
+    if (items.length === 0) {
+      container.innerHTML = '<div class="loading">ツイートが見つかりませんでした</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+
+    items.forEach(item => {
+      const title = item.querySelector('title')?.textContent || '';
+      const link = item.querySelector('link')?.textContent || '#';
+      const description = item.querySelector('description')?.textContent || '';
+      const author = item.querySelector('author')?.textContent || item.querySelector('dc\\:creator, creator')?.textContent || '';
+      const pubDateRaw = item.querySelector('pubDate')?.textContent || '';
+
+      let pubDate = new Date(pubDateRaw);
+      const dateStr = !isNaN(pubDate.getTime()) ? pubDate.toLocaleString('ja-JP') : pubDateRaw;
+
+      // HTMLコンテンツのパース
+      const contentDoc = parser.parseFromString(`<div>${description}</div>`, 'text/html');
+
+      // アイコン画像抽出
+      let iconUrl = '';
+      const firstImg = contentDoc.querySelector('img');
+      if (firstImg) {
+        iconUrl = firstImg.src;
+        // 本文中の重複アイコン画像を削除
+        firstImg.remove();
+      }
+
+      // ユーザー名の調整
+      let userName = author || title.split(':')[0] || 'Twitter User';
+
+      // 投稿本文を取得
+      let contentHtml = contentDoc.body.innerHTML;
+
+      // DOM要素を構築
+      const tweetCard = document.createElement('div');
+      tweetCard.style.cssText = `
+        border-bottom: 1px solid var(--border-color, #eee);
+        padding: 12px 8px;
+        display: flex;
+        gap: 12px;
+        box-sizing: border-box;
+        width: 100%;
+        overflow: hidden;
+      `;
+
+      // アイコン領域
+      const iconWrapper = document.createElement('div');
+      iconWrapper.style.cssText = `
+        flex-shrink: 0;
+        width: 40px;
+        height: 40px;
+      `;
+
+      if (iconUrl) {
+        iconWrapper.innerHTML = `<img src="${iconUrl}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; display: block;" alt="icon">`;
+      } else {
+        iconWrapper.innerHTML = `<div style="width: 40px; height: 40px; border-radius: 50%; background: #ccc; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: bold;">👤</div>`;
+      }
+
+      // ツイート本文・メディア領域
+      const bodyWrapper = document.createElement('div');
+      bodyWrapper.style.cssText = `
+        flex: 1;
+        min-width: 0;
+        box-sizing: border-box;
+      `;
+
+      bodyWrapper.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; gap: 8px;">
+          <a href="${link}" target="_blank" rel="noopener" style="font-weight: bold; font-size: 14px; text-decoration: none; color: var(--text-main, #333); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${userName}</a>
+          <span style="font-size: 11px; color: #888; flex-shrink: 0;">${dateStr}</span>
+        </div>
+        <div class="tweet-text" style="font-size: 13px; line-height: 1.4; color: var(--text-main, #333); word-break: break-word; overflow-wrap: break-word;">
+          ${contentHtml}
+        </div>
+      `;
+
+      // レスポンシブ画像・動画調整 (スマホ横スクロール防止)
+      const mediaElements = bodyWrapper.querySelectorAll('img, video, iframe');
+      mediaElements.forEach(media => {
+        media.style.maxWidth = '100%';
+        media.style.height = 'auto';
+        media.style.borderRadius = '8px';
+        media.style.marginTop = '8px';
+        media.style.display = 'block';
+        media.style.boxSizing = 'border-box';
+      });
+
+      tweetCard.appendChild(iconWrapper);
+      tweetCard.appendChild(bodyWrapper);
+      container.appendChild(tweetCard);
+    });
+
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = '<div class="loading" style="color: red;">ツイートの取得に失敗しました</div>';
+  }
 }
 
 // --- YouTube 領域 ---
