@@ -233,7 +233,7 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   gap: 8px;
 }
 
@@ -242,29 +242,6 @@ h2 {
   align-items: center;
   gap: 8px;
   min-width: 0;
-}
-
-.tweet-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-  background-color: var(--border-color);
-  flex-shrink: 0;
-}
-
-.tweet-avatar-placeholder {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: #e1e8ed;
-  color: var(--text-sub);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: bold;
-  flex-shrink: 0;
 }
 
 .tweet-account {
@@ -282,6 +259,8 @@ h2 {
   font-size: 14px;
   line-height: 1.4;
   word-break: break-word;
+  margin-top: 4px; /* 本文と上部（ユーザー名）の隙間を固定 */
+  margin-bottom: 0;
 }
 
 .tweet-body a {
@@ -289,23 +268,23 @@ h2 {
   text-decoration: underline;
 }
 
-/* 修正：ツイート内メディアの余白を統一し、枚数による広がりを防ぐ */
+/* ツイート内メディア（画像・動画）の余白を統一 */
 .tweet-media-container {
   display: flex;
   flex-direction: column;
-  gap: 4px; /* 複数枚ある場合の隙間を4pxに固定・縮小 */
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 6px; /* 画像枚数に関わらず一定の隙間に固定 */
 }
 
-.tweet-media img,
-.tweet-media video,
+.tweet-media-container img,
+.tweet-media-container video,
 .tweet-body img,
 .tweet-body video {
   max-width: 100%;
   height: auto;
   border-radius: 12px;
-  margin-top: 0 !important; /* 累積する上部マージンをリセット */
   display: block;
+  margin: 0; /* 個別のマージンによるズレを防止 */
 }
 
 /* --- YouTubeリスト --- */
