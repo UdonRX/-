@@ -1163,7 +1163,7 @@ async function loadKnowledgeContent(url) {
   }
 }
 
-// 画像プレビュー・モーダル表示（ピンチズーム・ダブルタップ拡大機能付き）
+// 画像プレビュー・モーダル表示（ピンチズーム・ダブルタップ拡大・拡大時パン/スワイプ移動機能付き）
 function openImagePreviewModal(src) {
   let modal = document.getElementById('image-lightbox-modal');
   if (!modal) {
@@ -1176,13 +1176,13 @@ function openImagePreviewModal(src) {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     background: rgba(0, 0, 0, 0.85); z-index: 999999;
     display: flex; align-items: center; justify-content: center;
-    overflow: hidden; touch-action: none;
+    overflow: hidden; touch-action: none; user-select: none;
   `;
 
   modal.innerHTML = `
     <button id="close-lightbox-btn" style="position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 24px; border-radius: 50%; width: 40px; height: 40px; cursor: pointer; z-index: 1000000; display: flex; align-items: center; justify-content: center;">✕</button>
-    <div id="lightbox-img-container" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-      <img id="lightbox-img" src="${src}" style="max-width: 90%; max-height: 90%; object-fit: contain; transition: transform 0.1s linear; transform-origin: center center; cursor: grab;" />
+    <div id="lightbox-img-container" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+      <img id="lightbox-img" src="${src}" style="max-width: 90%; max-height: 90%; object-fit: contain; transition: transform 0.05s ease-out; transform-origin: center center; cursor: grab; position: absolute;" />
     </div>
   `;
 
@@ -1196,6 +1196,11 @@ function openImagePreviewModal(src) {
   let startScale = 1;
   let startDistance = 0;
   let lastTapTime = 0;
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let initialPointX = 0;
+  let initialPointY = 0;
 
   const updateTransform = () => {
     img.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
@@ -1206,9 +1211,10 @@ function openImagePreviewModal(src) {
     if (e.target === modal || e.target === container) modal.remove();
   };
 
-  // ピンチイン・ピンチアウト / ダブルタップ 操作実装
+  // タッチ操作（パン・ピンチ・ダブルタップ）
   container.addEventListener('touchstart', (e) => {
     if (e.touches.length === 2) {
+      isPanning = false;
       startDistance = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
@@ -1217,7 +1223,7 @@ function openImagePreviewModal(src) {
     } else if (e.touches.length === 1) {
       const now = Date.now();
       if (now - lastTapTime < 300) {
-        // ダブルタップでズームトグル
+        // ダブルタップで拡大・縮小切り替え
         if (scale > 1) {
           scale = 1;
           pointX = 0;
@@ -1226,6 +1232,13 @@ function openImagePreviewModal(src) {
           scale = 2.5;
         }
         updateTransform();
+      } else if (scale > 1) {
+        // 拡大時のパン（ドラッグ/スワイプ移動）準備
+        isPanning = true;
+        panStartX = e.touches[0].clientX;
+        panStartY = e.touches[0].clientY;
+        initialPointX = pointX;
+        initialPointY = pointY;
       }
       lastTapTime = now;
     }
@@ -1245,8 +1258,45 @@ function openImagePreviewModal(src) {
         }
         updateTransform();
       }
+    } else if (e.touches.length === 1 && isPanning && scale > 1) {
+      const deltaX = e.touches[0].clientX - panStartX;
+      const deltaY = e.touches[0].clientY - panStartY;
+      pointX = initialPointX + deltaX;
+      pointY = initialPointY + deltaY;
+      updateTransform();
     }
   }, { passive: true });
+
+  container.addEventListener('touchend', () => {
+    isPanning = false;
+  });
+
+  // マウスドラッグ操作（PC対応）
+  container.addEventListener('mousedown', (e) => {
+    if (scale > 1) {
+      isPanning = true;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      initialPointX = pointX;
+      initialPointY = pointY;
+      img.style.cursor = 'grabbing';
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (isPanning && scale > 1) {
+      const deltaX = e.clientX - panStartX;
+      const deltaY = e.clientY - panStartY;
+      pointX = initialPointX + deltaX;
+      pointY = initialPointY + deltaY;
+      updateTransform();
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    isPanning = false;
+    img.style.cursor = 'grab';
+  });
 }
 
 // --- Twitter 領域 ---
@@ -1332,14 +1382,6 @@ async function loadTwitterContent() {
       // ユーザーアイコン要素を完全に除去
       contentDoc.querySelectorAll('img.avatar, img[src*="profile_images"]').forEach(img => img.remove());
 
-      // 外部リンク（aタグ）の属性補正：外部タブで必ず開くように設定
-      contentDoc.querySelectorAll('a').forEach(a => {
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noopener noreferrer');
-        a.style.color = '#1da1f2';
-        a.style.textDecoration = 'none';
-      });
-
       // ユーザー名・ID抽出
       let displayName = author || title.split(':')[0] || 'Twitter User';
       let userId = '';
@@ -1371,9 +1413,34 @@ async function loadTwitterContent() {
         bq.parentNode.replaceChild(quoteBox, bq);
       });
 
-      // 画像/メディア要素を抽出して調整
+      // 画像/メディア要素（画像、動画、動画リンク）を抽出して本文から一旦削除
       const mediaElements = Array.from(contentDoc.querySelectorAll('img, video, iframe, a[href*="video.twimg.com"], a[href$=".mp4"]'));
       mediaElements.forEach(media => media.remove());
+
+      // ポスト内テキストに含まれるリンク化されていないURL（http/https）を <a> タグに自動変換
+      function linkifyTextNodes(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const urlRegex = /(https?:\/\/[^\s<]+)/g;
+          if (urlRegex.test(node.nodeValue)) {
+            const span = document.createElement('span');
+            span.innerHTML = node.nodeValue.replace(urlRegex, (url) => {
+              return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #1da1f2; text-decoration: none;">${url}</a>`;
+            });
+            node.parentNode.replaceChild(span, node);
+          }
+        } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() !== 'a') {
+          Array.from(node.childNodes).forEach(linkifyTextNodes);
+        }
+      }
+      linkifyTextNodes(contentDoc.body);
+
+      // 既存のすべてのaタグに対して属性およびスタイルを設定（確実に開くように設定）
+      contentDoc.querySelectorAll('a').forEach(a => {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        a.style.color = '#1da1f2';
+        a.style.textDecoration = 'none';
+      });
 
       let contentHtml = contentDoc.body.innerHTML;
 
@@ -1416,7 +1483,8 @@ async function loadTwitterContent() {
       mediaContainer.style.cssText = 'margin-top: 8px;';
 
       mediaElements.forEach(media => {
-        if (media.tagName.toLowerCase() === 'img') {
+        const tagName = media.tagName.toLowerCase();
+        if (tagName === 'img') {
           // 画像表示 ＆ タップ時モーダル拡大処理
           media.style.maxWidth = '100%';
           media.style.height = 'auto';
@@ -1429,7 +1497,7 @@ async function loadTwitterContent() {
             openImagePreviewModal(media.src);
           };
           mediaContainer.appendChild(media);
-        } else if (media.tagName.toLowerCase() === 'a' && (media.href.includes('video.twimg.com') || media.href.endsWith('.mp4'))) {
+        } else if (tagName === 'a' && (media.href.includes('video.twimg.com') || media.href.endsWith('.mp4'))) {
           // 直リンク形式の動画URLをタップ再生可能なvideo要素に置換
           const videoElem = document.createElement('video');
           videoElem.src = media.href;
@@ -1441,7 +1509,7 @@ async function loadTwitterContent() {
           videoElem.style.marginTop = '6px';
           videoElem.style.backgroundColor = '#000';
           mediaContainer.appendChild(videoElem);
-        } else if (media.tagName.toLowerCase() === 'video') {
+        } else if (tagName === 'video') {
           // 既存のvideoタグの設定・補正
           media.controls = true;
           media.playsInline = true;
@@ -1450,8 +1518,11 @@ async function loadTwitterContent() {
           media.style.borderRadius = '8px';
           media.style.marginTop = '6px';
           media.style.backgroundColor = '#000';
-          mediaContainer.appendChild(media);
-        } else {
+          
+          // ソース(src)が含まれているか確認して追加
+          if (!media.src && media.querySelector('source')) {
+            media.src = media.querySelector('source').src;
+          }
           mediaContainer.appendChild(media);
         }
       });
