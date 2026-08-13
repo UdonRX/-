@@ -87,6 +87,9 @@ const OKINAWA_SUB_AREAS = {
   "石垣": "474000", "八重山": "474000", "西表": "474000", "与那国": "474000"
 };
 
+// --- YouTube Data API v3 設定 ---
+const YOUTUBE_API_KEY = "AIzaSyCIu3TLMlWdKLjjU7mDsuhY8Rmdp-lSxWM"; // ここにYouTube Data API v3のキーを設定してください
+
 // WeatherCode -> アイコン変換 (Google Weather API アイコン名参照)
 function getJmaWeatherIconUrl(code, isNight = false) {
   const c = parseInt(code, 10);
@@ -276,40 +279,103 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
-async function fetchYoutubeRSS(channelId) {
-  const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
-  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
-  const response = await fetch(apiUrl);
-  if (!response.ok) throw new Error('YouTube RSS取得エラー');
-  const xmlText = await response.text();
-
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-
-  if (xmlDoc.querySelector('parsererror')) {
-    throw new Error('XMLパースエラー');
+// --- YouTube API を利用したデータ取得関数 ---
+async function fetchYoutubeData(channelIdentifier) {
+  let channelId = channelIdentifier;
+  
+  // チャンネルIDまたはハンドル(@...)からチャンネルIDを特定する
+  if (channelIdentifier.startsWith('@') || !channelIdentifier.startsWith('UC')) {
+    const searchPart = channelIdentifier.startsWith('@') ? channelIdentifier.substring(1) : channelIdentifier;
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=id,snippet&forHandle=${encodeURIComponent(searchPart)}&key=${YOUTUBE_API_KEY}`);
+    const data = await res.json();
+    if (data.items && data.items.length > 0) {
+      channelId = data.items[0].id;
+    } else {
+      // 検索エンドポイントでフォールバック
+      const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(channelIdentifier)}&key=${YOUTUBE_API_KEY}`);
+      const searchData = await searchRes.json();
+      if (searchData.items && searchData.items.length > 0) {
+        channelId = searchData.items[0].snippet.channelId;
+      } else {
+        throw new Error('YouTubeチャンネルが見つかりませんでした');
+      }
+    }
   }
 
-  const authorName = xmlDoc.querySelector('author > name')?.textContent?.trim() || '';
-  const entries = Array.from(xmlDoc.querySelectorAll('entry'));
+  // チャンネルのアップロード用プレイリストIDを取得
+  const channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet&id=${channelId}&key=${YOUTUBE_API_KEY}`);
+  const channelData = await channelRes.json();
+  if (!channelData.items || channelData.items.length === 0) throw new Error('チャンネル情報の取得に失敗しました');
 
-  return entries.map(entry => {
-    const videoId = entry.querySelector('yt\\:videoId, videoId')?.textContent?.trim() || '';
-    const title = entry.querySelector('title')?.textContent?.trim() || '無題';
-    const link = entry.querySelector('link')?.getAttribute('href') || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '#');
-    const published = entry.querySelector('published')?.textContent?.trim() || '';
-    const channelName = authorName || entry.querySelector('author > name')?.textContent?.trim() || '不明なチャンネル';
-    const thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '';
+  const channelName = channelData.items[0].snippet.title;
+  const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads;
 
-    let pubDate = new Date(published);
-    if (isNaN(pubDate.getTime())) pubDate = new Date();
+  // アップロード動画一覧を取得 (最大50件)
+  const playlistRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50&key=${YOUTUBE_API_KEY}`);
+  const playlistData = await playlistRes.json();
+  
+  if (!playlistData.items) return [];
+
+  const videoIds = playlistData.items.map(item => item.contentDetails.videoId);
+
+  // 動画の詳細情報（ライブ配信ステータスや詳細データ）を一括取得
+  const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,liveStreamingDetails,contentDetails&id=${videoIds.join(',')}&key=${YOUTUBE_API_KEY}`);
+  const detailsData = await detailsRes.json();
+
+  if (!detailsData.items) return [];
+
+  return detailsData.items.map(video => {
+    const videoId = video.id;
+    const title = video.snippet.title;
+    const publishedAt = video.snippet.publishedAt;
+    const thumbnail = video.snippet.thumbnails?.high?.url || video.snippet.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    
+    const liveDetails = video.liveStreamingDetails;
+    let liveStatus = 'none'; // 'none', 'upcoming', 'live', 'completed'
+    let scheduledStartTime = null;
+
+    if (liveDetails) {
+      if (liveDetails.actualEndTime) {
+        liveStatus = 'completed'; // 生配信の録画
+      } else if (liveDetails.actualStartTime) {
+        liveStatus = 'live'; // 配信中
+      } else if (liveDetails.scheduledStartTime) {
+        liveStatus = 'upcoming'; // 配信予定
+        scheduledStartTime = new Date(liveDetails.scheduledStartTime);
+      } else {
+        liveStatus = 'completed';
+      }
+    }
+
+    // Shortsの判定 (通常縦動画やdurationが短いもの、あるいはタイトルのハッシュタグ等)
+    // YouTube Data APIのcontentDetails.duration (ISO 8601) で60秒以下か確認可能
+    let isShort = false;
+    const durationISO = video.contentDetails?.duration || '';
+    // 簡易的な判定: PT1M未満であればショートの可能性が高い
+    if (durationISO) {
+      const match = durationISO.match(/PT(?:(\d+)M)?(?:(\d+)S)?/);
+      if (match) {
+        const mins = parseInt(match[1] || 0, 10);
+        const secs = parseInt(match[2] || 0, 10);
+        if (mins === 0 && secs > 0 && secs <= 60) {
+          isShort = true;
+        }
+      }
+    }
+    if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('#short')) {
+      isShort = true;
+    }
 
     return {
+      videoId,
       title,
-      link,
-      pubDate,
+      link: `https://www.youtube.com/watch?v=${videoId}`,
+      pubDate: new Date(publishedAt),
       channelName,
-      thumbnail
+      thumbnail,
+      isShort,
+      liveStatus,
+      scheduledStartTime
     };
   });
 }
@@ -1284,7 +1350,6 @@ async function initTwitter() {
   if (addBtn) addBtn.onclick = openAddTwitterModal;
   if (editBtn) editBtn.onclick = openEditTwitterModal;
 
-  // 更新ボタンがない場合はヘッダーに追加する
   const twitterSection = document.getElementById('twitter-section');
   if (twitterSection && !document.getElementById('twitter-refresh-btn')) {
     const header = twitterSection.querySelector('.section-header .action-buttons');
@@ -1304,7 +1369,6 @@ async function initTwitter() {
     }
   }
 
-  // タブエリアの生成（twitter-contentの直前などに配置）
   let tabsContainer = document.getElementById('twitter-tabs');
   const twitterContent = document.getElementById('twitter-content');
   if (twitterContent && !tabsContainer && twitterContent.parentNode) {
@@ -1826,13 +1890,13 @@ async function loadAllYoutubeContent() {
   try {
     const fetchPromises = youtubeFeeds.map(async (feed) => {
       try {
-        const items = await fetchYoutubeRSS(feed.url);
+        const items = await fetchYoutubeData(feed.url);
         return items.map(item => ({
           ...item,
           displayName: feed.name || item.channelName
         }));
       } catch (err) {
-        console.error(`Failed to fetch YouTube feed for ${feed.name}:`, err);
+        console.error(`Failed to fetch YouTube API for ${feed.name}:`, err);
         return [];
       }
     });
@@ -1853,23 +1917,8 @@ async function loadAllYoutubeContent() {
     window.selectedChannel = 'ALL';
     window.modalPos = { x: null, y: null };
 
-    const allVideoDataList = [];
     const channelSet = new Set();
-
     allVideos.forEach(item => {
-      let videoId = '';
-      let isShort = false;
-
-      if (item.link && item.link.includes('/shorts/')) {
-        videoId = item.link.split('/shorts/')[1]?.split('?')[0]?.split('&')[0];
-        isShort = true;
-      } else if (item.link && item.link.includes('v=')) {
-        videoId = item.link.split('v=')[1]?.split('&')[0];
-      }
-
-      const videoData = { ...item, videoId, isShort };
-      allVideoDataList.push(videoData);
-
       if (item.displayName) {
         channelSet.add(item.displayName);
       }
@@ -1893,9 +1942,10 @@ async function loadAllYoutubeContent() {
           </div>
         </div>
 
-        <div style="display: flex; gap: 8px;">
-          <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-weight: bold;" onclick="switchYtTab('long')">動画</button>
-          <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 12px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px;" onclick="switchYtTab('short')">Shorts</button>
+        <div style="display: flex; gap: 4px;">
+          <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 6px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-weight: bold; font-size: 12px;" onclick="switchYtTab('long')">動画</button>
+          <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 6px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-size: 12px;" onclick="switchYtTab('short')">Shorts</button>
+          <button id="yt-tab-live" class="tab-btn" style="flex: 1; padding: 8px 6px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-size: 12px;" onclick="switchYtTab('live')">LIVE</button>
         </div>
       </div>
 
@@ -1905,8 +1955,18 @@ async function loadAllYoutubeContent() {
     window.currentType = 'long';
 
     window.updateVideoDisplay = function() {
-      const filtered = allVideoDataList.filter(item => {
-        const matchesType = window.currentType === 'short' ? item.isShort : !item.isShort;
+      const filtered = allVideos.filter(item => {
+        let matchesType = false;
+        if (window.currentType === 'long') {
+          // 通常の動画 (ショートではなく、かつライブ関連ではない、または通常の動画枠)
+          matchesType = !item.isShort && item.liveStatus === 'none';
+        } else if (window.currentType === 'short') {
+          matchesType = item.isShort;
+        } else if (window.currentType === 'live') {
+          // 生配信中、生配信予定、生配信の録画
+          matchesType = item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed';
+        }
+
         const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
         return matchesType && matchesChannel;
       });
@@ -1927,27 +1987,18 @@ async function loadAllYoutubeContent() {
 
     window.switchYtTab = function(type) {
       window.currentType = type;
-      const btnLong = document.getElementById('yt-tab-long');
-      const btnShorts = document.getElementById('yt-tab-shorts');
-      if (type === 'long') {
-        if (btnLong) {
-          btnLong.classList.add('active');
-          btnLong.style.fontWeight = 'bold';
+      ['long', 'short', 'live'].forEach(t => {
+        const btn = document.getElementById(`yt-tab-${t === 'short' ? 'shorts' : t}`);
+        if (btn) {
+          if (t === type) {
+            btn.classList.add('active');
+            btn.style.fontWeight = 'bold';
+          } else {
+            btn.classList.remove('active');
+            btn.style.fontWeight = 'normal';
+          }
         }
-        if (btnShorts) {
-          btnShorts.classList.remove('active');
-          btnShorts.style.fontWeight = 'normal';
-        }
-      } else {
-        if (btnShorts) {
-          btnShorts.classList.add('active');
-          btnShorts.style.fontWeight = 'bold';
-        }
-        if (btnLong) {
-          btnLong.classList.remove('active');
-          btnLong.style.fontWeight = 'normal';
-        }
-      }
+      });
       updateVideoDisplay();
     };
 
@@ -1974,9 +2025,14 @@ async function loadAllYoutubeContent() {
       let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;">';
       
       videos.forEach((item, index) => {
-        const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate)
-          ? item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-          : '';
+        let dateStr = '';
+        if (item.liveStatus === 'upcoming' && item.scheduledStartTime) {
+          dateStr = `予定: ${item.scheduledStartTime.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}開始`;
+        } else if (item.liveStatus === 'live') {
+          dateStr = '🔴 ライブ配信中';
+        } else if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
+          dateStr = item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
 
         html += `
           <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(0,0,0,0.1); cursor: pointer;">
@@ -1988,7 +2044,7 @@ async function loadAllYoutubeContent() {
             </td>
             <td style="padding: 8px 4px; vertical-align: middle;">
               <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title || 'タイトルなし'}</div>
-              <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
+              <div style="font-size: 11px; opacity: 0.7; margin-top: 2px; ${item.liveStatus === 'live' ? 'color: #ff3b30; font-weight: bold;' : ''}">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
             </td>
           </tr>
         `;
@@ -2192,7 +2248,6 @@ function initModals() {
 
   cancelBtn.onclick = closeModal;
 
-  // ニュースやお知らせの追加ボタン設定
   const setupAddModal = (btnId, titleText, feedsArray, storageKey, initFunc) => {
     const btn = document.getElementById(btnId);
     if (!btn) return;
@@ -2239,7 +2294,6 @@ function initModals() {
   setupAddModal('add-knowledge-btn', '知識配信先の追加', knowledgeFeeds, 'knowledgeFeeds', initKnowledge);
   setupAddModal('add-youtube-btn', 'YouTubeチャンネルの追加', youtubeFeeds, 'youtubeFeeds', initYoutube);
 
-  // 編集ボタン設定
   const setupEditModal = (btnId, titleText, feedsArray, storageKey, initFunc) => {
     const btn = document.getElementById(btnId);
     if (!btn) return;
