@@ -1343,6 +1343,8 @@ async function loadTwitterContent() {
 
     container.innerHTML = '';
 
+    const today = new Date();
+
     items.forEach(item => {
       const title = item.querySelector('title')?.textContent || '';
       const link = item.querySelector('link')?.textContent || '#';
@@ -1356,7 +1358,22 @@ async function loadTwitterContent() {
       }
 
       let pubDate = new Date(pubDateRaw);
-      const dateStr = !isNaN(pubDate.getTime()) ? pubDate.toLocaleString('ja-JP') : pubDateRaw;
+      let dateStr = pubDateRaw;
+      
+      // 日付フォーマットの判定（本日の場合は時刻のみ「HH:mm」）
+      if (!isNaN(pubDate.getTime())) {
+        const isToday = pubDate.getFullYear() === today.getFullYear() &&
+                        pubDate.getMonth() === today.getMonth() &&
+                        pubDate.getDate() === today.getDate();
+
+        if (isToday) {
+          const hours = String(pubDate.getHours()).padStart(2, '0');
+          const minutes = String(pubDate.getMinutes()).padStart(2, '0');
+          dateStr = `${hours}:${minutes}`;
+        } else {
+          dateStr = pubDate.toLocaleString('ja-JP');
+        }
+      }
 
       // HTMLコンテンツのパース
       const contentDoc = parser.parseFromString(`<div>${description}</div>`, 'text/html');
@@ -1433,11 +1450,14 @@ async function loadTwitterContent() {
         box-sizing: border-box;
         width: 100%;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
       `;
 
       // ユーザー情報ヘッダー
       const userHeaderHtml = `
-        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; flex-wrap: wrap;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap;">
           <a href="${link}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; display: flex; align-items: baseline; gap: 6px; overflow: hidden;">
             <span style="font-weight: bold; font-size: 15px; color: var(--text-main, #111);">${displayName}</span>
             ${userId ? `<span style="font-size: 12px; color: #666; font-weight: normal;">${userId}</span>` : ''}
@@ -1446,22 +1466,27 @@ async function loadTwitterContent() {
         </div>
       `;
 
-      // ポスト本文
-      const bodyWrapper = document.createElement('div');
-      bodyWrapper.className = 'tweet-text';
-      bodyWrapper.style.cssText = `
-        font-size: 13px;
-        line-height: 1.4;
-        color: var(--text-main, #333);
-        word-break: break-word;
-        overflow-wrap: break-word;
-      `;
-      bodyWrapper.innerHTML = contentHtml;
+      tweetCard.innerHTML = userHeaderHtml;
+
+      // ポスト本文が存在する場合のみ追加
+      if (contentDoc.body.textContent.trim() !== '' || contentDoc.body.children.length > 0) {
+        const bodyWrapper = document.createElement('div');
+        bodyWrapper.className = 'tweet-text';
+        bodyWrapper.style.cssText = `
+          font-size: 13px;
+          line-height: 1.4;
+          color: var(--text-main, #333);
+          word-break: break-word;
+          overflow-wrap: break-word;
+        `;
+        bodyWrapper.innerHTML = contentHtml;
+        tweetCard.appendChild(bodyWrapper);
+      }
 
       // メディア要素コンテナ
       const mediaContainer = document.createElement('div');
       mediaContainer.className = 'tweet-media-container';
-      mediaContainer.style.cssText = 'margin-top: 8px;';
+      mediaContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
 
       mediaElements.forEach(media => {
         const tagName = media.tagName.toLowerCase();
@@ -1480,6 +1505,14 @@ async function loadTwitterContent() {
           videoLinkBox.href = targetVideoUrl;
           videoLinkBox.target = '_blank';
           videoLinkBox.rel = 'noopener noreferrer';
+          
+          // 再生・移動時のスクロールジャンプを防止
+          videoLinkBox.onclick = (e) => {
+            e.stopPropagation();
+            window.open(targetVideoUrl, '_blank', 'noopener,noreferrer');
+            e.preventDefault();
+          };
+
           videoLinkBox.style.cssText = `
             display: flex;
             align-items: center;
@@ -1490,7 +1523,6 @@ async function loadTwitterContent() {
             background: #15202b;
             color: #ffffff;
             border-radius: 8px;
-            margin-top: 6px;
             text-decoration: none;
             box-sizing: border-box;
             border: 1px solid #38444d;
@@ -1509,7 +1541,6 @@ async function loadTwitterContent() {
           media.style.maxWidth = '100%';
           media.style.height = 'auto';
           media.style.borderRadius = '8px';
-          media.style.marginTop = '6px';
           media.style.display = 'block';
           media.style.cursor = 'pointer';
           media.onclick = (e) => {
@@ -1520,8 +1551,6 @@ async function loadTwitterContent() {
         }
       });
 
-      tweetCard.innerHTML = userHeaderHtml;
-      tweetCard.appendChild(bodyWrapper);
       if (mediaContainer.children.length > 0) {
         tweetCard.appendChild(mediaContainer);
       }
