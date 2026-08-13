@@ -2026,7 +2026,7 @@ async function loadAllYoutubeContent() {
         if (item.liveStatus === 'upcoming' && item.scheduledStartTime) {
           dateStr = `予定: ${item.scheduledStartTime.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}開始`;
         } else if (item.liveStatus === 'live') {
-          dateStr = '🔴 ライブ配信中';
+          dateStr = '🔴LIVE';
         } else if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
           dateStr = item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
