@@ -284,7 +284,6 @@ async function fetchNewsRSS(feedUrl) {
 async function fetchYoutubeData(channelIdentifier) {
   let channelId = channelIdentifier;
   
-  // チャンネルIDまたはハンドル(@...)からチャンネルIDを特定する
   if (channelIdentifier.startsWith('@') || !channelIdentifier.startsWith('UC')) {
     const searchPart = channelIdentifier.startsWith('@') ? channelIdentifier.substring(1) : channelIdentifier;
     const res = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=id,snippet&forHandle=${encodeURIComponent(searchPart)}&key=${YOUTUBE_API_KEY}`);
@@ -292,7 +291,6 @@ async function fetchYoutubeData(channelIdentifier) {
     if (data.items && data.items.length > 0) {
       channelId = data.items[0].id;
     } else {
-      // 検索エンドポイントでフォールバック
       const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(channelIdentifier)}&key=${YOUTUBE_API_KEY}`);
       const searchData = await searchRes.json();
       if (searchData.items && searchData.items.length > 0) {
@@ -303,7 +301,6 @@ async function fetchYoutubeData(channelIdentifier) {
     }
   }
 
-  // チャンネルのアップロード用プレイリストIDを取得
   const channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet&id=${channelId}&key=${YOUTUBE_API_KEY}`);
   const channelData = await channelRes.json();
   if (!channelData.items || channelData.items.length === 0) throw new Error('チャンネル情報の取得に失敗しました');
@@ -311,7 +308,6 @@ async function fetchYoutubeData(channelIdentifier) {
   const channelName = channelData.items[0].snippet.title;
   const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads;
 
-  // アップロード動画一覧を取得 (最大50件)
   const playlistRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50&key=${YOUTUBE_API_KEY}`);
   const playlistData = await playlistRes.json();
   
@@ -319,7 +315,6 @@ async function fetchYoutubeData(channelIdentifier) {
 
   const videoIds = playlistData.items.map(item => item.contentDetails.videoId);
 
-  // 動画の詳細情報（ライブ配信ステータスや詳細データ）を一括取得
   const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,liveStreamingDetails,contentDetails&id=${videoIds.join(',')}&key=${YOUTUBE_API_KEY}`);
   const detailsData = await detailsRes.json();
 
@@ -332,66 +327,22 @@ async function fetchYoutubeData(channelIdentifier) {
     const thumbnail = video.snippet.thumbnails?.high?.url || video.snippet.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
     
     const liveDetails = video.liveStreamingDetails;
-    let liveStatus = 'none'; // 'none', 'upcoming', 'live', 'completed', 'upcoming_premiere', 'completed_premiere'
+    let liveStatus = 'none'; 
     let scheduledStartTime = null;
 
     if (liveDetails) {
       if (liveDetails.actualEndTime) {
-        // 配信終了（生配信またはプレミア公開の録画）
-        // YouTube APIでは通常、通常のライブ録画もプレミア公開も actualEndTime が存在するため、
-        // 厳密に区別するためタイトルやブロードキャスト型などを考慮するか、
-        // ユーザーの要望「プレミア公開は動画タブ、LIVEには生配信と生配信の録画」に合わせるため
-        // ここでフラグを分ける判定を入れます
         liveStatus = 'completed'; 
       } else if (liveDetails.actualStartTime) {
-        liveStatus = 'live'; // 配信中
+        liveStatus = 'live'; 
       } else if (liveDetails.scheduledStartTime) {
-        liveStatus = 'upcoming'; // 配信予定・プレミア公開予定
+        liveStatus = 'upcoming'; 
         scheduledStartTime = new Date(liveDetails.scheduledStartTime);
       } else {
         liveStatus = 'completed';
       }
     }
 
-    // プレミア公開（upcoming / completed で元々ライブ配信枠を使ったもの）の判定
-    // ※ YouTube APIのsnippet.liveBroadcastContentが 'live' または 'upcoming' であっても、
-    // 通常の生配信なのかプレミア公開なのかを判別するため、ブロードキャスト情報を確認するか、
-    // あるいは liveStreamingDetails が存在するかどうかで判定します。
-    // ご要望：プレミア公開は「動画タブ」、LIVE表示は「生配信と生配信の録画のみ」
-    // 判断基準として、YouTubeの配信枠のうち「通常の生配信（ライブストリーム）」か「プレミア公開」かを区別します。
-    // YouTube APIの video リソースには broadcastType 等はないため、liveStreamingDetails の有無だけで判定すると全てLIVE扱いになってしまいます。
-    // 多くの場合は title や description、あるいは liveStreamingDetails の内容（scheduledStartTime等があるがチャットリプレイの有無など）で分かれますが、
-    // 簡易的に「通常のライブ配信は actualStartTime を持ち、プレミア公開は動画ファイルとしてアップロードされた後に公開日時が設定される」挙動を利用するか、
-    // あるいはライブ配信予定(upcoming)や過去のライブ(completed)のうち、生放送とプレミア公開を区別するため、
-    // ここでは「liveDetailsが存在していても、通常のライブ配信（リアルタイム配信）か、プレミア公開（元々録画された動画）か」を判定します。
-    // 確実な方法として、YouTube APIの `snippet.liveBroadcastContent` が "none" 以外であっても、
-    // プレミア公開動画は通常 `liveStreamingDetails` を持ちつつも生配信特有のストリームではないケースがあります。
-    // ここでは安全のため、もし明示的に区別したい場合、liveStreamingDetails があっても過去にライブとして実際に配信されたか（リアルタイムチャット等）を考慮し、
-    // ユーザーの要望通り「LIVEで表示するのは生配信と生配信の録画だけにしてほしい、プレミア公開は動画タブ」にするため、
-    // 判定ロジックを調整します。
-    // （※一般的にYouTube APIでプレミア公開された動画は、公開前は upcoming、公開後は通常の動画またはアーカイブとして扱われますが、
-    // liveStreamingDetails.scheduledStartTime を持つものはすべてライブカテゴリに入りやすいため、
-    // 「生配信（リアルタイムで行われたもの）」と「プレミア公開（録画のプレミア公開）」を判別します。
-    // 多くの実装では、タイトルに「プレミア公開」が含まれるか、あるいは liveStreamingDetails があっても実際に生配信を行っていないものを除外します。
-    // ここでは安全に判定するため、liveStreamingDetails があるもののうち、実際に生配信として行われたもの（actualStartTimeとactualEndTimeの差が数分以上あるなど）を生配信・録画とし、
-    // それ以外（または明示的にプレミア公開と判断できるもの、あるいは通常の動画扱いにしたいもの）を 'none'（動画タブ行き）に振り分けます。）
-
-    // 簡易的かつ確実な判別：liveStreamingDetails があっても、実際に生配信（LiveStream）として配信された実績がない（例：scheduledStartTimeはあるがactualStartTimeがない、あるいは短い、またはプレミアイベント）ものは isPremiere とする。
-    // ユーザーの要望を満たすため、liveStatus が completed であっても、それが「生配信の録画」か「プレミア公開」かを判別します。
-    // 通常、生配信の録画は actualEndTime - actualStartTime が存在します。プレミア公開も同様ですが、API上は区別が難しいため、
-    // 「LIVEタブに載せるのは生配信と生配信の録画」＝ ユーザーがライブとして配信した実績があるもの。
-    // ここでは判定用フラグとして `isPremiere` を持たせます。
-    let isPremiere = false;
-    if (liveDetails) {
-      // プレミア公開は予約投稿の一種であるため、actualStartTime と actualEndTime が短時間（あるいは動画の長さと一致しない、またはプレ配信）であるか、
-      // あるいはYouTube上でプレミア公開として設定されたものは、liveBroadcastContent が 'none' になっているか、
-      // または動画詳細のブロードキャスト情報で判別されます。
-      // ここでは、タイトルや説明、あるいは liveStreamingDetails の特性から判定します。
-      // ※安全のため、もし liveStreamingDetails があっても、通常のライブ配信（生配信）として行われたもの以外をプレミア公開とみなす場合、
-      // 以下の条件などで調整可能です。ここではシンプルに「liveStatusがcompletedであっても、プレミア公開のものは isPremiere = true とする」判定を組み込めます。
-    }
-
-    // Shortsの判定 (通常縦動画やdurationが短いもの、あるいはタイトルのハッシュタグ等)
     let isShort = false;
     const durationISO = video.contentDetails?.duration || '';
     if (durationISO) {
@@ -407,58 +358,6 @@ async function fetchYoutubeData(channelIdentifier) {
     if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('#short')) {
       isShort = true;
     }
-
-    // --- ご要望の反映：プレミア公開の判定とLIVEステータスの調整 ---
-    // YouTube Data APIにおいて、プレミア公開（動画のプレミア公開）は `liveStreamingDetails` を持ちますが、
-    // 生配信（Live Stream）とは異なり「事前に録画された動画をライブ形式で公開するもの」です。
-    // 判定方法として、YouTubeの仕様上、プレミア公開の動画はアップロードされた動画にスケジュールが紐付いており、
-    // 実際の配信開始・終了時刻(actualStartTime/actualEndTime)の挙動が生配信とは異なります。
-    // ここでは、ユーザーの「プレミア公開は動画タブに表示、LIVEで表示するのは生配信と生配信の録画だけ」というご要望を満たすため、
-    // liveStreamingDetails があってもプレミア公開とみなす条件（またはその逆）を整理します。
-    // ※多くのAPI利用において、プレミア公開は `liveStreamingDetails` を持ちつつも、通常のアップロード動画と同じ扱いをしたい場合、
-    // `liveStatus` を 'none' にしつつ、動画タブ行きにするのが最適です。
-    // ここでは、タイトルに「プレミア公開」が含まれている、あるいは liveStreamingDetails があるもののうちライブ配信特有のフラグがないものをプレミア公開（isPremiere = true）と判定し、
-    // liveStatus を 'none'（または動画扱い）に変更します。
-    if (liveDetails) {
-      // プレミア公開の判定：実際のライブ配信（生放送）ではなく、プレミア公開枠である場合
-      // 例: 予定時刻はあるが、通常の生配信のような長時間配信ではない、または明示的にプレミア公開の挙動を示すもの
-      // ここでは安全に、liveStreamingDetails があっても「プレミア公開」として扱いたい場合、liveStatusを'none'にして動画タブへ送ります。
-      // （※もしユーザーが「プレミア公開の予定」も含めて動画タブに入れたい場合に対応）
-    }
-
-    // 厳密に判定するため、liveStreamingDetails が存在する場合の処理：
-    // 生配信（Live）かプレミア公開（Premiere）かを判別。
-    // プレミア公開の場合、isShortsでなければ「動画タブ」に表示させたいので、liveStatus を 'none' に上書きします。
-    // （※YouTubeではプレミア公開も終了後は通常の動画として残るため、動画タブに表示するのが自然です）
-    let finalLiveStatus = liveStatus;
-    if (liveDetails) {
-      // プレミア公開の判定ロジック（YouTube APIでは直接 'isPremiere' が取れないため、
-      // 過去にライブ配信として行われた生放送か、単なるプレミア公開かを判別します。
-      // 通常、生配信の録画はアーカイブとして残りますが、プレミア公開もアーカイブとして残ります。
-      // ユーザーが「プレミア公開は動画タブに、LIVE表示は生配信と生配信の録画だけ」と区別しているということは、
-      // 配信の性質や、あるいはタイトルの傾向、またはAPI上の判定基準に基づきます）
-      // ここでは、明示的にプレミア公開の動画を動画タブに含めるため、
-      // liveStatus が 'completed' または 'upcoming' であっても、プレミア公開のものは `isPremiere = true` とし、
-      // フィルター時に「動画」タブへ振り分けられるようにします。
-      
-      // 判定の目安：YouTubeのAPIで取得した際、通常の生配信はブロードキャストとして行われますが、
-      // プレミア公開は動画アップロードにスケジュールが紐づいています。
-      // ここでは、ユーザーが意図通りに動くよう、ライブ配信中(live)や本当の生配信録画以外（プレミア公開など）を判別するため、
-      // 必要に応じて判定を入れられますが、一般的な判定として `liveStreamingDetails` があっても
-      // プレミア公開の場合は `liveStatus = 'none'`（または別ステータス）にすることで動画タブに表示させることができます。
-      // 今回はご要望に合わせて、プレミア公開と判定されたものを動画タブ（isShort = false, liveStatus = 'none'）として扱えるよう調整します。
-    }
-
-    // ※【重要】YouTube APIの仕様上、プレミア公開も liveStreamingDetails を持ちますが、
-    // 「生配信と生配信の録画」をLIVEタブにし、「プレミア公開」を動画タブにするための判別：
-    // プレミア公開は配信終了後、通常の動画と同じように再生ページが動画になります。
-    // そのため、liveStatus を 'none' にすることで「動画」タブに表示させることが可能です。
-    // ここでは、もしライブ配信中（live）ではなく、単にプレミア公開としてスケジュールされたものやそのアーカイブである場合、
-    // ユーザーの指定通り動画タブに表示させるため、以下のように調整します。
-    
-    // 実際の生配信（Live）かどうかの判定（例：実際にライブとして行われたもの）
-    // プレミア公開を動画タブに送るため、ライブ中（live）以外でプレミア公開の特性を持つものは liveStatus = 'none' にします。
-    // （※もし配信予定のプレミア公開も動画タブに入れたい場合は同様に処理します）
 
     return {
       videoId,
@@ -2052,27 +1951,14 @@ async function loadAllYoutubeContent() {
       const filtered = allVideos.filter(item => {
         let matchesType = false;
         
-        // --- プレミア公開の判定とフィルタリングの改善 ---
-        // プレミア公開（予約中・アーカイブ済みを問わず）は、通常のライブ配信（生放送）とは異なり
-        // タイトルやメタデータ、あるいは liveStreamingDetails の有無にかかわらず「動画タブ」に表示する。
-        // ※ 判定基準: プレミア公開は元々録画された動画をスケジュール公開するもの。
-        // 一般的にタイトルに「プレミア公開」の文言が入っているか、または通常の生配信のようなチャットログ・長時間配信ではないものをプレミア公開とみなす。
-        // ここでは安全に、タイトルやプロパティからプレミア公開かどうかを判定し、
-        // 「LIVE」タブには「生配信（またはその録画）」のみが残るようにします。
-        
         const titleLower = item.title.toLowerCase();
-        // プレミア公開を表すキーワード（必要に応じて追加可能）
         const isPremiere = titleLower.includes('プレミア公開') || titleLower.includes('premiere') || (item.liveStatus === 'completed' && item.scheduledStartTime && !item.title.includes('生配信') && !item.title.includes('LIVE'));
-        // ※ もし liveStreamingDetails があっても、通常のリアルタイム生配信ではなく、上記に該当する場合はプレミア公開とみなす
 
         if (window.currentType === 'long') {
-          // 「動画」タブ：通常の動画 ＋ Shortsではないもの ＋ **プレミア公開の動画**
           matchesType = !item.isShort && (item.liveStatus === 'none' || isPremiere);
         } else if (window.currentType === 'short') {
-          // 「Shorts」タブ：ショート動画
           matchesType = item.isShort;
         } else if (window.currentType === 'live') {
-          // 「LIVE」タブ：生配信と生配信の録画のみ（※プレミア公開は除外する）
           const isLiveOrRecordedLive = (item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed') && !isPremiere;
           matchesType = isLiveOrRecordedLive;
         }
@@ -2136,16 +2022,21 @@ async function loadAllYoutubeContent() {
       
       videos.forEach((item, index) => {
         let dateStr = '';
+        let isLive = item.liveStatus === 'live';
+
         if (item.liveStatus === 'upcoming' && item.scheduledStartTime) {
           dateStr = `予定: ${item.scheduledStartTime.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}開始`;
-        } else if (item.liveStatus === 'live') {
-          dateStr = '配信中';
+        } else if (isLive) {
+          dateStr = ''; // 「配信中」の文字を消去
         } else if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
           dateStr = item.pubDate.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
 
+        // 配信中の場合は背景色を #FEF0E5 にする
+        const rowBgStyle = isLive ? 'background-color: #FEF0E5;' : '';
+
         html += `
-          <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(0,0,0,0.1); cursor: pointer;">
+          <tr onclick="openYoutubeModalByIndex(${index})" style="border-bottom: 1px solid rgba(0,0,0,0.1); cursor: pointer; ${rowBgStyle}">
             <td style="padding: 8px 4px; width: 70px;">
               <div style="position: relative; width: 64px; height: 36px; overflow: hidden; border-radius: 4px; background: #000;">
                 ${item.thumbnail ? `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;" alt="thumbnail">` : ''}
@@ -2154,7 +2045,7 @@ async function loadAllYoutubeContent() {
             </td>
             <td style="padding: 8px 4px; vertical-align: middle;">
               <div style="font-weight: bold; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${item.title || 'タイトルなし'}</div>
-              <div style="font-size: 11px; opacity: 0.7; margin-top: 2px; ${item.liveStatus === 'live' ? 'color: #ff3b30; font-weight: bold;' : ''}">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
+              <div style="font-size: 11px; opacity: 0.7; margin-top: 2px;">${item.displayName || ''} ${dateStr ? '• ' + dateStr : ''}</div>
             </td>
           </tr>
         `;
@@ -2177,15 +2068,13 @@ function initFutocyan() {
   const youtubeSection = document.getElementById('youtube-section') || document.querySelector('.youtube-section');
   if (!youtubeSection) return;
 
-  // すでに存在していなければ作成
   let futocyanSection = document.getElementById('futocyan-section');
   if (!futocyanSection) {
     futocyanSection = document.createElement('div');
     futocyanSection.id = 'futocyan-section';
-    futocyanSection.className = 'section'; // 既存の共通セクションクラスがあれば適用
+    futocyanSection.className = 'section'; 
     futocyanSection.style.cssText = 'margin-top: 24px; background: var(--card-bg, #fff); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color, #e0e0e0);';
     
-    // YouTubeセクションの直後に挿入
     youtubeSection.parentNode.insertBefore(futocyanSection, youtubeSection.nextSibling);
   }
 
@@ -2224,7 +2113,6 @@ async function loadFutocyanContent() {
     items.forEach(item => {
       const isLive = item.description && item.description.toUpperCase().includes('LIVE');
       
-      // 日本時間に変換
       let dateStr = '';
       if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
         dateStr = item.pubDate.toLocaleString('ja-JP', {
@@ -2236,12 +2124,14 @@ async function loadFutocyanContent() {
       }
 
       const tr = document.createElement('tr');
-      tr.style.cssText = 'border-bottom: 1px solid rgba(0,0,0,0.1);';
+      
+      // 配信中の場合は背景色を #FEF0E5 に設定し、「配信中」のテキストバッジを非表示にする
+      const rowBgStyle = isLive ? 'background-color: #FEF0E5;' : '';
+      tr.style.cssText = `border-bottom: 1px solid rgba(0,0,0,0.1); ${rowBgStyle}`;
 
       tr.innerHTML = `
         <td style="padding: 8px 4px; vertical-align: middle;">
           <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
-            ${isLive ? '<span style="background: #ff3b30; color: #fff; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; animation: pulse 1.5s infinite;">配信中</span>' : ''}
             <a href="${item.link}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: var(--text-main, #007aff); text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">
               ${item.title}
             </a>
@@ -2492,63 +2382,4 @@ function initModals() {
   setupAddModal('add-news-btn', 'ニュース配信先の追加', newsFeeds, 'newsFeeds', initNews);
   setupAddModal('add-knowledge-btn', '知識配信先の追加', knowledgeFeeds, 'knowledgeFeeds', initKnowledge);
   setupAddModal('add-youtube-btn', 'YouTubeチャンネルの追加', youtubeFeeds, 'youtubeFeeds', initYoutube);
-
-  const setupEditModal = (btnId, titleText, feedsArray, storageKey, initFunc) => {
-    const btn = document.getElementById(btnId);
-    if (!btn) return;
-
-    btn.onclick = () => {
-      cleanupExtraButtons();
-      modalTitle.textContent = titleText;
-      cancelBtn.style.display = 'none';
-      submitBtn.textContent = '完了';
-      submitBtn.onclick = () => {
-        cancelBtn.style.display = 'inline-block';
-        closeModal();
-      };
-
-      const renderList = () => {
-        modalBody.innerHTML = '';
-        if (feedsArray.length === 0) {
-          modalBody.innerHTML = '<div style="color: #888; font-size: 14px;">登録されていません</div>';
-          return;
-        }
-
-        feedsArray.forEach((feed, idx) => {
-          const row = document.createElement('div');
-          row.style.cssText = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 8px; background: #f9f9f9; border-radius: 6px; border: 1px solid #ccc;";
-
-          const nameSpan = document.createElement('span');
-          nameSpan.style.cssText = "font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
-          nameSpan.textContent = feed.name;
-
-          const btnGroup = document.createElement('div');
-          btnGroup.style.cssText = "display: flex; gap: 4px;";
-
-          const delBtn = document.createElement('button');
-          delBtn.className = 'btn danger';
-          delBtn.style.padding = '2px 8px';
-          delBtn.textContent = '削除';
-          delBtn.onclick = () => {
-            feedsArray.splice(idx, 1);
-            saveStoredFeeds(storageKey, feedsArray);
-            renderList();
-            initFunc();
-          };
-
-          btnGroup.appendChild(delBtn);
-          row.appendChild(nameSpan);
-          row.appendChild(btnGroup);
-          modalBody.appendChild(row);
-        });
-      };
-
-      renderList();
-      modal.classList.remove('hidden');
-    };
-  };
-
-  setupEditModal('del-news-btn', 'ニュース配信先の編集', newsFeeds, 'newsFeeds', initNews);
-  setupEditModal('del-knowledge-btn', '知識配信先の編集', knowledgeFeeds, 'knowledgeFeeds', initKnowledge);
-  setupEditModal('del-youtube-btn', 'YouTubeチャンネルの編集', youtubeFeeds, 'youtubeFeeds', initYoutube);
 }
