@@ -321,17 +321,17 @@ function initWeatherUI() {
   if (!weatherSection) return;
 
   weatherSection.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-      <span style="font-weight: bold; font-size: 16px;">天気</span>
-      <div style="display: flex; gap: 8px;">
-        <button id="add-weather-btn" class="btn" style="padding: 4px 8px; font-size: 12px;">追加</button>
-        <button id="edit-weather-btn" class="btn" style="padding: 4px 8px; font-size: 12px;">編集</button>
+    <div class="section-header">
+      <h2>天気</h2>
+      <div class="action-buttons">
+        <button id="add-weather-btn" class="btn primary">追加</button>
+        <button id="edit-weather-btn" class="btn warning">編集</button>
       </div>
     </div>
     
     <div id="weather-tabs" style="display: flex; gap: 4px; overflow-x: auto; margin-bottom: 12px; border-bottom: 1px solid var(--border-color, #ccc); padding-bottom: 4px;"></div>
     
-    <div id="weather-info-box" style="background: var(--bg-card, #fff); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color, #e0e0e0);">
+    <div id="weather-info-box" style="background: var(--card-bg, #fff); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color, #e0e0e0);">
       <div id="weather-area-select-container" style="margin-bottom: 8px;"></div>
       <div id="weather-data-container"></div>
     </div>
@@ -1278,50 +1278,30 @@ function openImagePreviewModal(src) {
 
 // --- Twitter 領域 ---
 async function initTwitter() {
-  const twitterSection = document.getElementById('twitter-section') || document.querySelector('.twitter-section') || document.getElementById('twitter-content')?.parentNode;
+  const addBtn = document.getElementById('add-twitter-btn');
+  const editBtn = document.getElementById('del-twitter-btn');
 
-  if (twitterSection && !document.getElementById('twitter-header-container')) {
-    let header = twitterSection.querySelector('.section-header') || twitterSection.querySelector('h2')?.parentNode || twitterSection;
-    if (header === twitterSection) {
-      const topBar = document.createElement('div');
-      topBar.id = 'twitter-header-container';
-      topBar.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;';
-      topBar.innerHTML = `<span style="font-weight: bold; font-size: 16px;">Twitter</span>`;
-      twitterSection.insertBefore(topBar, twitterSection.firstChild);
-      header = topBar;
+  if (addBtn) addBtn.onclick = openAddTwitterModal;
+  if (editBtn) editBtn.onclick = openEditTwitterModal;
+
+  // 更新ボタンがない場合はヘッダーに追加する
+  const twitterSection = document.getElementById('twitter-section');
+  if (twitterSection && !document.getElementById('twitter-refresh-btn')) {
+    const header = twitterSection.querySelector('.section-header .action-buttons');
+    if (header) {
+      const refreshBtn = document.createElement('img');
+      refreshBtn.id = 'twitter-refresh-btn';
+      refreshBtn.src = 'icons/refresh.png';
+      refreshBtn.alt = '更新';
+      refreshBtn.title = '再読み込み';
+      refreshBtn.style.cssText = 'width: 20px; height: 20px; cursor: pointer; transition: transform 0.3s ease;';
+      refreshBtn.onclick = () => {
+        refreshBtn.style.transform = 'rotate(360deg)';
+        setTimeout(() => { refreshBtn.style.transform = 'none'; }, 300);
+        loadTwitterContent();
+      };
+      header.appendChild(refreshBtn);
     }
-
-    const btnGroup = document.createElement('div');
-    btnGroup.style.cssText = 'display: flex; gap: 6px; align-items: center;';
-
-    const addBtn = document.createElement('button');
-    addBtn.className = 'btn';
-    addBtn.style.cssText = 'padding: 4px 8px; font-size: 12px;';
-    addBtn.textContent = '追加';
-    addBtn.onclick = openAddTwitterModal;
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'btn';
-    editBtn.style.cssText = 'padding: 4px 8px; font-size: 12px;';
-    editBtn.textContent = '編集';
-    editBtn.onclick = openEditTwitterModal;
-
-    const refreshBtn = document.createElement('img');
-    refreshBtn.id = 'twitter-refresh-btn';
-    refreshBtn.src = 'icons/refresh.png';
-    refreshBtn.alt = '更新';
-    refreshBtn.title = '再読み込み';
-    refreshBtn.style.cssText = 'width: 20px; height: 20px; cursor: pointer; transition: transform 0.3s ease;';
-    refreshBtn.onclick = () => {
-      refreshBtn.style.transform = 'rotate(360deg)';
-      setTimeout(() => { refreshBtn.style.transform = 'none'; }, 300);
-      loadTwitterContent();
-    };
-
-    btnGroup.appendChild(addBtn);
-    btnGroup.appendChild(editBtn);
-    btnGroup.appendChild(refreshBtn);
-    header.appendChild(btnGroup);
   }
 
   // タブエリアの生成（twitter-contentの直前などに配置）
@@ -1541,7 +1521,6 @@ function showTwitterSubEditModal(feed, idx, onSave, onCancel) {
     cancelBtn.textContent = 'キャンセル';
     cancelBtn.onclick = () => {
       onCancel();
-      // キャンセル時に元の「地域の編集」画面のボタン状態（完了ボタン表示、キャンセルボタン非表示）に戻す
       cancelBtn.style.display = 'none';
       submitBtn.style.display = 'inline-block';
       submitBtn.textContent = '完了';
@@ -1568,7 +1547,6 @@ function showTwitterSubEditModal(feed, idx, onSave, onCancel) {
       saveStoredFeeds('twitterFeeds', twitterFeeds);
       onSave();
 
-      // 上書き保存後、元の「地域の編集」画面のボタン状態に戻す
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (submitBtn) {
         submitBtn.style.display = 'inline-block';
@@ -2209,351 +2187,115 @@ function initModals() {
     cleanupExtraButtons();
     modalBody.innerHTML = '';
     submitBtn.textContent = '保存';
-    cancelBtn.textContent = 'キャンセル';
-    cancelBtn.style.display = 'inline-block';
     modal.classList.add('hidden');
   };
-  
+
   cancelBtn.onclick = closeModal;
 
-  const createInputRow = (placeholderName, placeholderUrl) => {
-    const row = document.createElement('div');
-    row.className = 'modal-input-row';
-    row.style.display = 'flex';
-    row.style.gap = '8px';
-    row.style.marginBottom = '8px';
-    row.style.alignItems = 'center';
+  // ニュースやお知らせの追加ボタン設定
+  const setupAddModal = (btnId, titleText, feedsArray, storageKey, initFunc) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
 
-    row.innerHTML = `
-      <input type="text" class="input-name" placeholder="${placeholderName}" autocomplete="off" autocorrect="off" autocapitalize="off" style="flex: 1;">
-      <input type="text" class="input-url" placeholder="${placeholderUrl}" autocomplete="off" autocorrect="off" autocapitalize="off" style="flex: 2;">
-      <button type="button" class="btn danger remove-row-btn" style="padding: 4px 8px;">✕</button>
-    `;
+    btn.onclick = () => {
+      cleanupExtraButtons();
+      modalTitle.textContent = titleText;
+      modalBody.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">サイト名 / チャンネル名</label>
+            <input type="text" id="add-feed-name" placeholder="例: NHKニュース" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
+          </div>
+          <div>
+            <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">RSS URL または YouTubeチャンネルID</label>
+            <input type="text" id="add-feed-url" placeholder="例: https://..." style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
+          </div>
+        </div>
+      `;
 
-    row.querySelector('.remove-row-btn').onclick = () => {
-      if (modalBody.querySelectorAll('.modal-input-row').length > 1) {
-        row.remove();
-      }
-    };
+      submitBtn.textContent = '追加';
+      submitBtn.onclick = () => {
+        const nameInput = document.getElementById('add-feed-name');
+        const urlInput = document.getElementById('add-feed-url');
+        const name = nameInput ? nameInput.value.trim() : '';
+        const url = urlInput ? urlInput.value.trim() : '';
 
-    return row;
-  };
-
-  const setupMultiAddModal = (title, placeholderName, placeholderUrl, onSave) => {
-    cleanupExtraButtons();
-    modalTitle.textContent = title;
-    modalBody.innerHTML = '';
-
-    modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
-
-    const addRowBtn = document.createElement('button');
-    addRowBtn.id = 'modal-add-row-btn';
-    addRowBtn.type = 'button';
-    addRowBtn.className = 'btn';
-    addRowBtn.textContent = '+ 入力欄を追加';
-    
-    addRowBtn.onclick = (e) => {
-      e.preventDefault();
-      modalBody.appendChild(createInputRow(placeholderName, placeholderUrl));
-    };
-
-    cancelBtn.parentNode.insertBefore(addRowBtn, cancelBtn);
-
-    cancelBtn.textContent = 'キャンセル';
-    cancelBtn.onclick = closeModal;
-    submitBtn.textContent = '保存';
-    submitBtn.onclick = () => {
-      const rows = modalBody.querySelectorAll('.modal-input-row');
-      const newItems = [];
-
-      rows.forEach(row => {
-        const name = row.querySelector('.input-name').value.trim();
-        const url = row.querySelector('.input-url').value.trim();
-        if (name && url) {
-          newItems.push({ name, url });
+        if (!name || !url) {
+          alert("すべての項目を入力してください");
+          return;
         }
-      });
 
-      if (newItems.length > 0) {
-        onSave(newItems);
+        feedsArray.push({ name, url });
+        saveStoredFeeds(storageKey, feedsArray);
         closeModal();
-      }
-    };
-
-    modal.classList.remove('hidden');
-  };
-
-  const setupManageModal = (title, feeds, onSave, onRefresh) => {
-    cleanupExtraButtons();
-    modalTitle.textContent = title;
-    
-    const renderList = () => {
-      modalTitle.textContent = title;
-      submitBtn.textContent = '完了';
-      cancelBtn.textContent = 'キャンセル';
-      cancelBtn.style.display = 'none';
-      cancelBtn.onclick = closeModal;
-      submitBtn.onclick = closeModal;
-
-      renderManageList(
-        feeds, 
-        (updatedFeeds) => {
-          feeds = updatedFeeds;
-          onSave(feeds);
-          onRefresh();
-          renderList();
-        },
-        (feed, idx) => {
-          showEditModal(
-            feed,
-            (updatedItem) => {
-              feeds[idx] = updatedItem;
-              onSave(feeds);
-              onRefresh();
-              renderList();
-            },
-            () => {
-              renderList();
-            }
-          );
-        }
-      );
-    };
-
-    renderList();
-    modal.classList.remove('hidden');
-  };
-
-  // 1. ニュース追加ボタン
-  const addNewsBtn = document.getElementById('add-news-btn');
-  if (addNewsBtn) {
-    addNewsBtn.onclick = () => {
-      setupMultiAddModal('ニュースRSSをまとめて追加', '配信先', 'RSS URL', (newItems) => {
-        newsFeeds.push(...newItems);
-        saveStoredFeeds('newsFeeds', newsFeeds);
-        initNews();
-      });
-    };
-  }
-
-  // 2. ニュース削除（管理）ボタン
-  const delNewsBtn = document.getElementById('del-news-btn');
-  if (delNewsBtn) {
-    delNewsBtn.onclick = () => {
-      setupManageModal('ニュース配信先の管理', newsFeeds, (updated) => {
-        newsFeeds = updated;
-        saveStoredFeeds('newsFeeds', newsFeeds);
-      }, initNews);
-    };
-  }
-
-  // 3. 知識追加ボタン
-  const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
-  if (addKnowledgeBtn) {
-    addKnowledgeBtn.onclick = () => {
-      setupMultiAddModal('知識RSSを追加', '配信先', 'RSS URL', (newItems) => {
-        knowledgeFeeds.push(...newItems);
-        saveStoredFeeds('knowledgeFeeds', knowledgeFeeds);
-        initKnowledge();
-      });
-    };
-  }
-
-  // 4. 知識削除（管理）ボタン
-  const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
-  if (delKnowledgeBtn) {
-    delKnowledgeBtn.onclick = () => {
-      setupManageModal('知識配信先の管理', knowledgeFeeds, (updated) => {
-        knowledgeFeeds = updated;
-        saveStoredFeeds('knowledgeFeeds', knowledgeFeeds);
-      }, initKnowledge);
-    };
-  }
-
-  // 5. YouTube追加ボタン
-  const addYoutubeBtn = document.getElementById('add-youtube-btn');
-  if (addYoutubeBtn) {
-    addYoutubeBtn.onclick = () => {
-      setupMultiAddModal('YouTubeチャンネルを追加', '配信先', 'チャンネルID', (newItems) => {
-        youtubeFeeds.push(...newItems);
-        saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-        initYoutube();
-      });
-
-      const youtubeExternalBtn = document.createElement('button');
-      youtubeExternalBtn.id = 'modal-nitter-btn';
-      youtubeExternalBtn.type = 'button';
-      youtubeExternalBtn.className = 'btn';
-      youtubeExternalBtn.textContent = 'YouTube';
-      youtubeExternalBtn.onclick = () => {
-        window.open('https://m.youtube.com/?ra=m', '_blank', 'noopener,noreferrer');
+        initFunc();
       };
-      cancelBtn.parentNode.insertBefore(youtubeExternalBtn, cancelBtn);
+
+      modal.classList.remove('hidden');
     };
-  }
+  };
 
-  // 6. YouTube削除（管理）ボタン
-  const delYoutubeBtn = document.getElementById('del-youtube-btn');
-  if (delYoutubeBtn) {
-    delYoutubeBtn.onclick = () => {
-      setupManageModal('YouTubeチャンネルの管理', youtubeFeeds, (updated) => {
-        youtubeFeeds = updated;
-        saveStoredFeeds('youtubeFeeds', youtubeFeeds);
-      }, initYoutube);
+  setupAddModal('add-news-btn', 'ニュース配信先の追加', newsFeeds, 'newsFeeds', initNews);
+  setupAddModal('add-knowledge-btn', '知識配信先の追加', knowledgeFeeds, 'knowledgeFeeds', initKnowledge);
+  setupAddModal('add-youtube-btn', 'YouTubeチャンネルの追加', youtubeFeeds, 'youtubeFeeds', initYoutube);
+
+  // 編集ボタン設定
+  const setupEditModal = (btnId, titleText, feedsArray, storageKey, initFunc) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+
+    btn.onclick = () => {
+      cleanupExtraButtons();
+      modalTitle.textContent = titleText;
+      cancelBtn.style.display = 'none';
+      submitBtn.textContent = '完了';
+      submitBtn.onclick = () => {
+        cancelBtn.style.display = 'inline-block';
+        closeModal();
+      };
+
+      const renderList = () => {
+        modalBody.innerHTML = '';
+        if (feedsArray.length === 0) {
+          modalBody.innerHTML = '<div style="color: #888; font-size: 14px;">登録されていません</div>';
+          return;
+        }
+
+        feedsArray.forEach((feed, idx) => {
+          const row = document.createElement('div');
+          row.style.cssText = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 8px; background: #f9f9f9; border-radius: 6px; border: 1px solid #ccc;";
+
+          const nameSpan = document.createElement('span');
+          nameSpan.style.cssText = "font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+          nameSpan.textContent = feed.name;
+
+          const btnGroup = document.createElement('div');
+          btnGroup.style.cssText = "display: flex; gap: 4px;";
+
+          const delBtn = document.createElement('button');
+          delBtn.className = 'btn danger';
+          delBtn.style.padding = '2px 8px';
+          delBtn.textContent = '削除';
+          delBtn.onclick = () => {
+            feedsArray.splice(idx, 1);
+            saveStoredFeeds(storageKey, feedsArray);
+            renderList();
+            initFunc();
+          };
+
+          btnGroup.appendChild(delBtn);
+          row.appendChild(nameSpan);
+          row.appendChild(btnGroup);
+          modalBody.appendChild(row);
+        });
+      };
+
+      renderList();
+      modal.classList.remove('hidden');
     };
-  }
-}
+  };
 
-function renderManageList(feeds, saveCallback, onEdit) {
-  const modalBody = document.getElementById('modal-body');
-  if (!modalBody) return;
-  modalBody.innerHTML = '';
-  
-  if (feeds.length === 0) {
-    modalBody.innerHTML = '<div style="color: var(--text-sub); font-size: 14px;">登録されていません</div>';
-    return;
-  }
-
-  feeds.forEach((feed, idx) => {
-    const row = document.createElement('div');
-    row.className = 'delete-list-item';
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.justifyContent = 'space-between';
-    row.style.marginBottom = '8px';
-    row.style.padding = '8px 12px';
-    row.style.backgroundColor = 'var(--bg-main)';
-    row.style.borderRadius = '8px';
-    row.style.border = feed.isError ? '1px solid #ff4d4f' : '1px solid var(--border-color)';
-
-    const errorBadge = feed.isError 
-      ? `<span title="データを受け取れませんでした。ID/URLが間違っている可能性があります" style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; background-color:#ff4d4f; color:#fff; border-radius:50%; font-weight:bold; font-size:12px; margin-right:8px; flex-shrink:0;">!</span>`
-      : '';
-
-    const nameWrapper = document.createElement('div');
-    nameWrapper.style.display = 'flex';
-    nameWrapper.style.alignItems = 'center';
-    nameWrapper.style.minWidth = '0';
-    nameWrapper.style.flex = '1';
-    nameWrapper.style.marginRight = '8px';
-    nameWrapper.innerHTML = `
-      ${errorBadge}
-      <span style="font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${feed.name}</span>
-    `;
-
-    const btnGroup = document.createElement('div');
-    btnGroup.style.display = 'flex';
-    btnGroup.style.gap = '4px';
-    btnGroup.style.flexShrink = '0';
-
-    const upBtn = document.createElement('button');
-    upBtn.type = 'button';
-    upBtn.className = 'btn';
-    upBtn.style.padding = '2px 8px';
-    upBtn.textContent = '↑';
-    upBtn.disabled = idx === 0;
-    upBtn.onclick = () => {
-      const temp = feeds[idx];
-      feeds[idx] = feeds[idx - 1];
-      feeds[idx - 1] = temp;
-      saveCallback(feeds);
-    };
-
-    const downBtn = document.createElement('button');
-    downBtn.type = 'button';
-    downBtn.className = 'btn';
-    downBtn.style.padding = '2px 8px';
-    downBtn.textContent = '↓';
-    downBtn.disabled = idx === feeds.length - 1;
-    downBtn.onclick = () => {
-      const temp = feeds[idx];
-      feeds[idx] = feeds[idx + 1];
-      feeds[idx + 1] = temp;
-      saveCallback(feeds);
-    };
-
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'btn';
-    editBtn.style.padding = '2px 8px';
-    editBtn.textContent = '変更';
-    editBtn.onclick = () => {
-      if (onEdit) onEdit(feed, idx);
-    };
-
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'btn danger';
-    delBtn.style.padding = '2px 8px';
-    delBtn.textContent = '削除';
-    delBtn.onclick = () => {
-      feeds.splice(idx, 1);
-      saveCallback(feeds);
-    };
-
-    btnGroup.appendChild(upBtn);
-    btnGroup.appendChild(downBtn);
-    btnGroup.appendChild(editBtn);
-    btnGroup.appendChild(delBtn);
-
-    row.appendChild(nameWrapper);
-    row.appendChild(btnGroup);
-    modalBody.appendChild(row);
-  });
-}
-
-function showEditModal(feed, onOverwrite, onCancel) {
-  const modalTitle = document.getElementById('modal-title');
-  const modalBody = document.getElementById('modal-body');
-  const cancelBtn = document.getElementById('modal-cancel-btn');
-  const submitBtn = document.getElementById('modal-submit-btn');
-
-  modalTitle.textContent = '配信先の変更';
-  modalBody.innerHTML = '';
-
-  const editForm = document.createElement('div');
-  editForm.style.display = 'flex';
-  editForm.style.flexDirection = 'column';
-  editForm.style.gap = '12px';
-
-  editForm.innerHTML = `
-    <div>
-      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">名前</label>
-      <input type="text" id="edit-name-input" value="${feed.name || ''}" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main);" autocomplete="off">
-    </div>
-    <div>
-      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">現在のURL / ID</label>
-      <input type="text" value="${feed.url || ''}" disabled style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); opacity: 0.6; color: var(--text-main);">
-    </div>
-    <div>
-      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">新しいURL / ID（変更する場合のみ入力）</label>
-      <input type="text" id="edit-url-input" placeholder="新しいURLまたはIDを入力" value="" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main);" autocomplete="off">
-    </div>
-  `;
-
-  modalBody.appendChild(editForm);
-
-  if (cancelBtn) {
-    cancelBtn.style.display = 'inline-block';
-    cancelBtn.textContent = 'キャンセル';
-    cancelBtn.onclick = () => {
-      onCancel();
-    };
-  }
-
-  if (submitBtn) {
-    submitBtn.textContent = '上書き';
-    submitBtn.onclick = () => {
-      const newName = document.getElementById('edit-name-input').value.trim();
-      const newUrl = document.getElementById('edit-url-input').value.trim();
-
-      if (!newName) {
-        alert('名前を入力してください');
-        return;
-      }
-
-      const finalUrl = newUrl || feed.url;
-      onOverwrite({ ...feed, name: newName, url: finalUrl, isError: false });
-    };
-  }
+  setupEditModal('del-news-btn', 'ニュース配信先の編集', newsFeeds, 'newsFeeds', initNews);
+  setupEditModal('del-knowledge-btn', '知識配信先の編集', knowledgeFeeds, 'knowledgeFeeds', initKnowledge);
+  setupEditModal('del-youtube-btn', 'YouTubeチャンネルの編集', youtubeFeeds, 'youtubeFeeds', initYoutube);
 }
