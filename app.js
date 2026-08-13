@@ -149,6 +149,11 @@ const DEFAULT_KNOWLEDGE = [
 
 const DEFAULT_YOUTUBE = [];
 
+// Twitter初期データ
+const DEFAULT_TWITTER = [
+  { name: "デフォルトリスト", url: "2087706843519111304" }
+];
+
 // --- Storage 管理関数 ---
 function loadStoredFeeds(key, defaultValue) {
   const stored = localStorage.getItem(key);
@@ -176,6 +181,8 @@ let currentAreaSubIndex = 0; // エリア切り替え用
 let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
 let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
 let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
+let twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
+let currentTwitterIdx = 0;
 
 let currentNewsUrl = '';
 let currentKnowledgeUrl = '';
@@ -186,6 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
   newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
   knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
   youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
+  twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
 
   initWeatherUI();
   initNews();
@@ -312,7 +320,6 @@ function initWeatherUI() {
   
   if (!weatherSection) return;
 
-  // 構造のリセットと再構築
   weatherSection.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
       <span style="font-weight: bold; font-size: 16px;">天気</span>
@@ -335,7 +342,6 @@ function initWeatherUI() {
     </div>
   `;
 
-  // イベントバインド
   document.getElementById('add-weather-btn').onclick = openAddWeatherModal;
   document.getElementById('edit-weather-btn').onclick = openEditWeatherModal;
 
@@ -396,7 +402,6 @@ function renderWeatherTabs() {
   });
 }
 
-// 日付フォーマット変換 (YYYY-MM-DD)
 function toYYYYMMDD(dateObj) {
   const y = dateObj.getFullYear();
   const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -437,16 +442,14 @@ async function renderWeatherData() {
 
     if (!json0 || !json0.timeSeries) throw new Error("データ構造エラー");
 
-    // --- 共通データ構文解析 (json[0]: 短期予報) ---
-    const ts0 = json0.timeSeries[0]; // 天気
-    const ts1 = json0.timeSeries[1]; // 降水確率
-    const ts2 = json0.timeSeries[2]; // 短期気温
+    const ts0 = json0.timeSeries[0];
+    const ts1 = json0.timeSeries[1];
+    const ts2 = json0.timeSeries[2];
 
     const areas = ts0 ? ts0.areas : [];
     if (areas.length === 0) throw new Error("エリア情報が見つかりません");
     if (currentAreaSubIndex >= areas.length) currentAreaSubIndex = 0;
 
-    // --- エリア切替UI ---
     if (areaSelectContainer) {
       if (currentWeatherMode === '3day' && areas.length > 1) {
         let opts = areas.map((a, i) => `<option value="${i}" ${i === currentAreaSubIndex ? 'selected' : ''}>${a.area.name}</option>`).join('');
@@ -469,7 +472,6 @@ async function renderWeatherData() {
     const weatherCodes = weatherArea ? weatherArea.weatherCodes : [];
     const timeDefines0 = ts0.timeDefines || [];
 
-    // 降水確率データ解析 (日付キー map)
     const popTimes = ts1 ? ts1.timeDefines || [] : [];
     const popArea = ts1 && ts1.areas ? ts1.areas[currentAreaSubIndex] || ts1.areas[0] : null;
     const pops = popArea ? popArea.pops || [] : [];
@@ -489,7 +491,6 @@ async function renderWeatherData() {
       popMapByDate[dateKey].push({ label, val: parseInt(val, 10) });
     });
 
-    // 気温データ解析 (timeSeries[2] の配列要素を日付単位に紐付け)
     const tempArea2 = ts2 && ts2.areas ? ts2.areas[0] : null;
     const tempTimes2 = ts2 ? ts2.timeDefines || [] : [];
     const temps2 = tempArea2 ? tempArea2.temps || [] : [];
@@ -502,7 +503,6 @@ async function renderWeatherData() {
       tempMapByDate[dateKey].push(temps2[idx]);
     });
 
-    // 1週間予報データ解析 (json[1])
     const weekTs0 = json1 && json1.timeSeries ? json1.timeSeries[0] : null;
     const weekTs1 = json1 && json1.timeSeries ? json1.timeSeries[1] : null;
     const weekWeatherArea = weekTs0 && weekTs0.areas ? weekTs0.areas[0] : null;
@@ -529,7 +529,6 @@ async function renderWeatherData() {
     let itemsHtml = '';
 
     if (currentWeatherMode === '3day') {
-      // --- 3日間表示 ---
       timeDefines0.forEach((t, idx) => {
         const d = new Date(t);
         const dateKey = toYYYYMMDD(d);
@@ -543,7 +542,6 @@ async function renderWeatherData() {
         const code = weatherCodes[idx] || "100";
         const iconUrl = getJmaWeatherIconUrl(code, isNight);
 
-        // 降水確率表示
         const popItems = popMapByDate[dateKey] || [];
         let popHtml = '';
         if (popItems.length > 0) {
@@ -564,7 +562,6 @@ async function renderWeatherData() {
           popHtml = `<div style="font-size: 11px; color: #999; text-align: center;">--</div>`;
         }
 
-        // 気温表示
         let tempHtml = '';
         const dayTemps = tempMapByDate[dateKey];
 
@@ -614,7 +611,6 @@ async function renderWeatherData() {
       });
 
     } else {
-      // --- 1週間表示（取得当日〜） ---
       const allDatesList = [];
       const dateKeySet = new Set();
 
@@ -710,7 +706,6 @@ async function renderWeatherData() {
   }
 }
 
-// モーダル全体の表示状態を初期化するヘルパー関数
 function resetModalButtons() {
   const cancelBtn = document.getElementById('modal-cancel-btn');
   const submitBtn = document.getElementById('modal-submit-btn');
@@ -842,7 +837,6 @@ function openAddWeatherModal() {
   modal.classList.remove('hidden');
 }
 
-// 入力地名の解析・都道府県判定ロジック
 async function processLocationQuery(query) {
   let targetPref = null;
   let isDirectMatch = false;
@@ -1286,15 +1280,31 @@ function openImagePreviewModal(src) {
 async function initTwitter() {
   const twitterSection = document.getElementById('twitter-section') || document.querySelector('.twitter-section') || document.getElementById('twitter-content')?.parentNode;
 
-  if (twitterSection && !document.getElementById('twitter-refresh-btn')) {
+  if (twitterSection && !document.getElementById('twitter-header-container')) {
     let header = twitterSection.querySelector('.section-header') || twitterSection.querySelector('h2')?.parentNode || twitterSection;
     if (header === twitterSection) {
       const topBar = document.createElement('div');
+      topBar.id = 'twitter-header-container';
       topBar.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;';
       topBar.innerHTML = `<span style="font-weight: bold; font-size: 16px;">Twitter</span>`;
       twitterSection.insertBefore(topBar, twitterSection.firstChild);
       header = topBar;
     }
+
+    const btnGroup = document.createElement('div');
+    btnGroup.style.cssText = 'display: flex; gap: 6px; align-items: center;';
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn';
+    addBtn.style.cssText = 'padding: 4px 8px; font-size: 12px;';
+    addBtn.textContent = '追加';
+    addBtn.onclick = openAddTwitterModal;
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn';
+    editBtn.style.cssText = 'padding: 4px 8px; font-size: 12px;';
+    editBtn.textContent = '編集';
+    editBtn.onclick = openEditTwitterModal;
 
     const refreshBtn = document.createElement('img');
     refreshBtn.id = 'twitter-refresh-btn';
@@ -1308,10 +1318,248 @@ async function initTwitter() {
       loadTwitterContent();
     };
 
-    header.appendChild(refreshBtn);
+    btnGroup.appendChild(addBtn);
+    btnGroup.appendChild(editBtn);
+    btnGroup.appendChild(refreshBtn);
+    header.appendChild(btnGroup);
   }
 
+  // タブエリアの生成（twitter-contentの直前などに配置）
+  let tabsContainer = document.getElementById('twitter-tabs');
+  const twitterContent = document.getElementById('twitter-content');
+  if (twitterContent && !tabsContainer && twitterContent.parentNode) {
+    tabsContainer = document.createElement('div');
+    tabsContainer.id = 'twitter-tabs';
+    tabsContainer.style.cssText = 'display: flex; gap: 4px; overflow-x: auto; margin-bottom: 12px; border-bottom: 1px solid var(--border-color, #ccc); padding-bottom: 4px;';
+    twitterContent.parentNode.insertBefore(tabsContainer, twitterContent);
+  }
+
+  renderTwitterTabs();
   loadTwitterContent();
+}
+
+function renderTwitterTabs() {
+  const tabsContainer = document.getElementById('twitter-tabs');
+  if (!tabsContainer) return;
+  tabsContainer.innerHTML = '';
+
+  if (twitterFeeds.length === 0) {
+    tabsContainer.innerHTML = '<span style="font-size: 12px; color: #888;">登録されているリストがありません</span>';
+    return;
+  }
+
+  if (currentTwitterIdx >= twitterFeeds.length) {
+    currentTwitterIdx = 0;
+  }
+
+  twitterFeeds.forEach((feed, idx) => {
+    const btn = document.createElement('button');
+    btn.className = `tab-btn ${idx === currentTwitterIdx ? 'active' : ''}`;
+    btn.style.cssText = "padding: 4px 12px; border: 1px solid #ccc; border-radius: 16px; background: #fff; cursor: pointer; font-size: 13px; white-space: nowrap;";
+    if (idx === currentTwitterIdx) {
+      btn.style.background = "#007aff";
+      btn.style.color = "#fff";
+      btn.style.borderColor = "#007aff";
+    }
+    btn.textContent = feed.name;
+    btn.onclick = () => {
+      currentTwitterIdx = idx;
+      renderTwitterTabs();
+      loadTwitterContent();
+    };
+    tabsContainer.appendChild(btn);
+  });
+}
+
+function openAddTwitterModal() {
+  const modal = document.getElementById('modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+  const cancelBtn = document.getElementById('modal-cancel-btn');
+  const submitBtn = document.getElementById('modal-submit-btn');
+
+  if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
+
+  resetModalButtons();
+
+  modalTitle.textContent = "Twitterリストの追加";
+  modalBody.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div>
+        <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">リスト名</label>
+        <input type="text" id="add-twitter-name" placeholder="リスト名を入力" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
+      </div>
+      <div>
+        <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">リストID</label>
+        <input type="text" id="add-twitter-id" placeholder="リストIDを入力 (例: 2087706843519111304)" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
+      </div>
+    </div>
+  `;
+
+  cancelBtn.style.display = 'inline-block';
+  cancelBtn.textContent = 'キャンセル';
+  cancelBtn.onclick = () => {
+    resetModalButtons();
+    modal.classList.add('hidden');
+  };
+
+  submitBtn.style.display = 'inline-block';
+  submitBtn.textContent = '追加';
+  submitBtn.onclick = () => {
+    const name = document.getElementById('add-twitter-name').value.trim();
+    const listId = document.getElementById('add-twitter-id').value.trim();
+
+    if (!name || !listId) {
+      alert("リスト名とリストIDを入力してください");
+      return;
+    }
+
+    twitterFeeds.push({ name: name, url: listId });
+    saveStoredFeeds('twitterFeeds', twitterFeeds);
+    currentTwitterIdx = twitterFeeds.length - 1;
+
+    resetModalButtons();
+    modal.classList.add('hidden');
+
+    renderTwitterTabs();
+    loadTwitterContent();
+  };
+
+  modal.classList.remove('hidden');
+}
+
+function openEditTwitterModal() {
+  const modal = document.getElementById('modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+  const cancelBtn = document.getElementById('modal-cancel-btn');
+  const submitBtn = document.getElementById('modal-submit-btn');
+
+  if (!modal || !modalTitle || !modalBody || !cancelBtn || !submitBtn) return;
+
+  resetModalButtons();
+
+  modalTitle.textContent = "Twitterリストの編集";
+  cancelBtn.style.display = 'none';
+  submitBtn.textContent = '完了';
+  submitBtn.onclick = () => {
+    resetModalButtons();
+    modal.classList.add('hidden');
+  };
+
+  const renderList = () => {
+    modalBody.innerHTML = '';
+    if (twitterFeeds.length === 0) {
+      modalBody.innerHTML = '<div style="color: #888; font-size: 14px;">登録されているリストがありません</div>';
+      return;
+    }
+
+    twitterFeeds.forEach((feed, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 8px; background: #f9f9f9; border-radius: 6px; border: 1px solid #ccc;";
+
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = "font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+      nameSpan.textContent = feed.name;
+
+      const btnGroup = document.createElement('div');
+      btnGroup.style.cssText = "display: flex; gap: 4px;";
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn';
+      editBtn.style.padding = '2px 8px';
+      editBtn.textContent = '変更';
+      editBtn.onclick = () => {
+        showTwitterSubEditModal(feed, idx, () => {
+          renderList();
+          renderTwitterTabs();
+          loadTwitterContent();
+        }, () => {
+          renderList();
+        });
+      };
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn danger';
+      delBtn.style.padding = '2px 8px';
+      delBtn.textContent = '削除';
+      delBtn.onclick = () => {
+        twitterFeeds.splice(idx, 1);
+        if (currentTwitterIdx >= twitterFeeds.length) {
+          currentTwitterIdx = Math.max(0, twitterFeeds.length - 1);
+        }
+        saveStoredFeeds('twitterFeeds', twitterFeeds);
+        renderList();
+        renderTwitterTabs();
+        loadTwitterContent();
+      };
+
+      btnGroup.appendChild(editBtn);
+      btnGroup.appendChild(delBtn);
+
+      row.appendChild(nameSpan);
+      row.appendChild(btnGroup);
+      modalBody.appendChild(row);
+    });
+  };
+
+  renderList();
+  modal.classList.remove('hidden');
+}
+
+function showTwitterSubEditModal(feed, idx, onSave, onCancel) {
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+  const cancelBtn = document.getElementById('modal-cancel-btn');
+  const submitBtn = document.getElementById('modal-submit-btn');
+
+  modalTitle.textContent = 'Twitterリストの変更';
+  modalBody.innerHTML = '';
+
+  const editForm = document.createElement('div');
+  editForm.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+
+  editForm.innerHTML = `
+    <div>
+      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">現在のリスト名 / リストID</label>
+      <input type="text" value="${feed.name} (${feed.url})" disabled style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); opacity: 0.6; color: var(--text-main); box-sizing: border-box;">
+    </div>
+    <div>
+      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">新しいリスト名</label>
+      <input type="text" id="edit-twitter-name-input" value="${feed.name}" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main); box-sizing: border-box;" autocomplete="off">
+    </div>
+    <div>
+      <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">新しいリストID</label>
+      <input type="text" id="edit-twitter-id-input" value="${feed.url}" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-main); color: var(--text-main); box-sizing: border-box;" autocomplete="off">
+    </div>
+  `;
+
+  modalBody.appendChild(editForm);
+
+  if (cancelBtn) {
+    cancelBtn.style.display = 'inline-block';
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.onclick = () => {
+      onCancel();
+    };
+  }
+
+  if (submitBtn) {
+    submitBtn.textContent = '上書き';
+    submitBtn.onclick = () => {
+      const newName = document.getElementById('edit-twitter-name-input').value.trim();
+      const newId = document.getElementById('edit-twitter-id-input').value.trim();
+
+      if (!newName || !newId) {
+        alert('リスト名とリストIDを入力してください');
+        return;
+      }
+
+      twitterFeeds[idx] = { name: newName, url: newId };
+      saveStoredFeeds('twitterFeeds', twitterFeeds);
+      onSave();
+    };
+  }
 }
 
 async function loadTwitterContent() {
@@ -1320,7 +1568,17 @@ async function loadTwitterContent() {
 
   container.innerHTML = '<div class="loading">ツイートを読み込み中...</div>';
 
-  const feedUrl = 'https://rsshub-latest-wekl.onrender.com/twitter/list/2087706843519111304';
+  if (twitterFeeds.length === 0) {
+    container.innerHTML = '<div class="loading">リストを追加してください。</div>';
+    return;
+  }
+
+  if (currentTwitterIdx >= twitterFeeds.length) {
+    currentTwitterIdx = 0;
+  }
+
+  const currentFeed = twitterFeeds[currentTwitterIdx];
+  const feedUrl = `https://rsshub-latest-wekl.onrender.com/twitter/list/${currentFeed.url}`;
   const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
 
   try {
@@ -1352,7 +1610,6 @@ async function loadTwitterContent() {
       const author = item.querySelector('author')?.textContent || item.querySelector('dc\\:creator, creator')?.textContent || '';
       const pubDateRaw = item.querySelector('pubDate')?.textContent || '';
 
-      // リツイート(RT)の除外フィルタリング
       if (/^RT[\s:]/i.test(title) || /^RT[\s:]/i.test(description) || title.includes("RT @")) {
         return;
       }
@@ -1360,7 +1617,6 @@ async function loadTwitterContent() {
       let pubDate = new Date(pubDateRaw);
       let dateStr = pubDateRaw;
       
-      // 日付フォーマットの判定（本日の場合は時刻のみ「HH:mm」）
       if (!isNaN(pubDate.getTime())) {
         const isToday = pubDate.getFullYear() === today.getFullYear() &&
                         pubDate.getMonth() === today.getMonth() &&
@@ -1375,13 +1631,10 @@ async function loadTwitterContent() {
         }
       }
 
-      // HTMLコンテンツのパース
       const contentDoc = parser.parseFromString(`<div>${description}</div>`, 'text/html');
 
-      // ユーザーアイコン要素を排除
       contentDoc.querySelectorAll('img.avatar, img[src*="profile_images"]').forEach(img => img.remove());
 
-      // ユーザー名・ID抽出
       let displayName = author || title.split(':')[0] || 'Twitter User';
       let userId = '';
 
@@ -1394,7 +1647,6 @@ async function loadTwitterContent() {
         displayName = displayName.replace(/^@/, '');
       }
 
-      // 引用リツイート要素のスタイル付け
       const blockquotes = contentDoc.querySelectorAll('blockquote');
       blockquotes.forEach(bq => {
         const quoteBox = contentDoc.createElement('div');
@@ -1412,11 +1664,9 @@ async function loadTwitterContent() {
         bq.parentNode.replaceChild(quoteBox, bq);
       });
 
-      // 画像/メディア要素（画像、動画、動画リンク）を抽出
       const mediaElements = Array.from(contentDoc.querySelectorAll('img, video, iframe, a[href*="video.twimg.com"], a[href$=".mp4"]'));
       mediaElements.forEach(media => media.remove());
 
-      // 本文内URLの自動リンク化
       function linkifyTextNodes(node) {
         if (node.nodeType === Node.TEXT_NODE) {
           const urlRegex = /(https?:\/\/[^\s<]+)/g;
@@ -1442,7 +1692,6 @@ async function loadTwitterContent() {
 
       let contentHtml = contentDoc.body.innerHTML;
 
-   // カード要素
       const tweetCard = document.createElement('div');
       tweetCard.style.cssText = `
         border-bottom: 2px solid #000000;
@@ -1452,10 +1701,9 @@ async function loadTwitterContent() {
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        gap: 4px; /* 要素間の隙間を密着・統一 */
+        gap: 4px;
       `;
 
-      // ユーザー情報ヘッダー
       const userHeaderHtml = `
         <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 0;">
           <a href="${link}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; display: flex; align-items: baseline; gap: 6px; overflow: hidden;">
@@ -1468,15 +1716,12 @@ async function loadTwitterContent() {
 
       tweetCard.innerHTML = userHeaderHtml;
 
-// ポスト本文のクリーニング（画像や動画を抽出した後の残りカスや空のpタグ、brタグを排除）
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = contentHtml;
       
-      // 画像や動画などのメディア要素を除去した上で、テキストの有無を確認
       const mediaElementsInBody = tempDiv.querySelectorAll('img, video, a[href*="video.twimg.com"]');
       mediaElementsInBody.forEach(el => el.remove());
       
-      // 残ったテキストやHTMLから不要な空行・改行のみのタグを削除
       const cleanedBodyHtml = tempDiv.innerHTML
         .replace(/<p><br><\/p>/g, '')
         .replace(/<br\s*[\/]?>/gi, '')
@@ -1488,17 +1733,7 @@ async function loadTwitterContent() {
         bodyWrapper.innerHTML = cleanedBodyHtml;
         tweetCard.appendChild(bodyWrapper);
       }
-      
-      // ポスト本文が存在する場合のみ追加（余計な改行ノードをトリム）
-      const cleanedTextContent = contentDoc.body.textContent.trim();
-      if (cleanedTextContent !== '' || contentDoc.body.children.length > 0) {
-        const bodyWrapper = document.createElement('div');
-        bodyWrapper.className = 'tweet-body';
-        bodyWrapper.innerHTML = contentHtml;
-        tweetCard.appendChild(bodyWrapper);
-      }
 
-      // メディア要素コンテナ
       const mediaContainer = document.createElement('div');
       mediaContainer.className = 'tweet-media-container';
 
@@ -1772,7 +2007,6 @@ async function loadAllYoutubeContent() {
   }
 }
 
-// --- ミニプレイヤー表示関数 ---
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
