@@ -289,6 +289,14 @@ h2 {
   text-decoration: underline;
 }
 
+/* 修正：ツイート内メディアの余白を統一し、枚数による広がりを防ぐ */
+.tweet-media-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px; /* 複数枚ある場合の隙間を4pxに固定・縮小 */
+  margin-top: 6px;
+}
+
 .tweet-media img,
 .tweet-media video,
 .tweet-body img,
@@ -296,7 +304,7 @@ h2 {
   max-width: 100%;
   height: auto;
   border-radius: 12px;
-  margin-top: 8px;
+  margin-top: 0 !important; /* 累積する上部マージンをリセット */
   display: block;
 }
 
