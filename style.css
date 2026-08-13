@@ -5,6 +5,7 @@
   --bg-color: #f2f2f7;
   --card-bg: #ffffff;
   --primary-color: #007aff;
+  --warning-color: #ff9500; /* 編集ボタン用（オレンジ） */
   --danger-color: #ff3b30;
   --text-color: #1c1c1e;
   --text-sub: #8e8e93;
@@ -80,6 +81,7 @@ h2 {
 .action-buttons {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 /* ボタン装飾 */
@@ -97,6 +99,11 @@ h2 {
 
 .btn.primary {
   background: var(--primary-color);
+  color: #fff;
+}
+
+.btn.warning {
+  background: var(--warning-color);
   color: #fff;
 }
 
@@ -233,7 +240,7 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   gap: 8px;
 }
 
@@ -242,6 +249,29 @@ h2 {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.tweet-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background-color: var(--border-color);
+  flex-shrink: 0;
+}
+
+.tweet-avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #e1e8ed;
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  flex-shrink: 0;
 }
 
 .tweet-account {
@@ -259,8 +289,6 @@ h2 {
   font-size: 14px;
   line-height: 1.4;
   word-break: break-word;
-  margin-top: 4px; /* 本文と上部（ユーザー名）の隙間を固定 */
-  margin-bottom: 0;
 }
 
 .tweet-body a {
@@ -268,23 +296,15 @@ h2 {
   text-decoration: underline;
 }
 
-/* ツイート内メディア（画像・動画）の余白を統一 */
-.tweet-media-container {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 6px; /* 画像枚数に関わらず一定の隙間に固定 */
-}
-
-.tweet-media-container img,
-.tweet-media-container video,
+.tweet-media img,
+.tweet-media video,
 .tweet-body img,
 .tweet-body video {
   max-width: 100%;
   height: auto;
   border-radius: 12px;
+  margin-top: 8px;
   display: block;
-  margin: 0; /* 個別のマージンによるズレを防止 */
 }
 
 /* --- YouTubeリスト --- */
@@ -455,7 +475,6 @@ h2 {
   width: 100%;
 }
 
-/* プルダウンの幅（動画ボタン幅 100% + Shorts幅 50% に相当する約75%） */
 .yt-select {
   flex: 0 0 calc(75% - 4px);
   width: calc(75% - 4px);
@@ -468,7 +487,6 @@ h2 {
   box-sizing: border-box;
 }
 
-/* 残り幅（約25%）に配置される✕ボタンエリア */
 .yt-badge {
   flex: 1;
   display: flex;
