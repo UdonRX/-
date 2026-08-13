@@ -1136,12 +1136,26 @@ async function loadNewsContent(url) {
     }
 
     container.innerHTML = '';
+    const today = new Date();
+
     items.forEach(item => {
       const newsDiv = document.createElement('div');
       newsDiv.className = 'news-item';
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate) 
-        ? item.pubDate.toLocaleString('ja-JP') 
-        : '';
+      
+      let dateStr = '';
+      if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
+        const isToday = item.pubDate.getFullYear() === today.getFullYear() &&
+                        item.pubDate.getMonth() === today.getMonth() &&
+                        item.pubDate.getDate() === today.getDate();
+
+        if (isToday) {
+          const hours = String(item.pubDate.getHours()).padStart(2, '0');
+          const minutes = String(item.pubDate.getMinutes()).padStart(2, '0');
+          dateStr = `${hours}:${minutes}`;
+        } else {
+          dateStr = item.pubDate.toLocaleString('ja-JP');
+        }
+      }
 
       newsDiv.innerHTML = `
         <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
@@ -1183,12 +1197,26 @@ async function loadKnowledgeContent(url) {
     }
 
     container.innerHTML = '';
+    const today = new Date();
+
     items.forEach(item => {
       const newsDiv = document.createElement('div');
       newsDiv.className = 'news-item';
-      const dateStr = item.pubDate instanceof Date && !isNaN(item.pubDate) 
-        ? item.pubDate.toLocaleString('ja-JP') 
-        : '';
+      
+      let dateStr = '';
+      if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
+        const isToday = item.pubDate.getFullYear() === today.getFullYear() &&
+                        item.pubDate.getMonth() === today.getMonth() &&
+                        item.pubDate.getDate() === today.getDate();
+
+        if (isToday) {
+          const hours = String(item.pubDate.getHours()).padStart(2, '0');
+          const minutes = String(item.pubDate.getMinutes()).padStart(2, '0');
+          dateStr = `${hours}:${minutes}`;
+        } else {
+          dateStr = item.pubDate.toLocaleString('ja-JP');
+        }
+      }
 
       newsDiv.innerHTML = `
         <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
