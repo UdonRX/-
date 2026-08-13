@@ -1468,6 +1468,27 @@ async function loadTwitterContent() {
 
       tweetCard.innerHTML = userHeaderHtml;
 
+// ポスト本文のクリーニング（画像や動画を抽出した後の残りカスや空のpタグ、brタグを排除）
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = contentHtml;
+      
+      // 画像や動画などのメディア要素を除去した上で、テキストの有無を確認
+      const mediaElementsInBody = tempDiv.querySelectorAll('img, video, a[href*="video.twimg.com"]');
+      mediaElementsInBody.forEach(el => el.remove());
+      
+      // 残ったテキストやHTMLから不要な空行・改行のみのタグを削除
+      const cleanedBodyHtml = tempDiv.innerHTML
+        .replace(/<p><br><\/p>/g, '')
+        .replace(/<br\s*[\/]?>/gi, '')
+        .trim();
+
+      if (cleanedBodyHtml !== '') {
+        const bodyWrapper = document.createElement('div');
+        bodyWrapper.className = 'tweet-body';
+        bodyWrapper.innerHTML = cleanedBodyHtml;
+        tweetCard.appendChild(bodyWrapper);
+      }
+      
       // ポスト本文が存在する場合のみ追加（余計な改行ノードをトリム）
       const cleanedTextContent = contentDoc.body.textContent.trim();
       if (cleanedTextContent !== '' || contentDoc.body.children.length > 0) {
