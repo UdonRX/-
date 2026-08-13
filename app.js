@@ -1364,6 +1364,12 @@ async function initTwitter() {
 
   let tabsContainer = document.getElementById('twitter-tabs');
   const twitterContent = document.getElementById('twitter-content');
+  
+  // 縦幅を1.5倍にするため、#twitter-content の高さ（max-height または height）を指定
+  if (twitterContent) {
+    twitterContent.style.cssText += 'max-height: 600px; height: 600px; overflow-y: auto;';
+  }
+
   if (twitterContent && !tabsContainer && twitterContent.parentNode) {
     tabsContainer = document.createElement('div');
     tabsContainer.id = 'twitter-tabs';
