@@ -1541,6 +1541,15 @@ function showTwitterSubEditModal(feed, idx, onSave, onCancel) {
     cancelBtn.textContent = 'キャンセル';
     cancelBtn.onclick = () => {
       onCancel();
+      // キャンセル時に元の「地域の編集」画面のボタン状態（完了ボタン表示、キャンセルボタン非表示）に戻す
+      cancelBtn.style.display = 'none';
+      submitBtn.style.display = 'inline-block';
+      submitBtn.textContent = '完了';
+      submitBtn.onclick = () => {
+        resetModalButtons();
+        const modal = document.getElementById('modal');
+        if (modal) modal.classList.add('hidden');
+      };
     };
   }
 
@@ -1558,6 +1567,18 @@ function showTwitterSubEditModal(feed, idx, onSave, onCancel) {
       twitterFeeds[idx] = { name: newName, url: newId };
       saveStoredFeeds('twitterFeeds', twitterFeeds);
       onSave();
+
+      // 上書き保存後、元の「地域の編集」画面のボタン状態に戻す
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      if (submitBtn) {
+        submitBtn.style.display = 'inline-block';
+        submitBtn.textContent = '完了';
+        submitBtn.onclick = () => {
+          resetModalButtons();
+          const modal = document.getElementById('modal');
+          if (modal) modal.classList.add('hidden');
+        };
+      }
     };
   }
 }
