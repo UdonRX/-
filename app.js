@@ -547,7 +547,6 @@ async function renderWeatherData() {
         const popItems = popMapByDate[dateKey] || [];
         let popHtml = '';
         if (popItems.length > 0) {
-          // 3日間データ (時間帯ごとのリスト) がある場合
           popHtml = popItems.map(item => `
             <div style="display: flex; justify-content: space-between; gap: 4px; font-size: 10px; color: #007aff; line-height: 1.2;">
               <span style="color: #666;">${item.label}</span>
@@ -555,7 +554,6 @@ async function renderWeatherData() {
             </div>
           `).join('');
         } else if (weekDataMap[dateKey] && weekDataMap[dateKey].pop !== undefined && weekDataMap[dateKey].pop !== "") {
-          // 翌々日等で3日間データに存在しない場合、1週間予報データから補完 (○%)
           const popVal = weekDataMap[dateKey].pop;
           popHtml = `
             <div style="font-size: 11px; color: #007aff; font-weight: bold; text-align: center; padding: 2px 0;">
@@ -571,7 +569,6 @@ async function renderWeatherData() {
         const dayTemps = tempMapByDate[dateKey];
 
         if (dayTemps && dayTemps.length >= 2) {
-          // 短期予報(ts2)にデータが存在する場合 (朝9時, 日中最高)
           const temp9 = dayTemps[0] !== undefined ? dayTemps[0] : "--";
           const tempMax = dayTemps[1] !== undefined ? dayTemps[1] : "--";
           tempHtml = `
@@ -581,7 +578,6 @@ async function renderWeatherData() {
             </div>
           `;
         } else if (weekDataMap[dateKey]) {
-          // 翌々日など1週間データ側から補完する場合
           const minVal = weekDataMap[dateKey].tempMin || "--";
           const maxVal = weekDataMap[dateKey].tempMax || "--";
           tempHtml = `
@@ -622,7 +618,6 @@ async function renderWeatherData() {
       const allDatesList = [];
       const dateKeySet = new Set();
 
-      // 当日〜翌日のデータをタイムシリーズから収集
       timeDefines0.forEach((t, idx) => {
         const d = new Date(t);
         const dateKey = toYYYYMMDD(d);
@@ -636,7 +631,6 @@ async function renderWeatherData() {
         }
       });
 
-      // 1週間予報から追加分を取得
       weekTimeDefines.forEach((t, idx) => {
         const d = new Date(t);
         const dateKey = toYYYYMMDD(d);
@@ -661,7 +655,6 @@ async function renderWeatherData() {
         const code = item.weatherCode || (weekDataMap[dateKey] ? weekDataMap[dateKey].weatherCode : "100");
         const iconUrl = getJmaWeatherIconUrl(code, false);
 
-        // 降水確率の計算（3日間データの平均値、存在しない場合は週間予報値）
         let popValStr = "--";
         const popItems = popMapByDate[dateKey] || [];
 
@@ -675,7 +668,6 @@ async function renderWeatherData() {
           popValStr = `${weekDataMap[dateKey].pop}%`;
         }
 
-        // 気温の計算（青字：朝9時/最低、赤字：最高）
         let tempMinStr = "--";
         let tempMaxStr = "--";
         const dayTemps = tempMapByDate[dateKey];
@@ -855,7 +847,6 @@ async function processLocationQuery(query) {
   let targetPref = null;
   let isDirectMatch = false;
 
-  // 1. ○○都/道/府/県、または都/道/府/県を付けた場合実在するか判定
   if (ALL_PREFECTURES.includes(query)) {
     targetPref = query;
     isDirectMatch = true;
@@ -869,7 +860,6 @@ async function processLocationQuery(query) {
     }
   }
 
-  // 直で都道府県と特定できた場合（例: 京都 -> 京都府）
   if (targetPref) {
     if (!isDirectMatch) {
       const confirmOk = await showCustomConfirm(`${targetPref}ですか？`, true);
@@ -879,7 +869,6 @@ async function processLocationQuery(query) {
     return code ? { name: targetPref, code: code } : null;
   }
 
-  // 2. 実在しない場合、市町村を国土地理院API等で逆引き検索
   try {
     const geoUrl = `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(query)}`;
     const res = await fetch(geoUrl);
@@ -929,7 +918,7 @@ function resolveJmaCode(prefName, originalQuery) {
         return HOKKAIDO_SUB_AREAS[key];
       }
     }
-    return "16000"; // デフォルト: 石狩・空知・後志地方
+    return "16000";
   }
 
   if (prefName === "沖縄県") {
@@ -938,7 +927,7 @@ function resolveJmaCode(prefName, originalQuery) {
         return OKINAWA_SUB_AREAS[key];
       }
     }
-    return "471000"; // デフォルト: 沖縄本島地方
+    return "471000";
   }
 
   return JMA_PREF_CODES[prefName] || null;
@@ -1163,7 +1152,7 @@ async function loadKnowledgeContent(url) {
   }
 }
 
-// 画像プレビュー・モーダル表示（ピンチズーム・ダブルタップ拡大・拡大時パン/スワイプ移動機能付き）
+// 画像プレビュー・モーダル表示
 function openImagePreviewModal(src) {
   let modal = document.getElementById('image-lightbox-modal');
   if (!modal) {
@@ -1211,7 +1200,6 @@ function openImagePreviewModal(src) {
     if (e.target === modal || e.target === container) modal.remove();
   };
 
-  // タッチ操作（パン・ピンチ・ダブルタップ）
   container.addEventListener('touchstart', (e) => {
     if (e.touches.length === 2) {
       isPanning = false;
@@ -1223,7 +1211,6 @@ function openImagePreviewModal(src) {
     } else if (e.touches.length === 1) {
       const now = Date.now();
       if (now - lastTapTime < 300) {
-        // ダブルタップで拡大・縮小切り替え
         if (scale > 1) {
           scale = 1;
           pointX = 0;
@@ -1233,7 +1220,6 @@ function openImagePreviewModal(src) {
         }
         updateTransform();
       } else if (scale > 1) {
-        // 拡大時のパン（ドラッグ/スワイプ移動）準備
         isPanning = true;
         panStartX = e.touches[0].clientX;
         panStartY = e.touches[0].clientY;
@@ -1271,7 +1257,6 @@ function openImagePreviewModal(src) {
     isPanning = false;
   });
 
-  // マウスドラッグ操作（PC対応）
   container.addEventListener('mousedown', (e) => {
     if (scale > 1) {
       isPanning = true;
@@ -1304,7 +1289,6 @@ async function initTwitter() {
   const twitterSection = document.getElementById('twitter-section') || document.querySelector('.twitter-section') || document.getElementById('twitter-content')?.parentNode;
 
   if (twitterSection && !document.getElementById('twitter-refresh-btn')) {
-    // ヘッダーやタイトル部分に更新ボタンを設置
     let header = twitterSection.querySelector('.section-header') || twitterSection.querySelector('h2')?.parentNode || twitterSection;
     if (header === twitterSection) {
       const topBar = document.createElement('div');
@@ -1330,6 +1314,24 @@ async function initTwitter() {
   }
 
   loadTwitterContent();
+}
+
+// 動画要素を正しく生成・初期化するヘルパー関数
+function createVideoElement(src) {
+  const videoElem = document.createElement('video');
+  videoElem.src = src;
+  videoElem.controls = true;
+  videoElem.playsInline = true;
+  videoElem.setAttribute('playsinline', '');
+  videoElem.setAttribute('webkit-playsinline', '');
+  videoElem.setAttribute('referrerpolicy', 'no-referrer');
+  videoElem.setAttribute('preload', 'metadata');
+  videoElem.style.width = '100%';
+  videoElem.style.maxHeight = '350px';
+  videoElem.style.borderRadius = '8px';
+  videoElem.style.marginTop = '6px';
+  videoElem.style.backgroundColor = '#000';
+  return videoElem;
 }
 
 async function loadTwitterContent() {
@@ -1368,21 +1370,19 @@ async function loadTwitterContent() {
       const author = item.querySelector('author')?.textContent || item.querySelector('dc\\:creator, creator')?.textContent || '';
       const pubDateRaw = item.querySelector('pubDate')?.textContent || '';
 
-      // --- リツイート(RT)の除外フィルタリング ---
+      // リツイート(RT)の除外
       if (/^RT[\s:]/i.test(title) || /^RT[\s:]/i.test(description) || title.includes("RT @")) {
-        return; // スキップ
+        return;
       }
 
       let pubDate = new Date(pubDateRaw);
       const dateStr = !isNaN(pubDate.getTime()) ? pubDate.toLocaleString('ja-JP') : pubDateRaw;
 
-      // HTMLコンテンツのパース
       const contentDoc = parser.parseFromString(`<div>${description}</div>`, 'text/html');
 
-      // ユーザーアイコン要素を完全に除去
+      // アイコン画像等の不要要素を除去
       contentDoc.querySelectorAll('img.avatar, img[src*="profile_images"]').forEach(img => img.remove());
 
-      // ユーザー名・ID抽出
       let displayName = author || title.split(':')[0] || 'Twitter User';
       let userId = '';
 
@@ -1395,7 +1395,7 @@ async function loadTwitterContent() {
         displayName = displayName.replace(/^@/, '');
       }
 
-      // 引用リツイート要素のスタイル付け（角丸四角形・灰色枠線）
+      // 引用リツイート要素
       const blockquotes = contentDoc.querySelectorAll('blockquote');
       blockquotes.forEach(bq => {
         const quoteBox = contentDoc.createElement('div');
@@ -1413,11 +1413,10 @@ async function loadTwitterContent() {
         bq.parentNode.replaceChild(quoteBox, bq);
       });
 
-      // 画像/メディア要素（画像、動画、動画リンク）を抽出して本文から一旦削除
+      // 画像/メディア要素を抽出
       const mediaElements = Array.from(contentDoc.querySelectorAll('img, video, iframe, a[href*="video.twimg.com"], a[href$=".mp4"]'));
       mediaElements.forEach(media => media.remove());
 
-      // ポスト内テキストに含まれるリンク化されていないURL（http/https）を <a> タグに自動変換
       function linkifyTextNodes(node) {
         if (node.nodeType === Node.TEXT_NODE) {
           const urlRegex = /(https?:\/\/[^\s<]+)/g;
@@ -1434,7 +1433,6 @@ async function loadTwitterContent() {
       }
       linkifyTextNodes(contentDoc.body);
 
-      // 既存のすべてのaタグに対して属性およびスタイルを設定（確実に開くように設定）
       contentDoc.querySelectorAll('a').forEach(a => {
         a.setAttribute('target', '_blank');
         a.setAttribute('rel', 'noopener noreferrer');
@@ -1444,7 +1442,6 @@ async function loadTwitterContent() {
 
       let contentHtml = contentDoc.body.innerHTML;
 
-      // DOM要素構築（ツイート間の区切り線を「濃い黒」に変更）
       const tweetCard = document.createElement('div');
       tweetCard.style.cssText = `
         border-bottom: 2px solid #000000;
@@ -1454,7 +1451,6 @@ async function loadTwitterContent() {
         overflow: hidden;
       `;
 
-      // ユーザー情報ヘッダー
       const userHeaderHtml = `
         <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; flex-wrap: wrap;">
           <a href="${link}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; display: flex; align-items: baseline; gap: 6px; overflow: hidden;">
@@ -1465,7 +1461,6 @@ async function loadTwitterContent() {
         </div>
       `;
 
-      // ポスト本文
       const bodyWrapper = document.createElement('div');
       bodyWrapper.className = 'tweet-text';
       bodyWrapper.style.cssText = `
@@ -1477,48 +1472,13 @@ async function loadTwitterContent() {
       `;
       bodyWrapper.innerHTML = contentHtml;
 
-      // 本文の直下に配置されるメディア要素コンテナ
       const mediaContainer = document.createElement('div');
       mediaContainer.className = 'tweet-media-container';
       mediaContainer.style.cssText = 'margin-top: 8px;';
 
-      // 動画要素を作成・初期化するヘルパー関数
-      const buildVideoElement = (srcUrl, posterUrl = '') => {
-        const videoElem = document.createElement('video');
-        videoElem.controls = true;
-        videoElem.playsInline = true;
-        videoElem.muted = true; // iOS Safari での確実な再生準備とエラー防止のために必須
-        videoElem.setAttribute('playsinline', '');
-        videoElem.setAttribute('webkit-playsinline', '');
-        videoElem.preload = 'metadata';
-        if (posterUrl) videoElem.poster = posterUrl;
-        videoElem.style.width = '100%';
-        videoElem.style.maxHeight = '350px';
-        videoElem.style.borderRadius = '8px';
-        videoElem.style.marginTop = '6px';
-        videoElem.style.backgroundColor = '#000';
-
-        const sourceElem = document.createElement('source');
-        sourceElem.src = srcUrl;
-        if (srcUrl.includes('.mp4')) {
-          sourceElem.type = 'video/mp4';
-        }
-        videoElem.appendChild(sourceElem);
-
-        // タップ時に自動再生のブロックを回避して再生を開始
-        videoElem.addEventListener('click', () => {
-          if (videoElem.paused) {
-            videoElem.play().catch(e => console.log('Playback error:', e));
-          }
-        });
-
-        return videoElem;
-      };
-
       mediaElements.forEach(media => {
         const tagName = media.tagName.toLowerCase();
         if (tagName === 'img') {
-          // 画像表示 ＆ タップ時モーダル拡大処理
           media.style.maxWidth = '100%';
           media.style.height = 'auto';
           media.style.borderRadius = '8px';
@@ -1530,20 +1490,18 @@ async function loadTwitterContent() {
             openImagePreviewModal(media.src);
           };
           mediaContainer.appendChild(media);
-        } else if (tagName === 'a' && (media.href.includes('video.twimg.com') || media.href.includes('.mp4'))) {
-          // 直リンク形式の動画URLをタップ再生可能なvideo要素に置換
-          const videoElem = buildVideoElement(media.href);
+        } else if (tagName === 'a' && (media.href.includes('video.twimg.com') || media.href.endsWith('.mp4'))) {
+          // 直リンク動画の要素作成（リファラー制御・iPhone対応プロパティ付与）
+          const videoElem = createVideoElement(media.href);
           mediaContainer.appendChild(videoElem);
         } else if (tagName === 'video') {
-          // 既存のvideoタグの再構築・修正
-          let videoSrc = media.src;
-          if (!videoSrc) {
-            const source = media.querySelector('source');
-            if (source) videoSrc = source.src;
+          // 既存のvideoタグの設定の修正と再生調整
+          let src = media.src;
+          if (!src && media.querySelector('source')) {
+            src = media.querySelector('source').src;
           }
-
-          if (videoSrc) {
-            const videoElem = buildVideoElement(videoSrc, media.poster || '');
+          if (src) {
+            const videoElem = createVideoElement(src);
             mediaContainer.appendChild(videoElem);
           }
         }
@@ -2060,7 +2018,6 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
-  // 1. ニュース追加ボタン
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
     addNewsBtn.onclick = () => {
@@ -2072,7 +2029,6 @@ function initModals() {
     };
   }
 
-  // 2. ニュース削除（管理）ボタン
   const delNewsBtn = document.getElementById('del-news-btn');
   if (delNewsBtn) {
     delNewsBtn.onclick = () => {
@@ -2083,7 +2039,6 @@ function initModals() {
     };
   }
 
-  // 3. 知識追加ボタン
   const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
   if (addKnowledgeBtn) {
     addKnowledgeBtn.onclick = () => {
@@ -2095,7 +2050,6 @@ function initModals() {
     };
   }
 
-  // 4. 知識削除（管理）ボタン
   const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
@@ -2106,7 +2060,6 @@ function initModals() {
     };
   }
 
-  // 5. YouTube追加ボタン
   const addYoutubeBtn = document.getElementById('add-youtube-btn');
   if (addYoutubeBtn) {
     addYoutubeBtn.onclick = () => {
@@ -2128,7 +2081,6 @@ function initModals() {
     };
   }
 
-  // 6. YouTube削除（管理）ボタン
   const delYoutubeBtn = document.getElementById('del-youtube-btn');
   if (delYoutubeBtn) {
     delYoutubeBtn.onclick = () => {
@@ -2163,7 +2115,7 @@ function renderManageList(feeds, saveCallback, onEdit) {
     row.style.border = feed.isError ? '1px solid #ff4d4f' : '1px solid var(--border-color)';
 
     const errorBadge = feed.isError 
-      ? `<span title="データを受け取れませんでした。ID/URLが間違っている可能性があります" style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; background-color:#ff4d4f; color:#fff; font-weight:bold; font-size:12px; margin-right:8px; flex-shrink:0;">!</span>`
+      ? `<span title="データを受け取れませんでした。ID/URLが間違っている可能性があります" style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; background-color:#ff4d4f; color:#fff; border-radius:50%; font-weight:bold; font-size:12px; margin-right:8px; flex-shrink:0;">!</span>`
       : '';
 
     const nameWrapper = document.createElement('div');
