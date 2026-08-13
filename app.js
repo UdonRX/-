@@ -910,7 +910,6 @@ async function processLocationQuery(query) {
   }
 }
 
-// 北海道・沖縄の地域コード自動判別含むコード解決
 function resolveJmaCode(prefName, originalQuery) {
   if (prefName === "北海道") {
     for (const key in HOKKAIDO_SUB_AREAS) {
@@ -933,7 +932,6 @@ function resolveJmaCode(prefName, originalQuery) {
   return JMA_PREF_CODES[prefName] || null;
 }
 
-// カスタムダイアログ（OK / Cancel あるいは Cancelのみ）
 function showCustomConfirm(message, showOk = true) {
   return new Promise((resolve) => {
     const modalBody = document.getElementById('modal-body');
@@ -1316,24 +1314,6 @@ async function initTwitter() {
   loadTwitterContent();
 }
 
-// 動画要素を正しく生成・初期化するヘルパー関数
-function createVideoElement(src) {
-  const videoElem = document.createElement('video');
-  videoElem.src = src;
-  videoElem.controls = true;
-  videoElem.playsInline = true;
-  videoElem.setAttribute('playsinline', '');
-  videoElem.setAttribute('webkit-playsinline', '');
-  videoElem.setAttribute('referrerpolicy', 'no-referrer');
-  videoElem.setAttribute('preload', 'metadata');
-  videoElem.style.width = '100%';
-  videoElem.style.maxHeight = '350px';
-  videoElem.style.borderRadius = '8px';
-  videoElem.style.marginTop = '6px';
-  videoElem.style.backgroundColor = '#000';
-  return videoElem;
-}
-
 async function loadTwitterContent() {
   const container = document.getElementById('twitter-content');
   if (!container) return;
@@ -1370,7 +1350,7 @@ async function loadTwitterContent() {
       const author = item.querySelector('author')?.textContent || item.querySelector('dc\\:creator, creator')?.textContent || '';
       const pubDateRaw = item.querySelector('pubDate')?.textContent || '';
 
-      // リツイート(RT)の除外
+      // リツイート(RT)の除外フィルタリング
       if (/^RT[\s:]/i.test(title) || /^RT[\s:]/i.test(description) || title.includes("RT @")) {
         return;
       }
@@ -1378,11 +1358,13 @@ async function loadTwitterContent() {
       let pubDate = new Date(pubDateRaw);
       const dateStr = !isNaN(pubDate.getTime()) ? pubDate.toLocaleString('ja-JP') : pubDateRaw;
 
+      // HTMLコンテンツのパース
       const contentDoc = parser.parseFromString(`<div>${description}</div>`, 'text/html');
 
-      // アイコン画像等の不要要素を除去
+      // ユーザーアイコン要素を排除
       contentDoc.querySelectorAll('img.avatar, img[src*="profile_images"]').forEach(img => img.remove());
 
+      // ユーザー名・ID抽出
       let displayName = author || title.split(':')[0] || 'Twitter User';
       let userId = '';
 
@@ -1395,7 +1377,7 @@ async function loadTwitterContent() {
         displayName = displayName.replace(/^@/, '');
       }
 
-      // 引用リツイート要素
+      // 引用リツイート要素のスタイル付け
       const blockquotes = contentDoc.querySelectorAll('blockquote');
       blockquotes.forEach(bq => {
         const quoteBox = contentDoc.createElement('div');
@@ -1413,10 +1395,11 @@ async function loadTwitterContent() {
         bq.parentNode.replaceChild(quoteBox, bq);
       });
 
-      // 画像/メディア要素を抽出
+      // 画像/メディア要素（画像、動画、動画リンク）を抽出
       const mediaElements = Array.from(contentDoc.querySelectorAll('img, video, iframe, a[href*="video.twimg.com"], a[href$=".mp4"]'));
       mediaElements.forEach(media => media.remove());
 
+      // 本文内URLの自動リンク化
       function linkifyTextNodes(node) {
         if (node.nodeType === Node.TEXT_NODE) {
           const urlRegex = /(https?:\/\/[^\s<]+)/g;
@@ -1442,6 +1425,7 @@ async function loadTwitterContent() {
 
       let contentHtml = contentDoc.body.innerHTML;
 
+      // カード要素
       const tweetCard = document.createElement('div');
       tweetCard.style.cssText = `
         border-bottom: 2px solid #000000;
@@ -1451,6 +1435,7 @@ async function loadTwitterContent() {
         overflow: hidden;
       `;
 
+      // ユーザー情報ヘッダー
       const userHeaderHtml = `
         <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; flex-wrap: wrap;">
           <a href="${link}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; display: flex; align-items: baseline; gap: 6px; overflow: hidden;">
@@ -1461,6 +1446,7 @@ async function loadTwitterContent() {
         </div>
       `;
 
+      // ポスト本文
       const bodyWrapper = document.createElement('div');
       bodyWrapper.className = 'tweet-text';
       bodyWrapper.style.cssText = `
@@ -1472,13 +1458,54 @@ async function loadTwitterContent() {
       `;
       bodyWrapper.innerHTML = contentHtml;
 
+      // メディア要素コンテナ
       const mediaContainer = document.createElement('div');
       mediaContainer.className = 'tweet-media-container';
       mediaContainer.style.cssText = 'margin-top: 8px;';
 
       mediaElements.forEach(media => {
         const tagName = media.tagName.toLowerCase();
-        if (tagName === 'img') {
+        
+        // 動画URL取得処理（a要素、video要素、またはポスター等の処理）
+        let targetVideoUrl = '';
+        if (tagName === 'a') {
+          targetVideoUrl = media.href;
+        } else if (tagName === 'video') {
+          targetVideoUrl = media.src || media.querySelector('source')?.src || '';
+        }
+
+        if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com') || targetVideoUrl.endsWith('.mp4'))) {
+          // 動画URLの場合はタップで直接URLを開くプレビューカードを生成
+          const videoLinkBox = document.createElement('a');
+          videoLinkBox.href = targetVideoUrl;
+          videoLinkBox.target = '_blank';
+          videoLinkBox.rel = 'noopener noreferrer';
+          videoLinkBox.style.cssText = `
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            height: 140px;
+            background: #15202b;
+            color: #ffffff;
+            border-radius: 8px;
+            margin-top: 6px;
+            text-decoration: none;
+            box-sizing: border-box;
+            border: 1px solid #38444d;
+            cursor: pointer;
+            transition: background 0.2s;
+          `;
+          videoLinkBox.innerHTML = `
+            <div style="width: 44px; height: 44px; border-radius: 50%; background: rgba(29, 161, 242, 0.9); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+              <span style="color: #fff; font-size: 20px; margin-left: 3px;">▶</span>
+            </div>
+            <span style="font-size: 13px; font-weight: bold; color: #1da1f2;">動画をタップして再生（外部で開く）</span>
+          `;
+          mediaContainer.appendChild(videoLinkBox);
+        } else if (tagName === 'img') {
+          // 画像表示 ＆ タップ時モーダル拡大処理
           media.style.maxWidth = '100%';
           media.style.height = 'auto';
           media.style.borderRadius = '8px';
@@ -1490,20 +1517,6 @@ async function loadTwitterContent() {
             openImagePreviewModal(media.src);
           };
           mediaContainer.appendChild(media);
-        } else if (tagName === 'a' && (media.href.includes('video.twimg.com') || media.href.endsWith('.mp4'))) {
-          // 直リンク動画の要素作成（リファラー制御・iPhone対応プロパティ付与）
-          const videoElem = createVideoElement(media.href);
-          mediaContainer.appendChild(videoElem);
-        } else if (tagName === 'video') {
-          // 既存のvideoタグの設定の修正と再生調整
-          let src = media.src;
-          if (!src && media.querySelector('source')) {
-            src = media.querySelector('source').src;
-          }
-          if (src) {
-            const videoElem = createVideoElement(src);
-            mediaContainer.appendChild(videoElem);
-          }
         }
       });
 
@@ -2018,6 +2031,7 @@ function initModals() {
     modal.classList.remove('hidden');
   };
 
+  // 1. ニュース追加ボタン
   const addNewsBtn = document.getElementById('add-news-btn');
   if (addNewsBtn) {
     addNewsBtn.onclick = () => {
@@ -2029,6 +2043,7 @@ function initModals() {
     };
   }
 
+  // 2. ニュース削除（管理）ボタン
   const delNewsBtn = document.getElementById('del-news-btn');
   if (delNewsBtn) {
     delNewsBtn.onclick = () => {
@@ -2039,6 +2054,7 @@ function initModals() {
     };
   }
 
+  // 3. 知識追加ボタン
   const addKnowledgeBtn = document.getElementById('add-knowledge-btn');
   if (addKnowledgeBtn) {
     addKnowledgeBtn.onclick = () => {
@@ -2050,6 +2066,7 @@ function initModals() {
     };
   }
 
+  // 4. 知識削除（管理）ボタン
   const delKnowledgeBtn = document.getElementById('del-knowledge-btn');
   if (delKnowledgeBtn) {
     delKnowledgeBtn.onclick = () => {
@@ -2060,6 +2077,7 @@ function initModals() {
     };
   }
 
+  // 5. YouTube追加ボタン
   const addYoutubeBtn = document.getElementById('add-youtube-btn');
   if (addYoutubeBtn) {
     addYoutubeBtn.onclick = () => {
@@ -2081,6 +2099,7 @@ function initModals() {
     };
   }
 
+  // 6. YouTube削除（管理）ボタン
   const delYoutubeBtn = document.getElementById('del-youtube-btn');
   if (delYoutubeBtn) {
     delYoutubeBtn.onclick = () => {
