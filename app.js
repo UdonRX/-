@@ -88,7 +88,7 @@ const OKINAWA_SUB_AREAS = {
 };
 
 // --- YouTube Data API v3 設定 ---
-const YOUTUBE_API_KEY = "AIzaSyCIu3TLMlWdKLjjU7mDsuhY8Rmdp-lSxWM"; // ここにYouTube Data API v3のキーを設定してください
+const YOUTUBE_API_KEY = "AIzaSyCIu3TLMlWdKLjjU7mDsuhY8Rmdp-lSxWM";
 
 // WeatherCode -> アイコン変換 (Google Weather API アイコン名参照)
 function getJmaWeatherIconUrl(code, isNight = false) {
@@ -152,7 +152,7 @@ function formatCustomDate(dateObj) {
   }
 }
 
-// 初期データ（気象庁API仕様：京都府 260000）
+// 初期データ
 const DEFAULT_WEATHER_LOCATIONS = [
   {
     name: "京都府",
@@ -160,7 +160,6 @@ const DEFAULT_WEATHER_LOCATIONS = [
   }
 ];
 
-// 他の初期データ
 const DEFAULT_NEWS = [
   { name: "朝日新聞(政治)", url: "https://www.asahi.com/rss/asahi/politics.rdf" },
   { name: "Yahoo!ニュース", url: "https://news.yahoo.co.jp/rss/media/aptsushinv/all.xml" }
@@ -173,7 +172,6 @@ const DEFAULT_KNOWLEDGE = [
 
 const DEFAULT_YOUTUBE = [];
 
-// Twitter初期データ
 const DEFAULT_TWITTER = [
   { name: "デフォルトリスト", url: "2087706843519111304" }
 ];
@@ -199,8 +197,8 @@ function saveStoredFeeds(key, data) {
 // グローバル変数
 let weatherLocations = loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS);
 let currentWeatherIdx = 0;
-let currentWeatherMode = '3day'; // '3day' または '1week'
-let currentAreaSubIndex = 0; // エリア切り替え用
+let currentWeatherMode = '3day';
+let currentAreaSubIndex = 0;
 
 let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
 let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
@@ -224,7 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initKnowledge();
   initTwitter();
   initYoutube();
-  initFutocyan(); // 布団ちゃん機能の初期化
+  initFutocyan();
   initModals();
   registerSW();
 });
@@ -301,7 +299,7 @@ async function fetchNewsRSS(feedUrl) {
   });
 }
 
-// --- YouTube API を利用したデータ取得関数 ---
+// --- YouTube API ---
 async function fetchYoutubeData(channelIdentifier) {
   let channelId = channelIdentifier;
   
@@ -394,7 +392,7 @@ async function fetchYoutubeData(channelIdentifier) {
   });
 }
 
-// --- 天気機能 コンポーネント描画 ＆ 制御 ---
+// --- 天気機能 ---
 function initWeatherUI() {
   const weatherSection = document.getElementById('weather-section') || document.querySelector('.weather-section') || document.getElementById('weather-container')?.parentNode;
   
@@ -503,7 +501,7 @@ async function renderWeatherData() {
   const loc = weatherLocations[currentWeatherIdx];
   if (!loc || !loc.code) {
     if (areaSelectContainer) areaSelectContainer.innerHTML = '';
-    container.innerHTML = '<div style="text-align:center; padding: 16px; color:#888;">地域コードが無効です。地域を再登録してください。</div>';
+    container.innerHTML = '<div style="text-align:center; padding: 16px; color:#888;">地域コードが無効です。</div>';
     return;
   }
 
@@ -826,7 +824,7 @@ function openAddWeatherModal() {
     row.style.cssText = "display: flex; gap: 8px; margin-bottom: 8px; align-items: center;";
     
     row.innerHTML = `
-      <input type="text" class="input-location" placeholder="地名を入力 (例: 京都、高松、造田)" style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc;" autocomplete="off">
+      <input type="text" class="input-location" placeholder="地名を入力 (例: 京都、高松)" style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ccc;" autocomplete="off">
       <button type="button" class="btn danger remove-weather-row-btn" style="padding: 4px 8px; display: none;">✕</button>
     `;
 
@@ -1386,7 +1384,6 @@ async function initTwitter() {
   let tabsContainer = document.getElementById('twitter-tabs');
   const twitterContent = document.getElementById('twitter-content');
   
-  // 縦幅を1.5倍にするため、#twitter-content の高さ（max-height または height）を指定
   if (twitterContent) {
     twitterContent.style.cssText += 'max-height: 600px; height: 600px; overflow-y: auto;';
   }
@@ -1455,7 +1452,7 @@ function openAddTwitterModal() {
       </div>
       <div>
         <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">リストID</label>
-        <input type="text" id="add-twitter-id" placeholder="リストIDを入力 (例: 2087706843519111304)" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
+        <input type="text" id="add-twitter-id" placeholder="リストIDを入力" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
       </div>
     </div>
   `;
@@ -1814,7 +1811,7 @@ async function loadTwitterContent() {
           targetVideoUrl = media.src || media.querySelector('source')?.src || '';
         }
 
-        if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com'] || targetVideoUrl.endsWith('.mp4'))) {
+        if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com') || targetVideoUrl.endsWith('.mp4'))) {
           const videoLinkBox = document.createElement('a');
           videoLinkBox.href = targetVideoUrl;
           videoLinkBox.target = '_blank';
@@ -2038,12 +2035,11 @@ async function loadAllYoutubeContent() {
         if (item.liveStatus === 'upcoming' && item.scheduledStartTime) {
           dateStr = `予定: ${formatCustomDate(item.scheduledStartTime)}開始`;
         } else if (isLive) {
-          dateStr = ''; // 「配信中」の文字を消去
+          dateStr = '';
         } else if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
           dateStr = formatCustomDate(item.pubDate);
         }
 
-        // 配信中の場合は背景色を #FEF0E5 にする
         const rowBgStyle = isLive ? 'background-color: #FEF0E5;' : '';
 
         html += `
@@ -2074,7 +2070,7 @@ async function loadAllYoutubeContent() {
   }
 }
 
-// --- 布団ちゃん機能の追加（YouTubeセクションの下） ---
+// --- 布団ちゃん機能 ---
 function initFutocyan() {
   const youtubeSection = document.getElementById('youtube-section') || document.querySelector('.youtube-section');
   if (!youtubeSection) return;
@@ -2130,7 +2126,6 @@ async function loadFutocyanContent() {
       }
 
       const tr = document.createElement('tr');
-      
       const rowBgStyle = isLive ? 'background-color: #FEF0E5;' : '';
       tr.style.cssText = `border-bottom: 1px solid rgba(0,0,0,0.1); ${rowBgStyle}`;
 
