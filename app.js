@@ -76,7 +76,7 @@ const HOKKAIDO_SUB_AREAS = {
   "札幌": "16000", "石狩": "16000", "空知": "16000", "後志": "16000", "小樽": "16000",
   "網走": "13000", "北見": "13000", "紋別": "13000",
   "釧路": "14100", "根室": "14100", "帯広": "14100", "十勝": "14100",
-  "室蘭": "15000", "苫小牧": "15000", "胆振": "15000", "日高": "15000",
+  "室欄": "15000", "苫小牧": "15000", "胆振": "15000", "日高": "15000",
   "函館": "17000", "渡島": "17000", "檜山": "17000"
 };
 
@@ -1165,6 +1165,38 @@ async function loadKnowledgeContent(url) {
 
 // --- Twitter 領域 ---
 async function initTwitter() {
+  const twitterSection = document.getElementById('twitter-section') || document.querySelector('.twitter-section') || document.getElementById('twitter-content')?.parentNode;
+
+  if (twitterSection && !document.getElementById('twitter-refresh-btn')) {
+    // ヘッダーやタイトル部分に更新ボタンを設置
+    let header = twitterSection.querySelector('.section-header') || twitterSection.querySelector('h2')?.parentNode || twitterSection;
+    if (header === twitterSection) {
+      const topBar = document.createElement('div');
+      topBar.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;';
+      topBar.innerHTML = `<span style="font-weight: bold; font-size: 16px;">Twitter</span>`;
+      twitterSection.insertBefore(topBar, twitterSection.firstChild);
+      header = topBar;
+    }
+
+    const refreshBtn = document.createElement('img');
+    refreshBtn.id = 'twitter-refresh-btn';
+    refreshBtn.src = 'icons/refresh.png';
+    refreshBtn.alt = '更新';
+    refreshBtn.title = '再読み込み';
+    refreshBtn.style.cssText = 'width: 20px; height: 20px; cursor: pointer; transition: transform 0.3s ease;';
+    refreshBtn.onclick = () => {
+      refreshBtn.style.transform = 'rotate(360deg)';
+      setTimeout(() => { refreshBtn.style.transform = 'none'; }, 300);
+      loadTwitterContent();
+    };
+
+    header.appendChild(refreshBtn);
+  }
+
+  loadTwitterContent();
+}
+
+async function loadTwitterContent() {
   const container = document.getElementById('twitter-content');
   if (!container) return;
 
@@ -1200,84 +1232,110 @@ async function initTwitter() {
       const author = item.querySelector('author')?.textContent || item.querySelector('dc\\:creator, creator')?.textContent || '';
       const pubDateRaw = item.querySelector('pubDate')?.textContent || '';
 
+      // --- リツイート(RT)の除外フィルタリング ---
+      if (/^RT[\s:]/i.test(title) || /^RT[\s:]/i.test(description) || title.includes("RT @")) {
+        return; // スキップ
+      }
+
       let pubDate = new Date(pubDateRaw);
       const dateStr = !isNaN(pubDate.getTime()) ? pubDate.toLocaleString('ja-JP') : pubDateRaw;
 
       // HTMLコンテンツのパース
       const contentDoc = parser.parseFromString(`<div>${description}</div>`, 'text/html');
 
-      // アイコン画像抽出
-      let iconUrl = '';
-      const firstImg = contentDoc.querySelector('img');
-      if (firstImg) {
-        iconUrl = firstImg.src;
-        // 本文中の重複アイコン画像を削除
-        firstImg.remove();
+      // ユーザーアイコン要素を完全に除去
+      contentDoc.querySelectorAll('img.avatar, img[src*="profile_images"]').forEach(img => img.remove());
+
+      // ユーザー名・ID抽出
+      let displayName = author || title.split(':')[0] || 'Twitter User';
+      let userId = '';
+
+      if (displayName.includes('(@') && displayName.endsWith(')')) {
+        const parts = displayName.split('(@');
+        displayName = parts[0].trim();
+        userId = '@' + parts[1].slice(0, -1).trim();
+      } else if (displayName.startsWith('@')) {
+        userId = displayName;
+        displayName = displayName.replace(/^@/, '');
       }
 
-      // ユーザー名の調整
-      let userName = author || title.split(':')[0] || 'Twitter User';
+      // 引用リツイート要素のスタイル付け (<div class="quote-box"> で囲む)
+      const blockquotes = contentDoc.querySelectorAll('blockquote');
+      blockquotes.forEach(bq => {
+        const quoteBox = contentDoc.createElement('div');
+        quoteBox.className = 'quote-box';
+        quoteBox.style.cssText = `
+          border: 1px solid var(--border-color, #e0e0e0);
+          border-radius: 8px;
+          padding: 8px 12px;
+          margin-top: 8px;
+          background: rgba(0, 0, 0, 0.02);
+          font-size: 12px;
+        `;
+        quoteBox.innerHTML = bq.innerHTML;
+        bq.parentNode.replaceChild(quoteBox, bq);
+      });
 
-      // 投稿本文を取得
+      // 画像/メディア要素を一旦退避し、テキスト直下に正しく配置
+      const mediaElements = Array.from(contentDoc.querySelectorAll('img, video, iframe'));
+      mediaElements.forEach(media => media.remove());
+
       let contentHtml = contentDoc.body.innerHTML;
 
-      // DOM要素を構築
+      // DOM要素構築
       const tweetCard = document.createElement('div');
       tweetCard.style.cssText = `
         border-bottom: 1px solid var(--border-color, #eee);
         padding: 12px 8px;
-        display: flex;
-        gap: 12px;
         box-sizing: border-box;
         width: 100%;
         overflow: hidden;
       `;
 
-      // アイコン領域
-      const iconWrapper = document.createElement('div');
-      iconWrapper.style.cssText = `
-        flex-shrink: 0;
-        width: 40px;
-        height: 40px;
-      `;
-
-      if (iconUrl) {
-        iconWrapper.innerHTML = `<img src="${iconUrl}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; display: block;" alt="icon">`;
-      } else {
-        iconWrapper.innerHTML = `<div style="width: 40px; height: 40px; border-radius: 50%; background: #ccc; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: bold;">👤</div>`;
-      }
-
-      // ツイート本文・メディア領域
-      const bodyWrapper = document.createElement('div');
-      bodyWrapper.style.cssText = `
-        flex: 1;
-        min-width: 0;
-        box-sizing: border-box;
-      `;
-
-      bodyWrapper.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; gap: 8px;">
-          <a href="${link}" target="_blank" rel="noopener" style="font-weight: bold; font-size: 14px; text-decoration: none; color: var(--text-main, #333); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${userName}</a>
+      // ユーザー情報ヘッダー（太字・大きめのフォント）
+      const userHeaderHtml = `
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; flex-wrap: wrap;">
+          <a href="${link}" target="_blank" rel="noopener" style="text-decoration: none; display: flex; align-items: baseline; gap: 6px; overflow: hidden;">
+            <span style="font-weight: bold; font-size: 15px; color: var(--text-main, #111);">${displayName}</span>
+            ${userId ? `<span style="font-size: 12px; color: #666; font-weight: normal;">${userId}</span>` : ''}
+          </a>
           <span style="font-size: 11px; color: #888; flex-shrink: 0;">${dateStr}</span>
         </div>
-        <div class="tweet-text" style="font-size: 13px; line-height: 1.4; color: var(--text-main, #333); word-break: break-word; overflow-wrap: break-word;">
-          ${contentHtml}
-        </div>
       `;
 
-      // レスポンシブ画像・動画調整 (スマホ横スクロール防止)
-      const mediaElements = bodyWrapper.querySelectorAll('img, video, iframe');
+      // ポスト本文
+      const bodyWrapper = document.createElement('div');
+      bodyWrapper.className = 'tweet-text';
+      bodyWrapper.style.cssText = `
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--text-main, #333);
+        word-break: break-word;
+        overflow-wrap: break-word;
+      `;
+      bodyWrapper.innerHTML = contentHtml;
+
+      // 本文の直下に配置されるメディア要素コンテナ
+      const mediaContainer = document.createElement('div');
+      mediaContainer.className = 'tweet-media-container';
+      mediaContainer.style.cssText = 'margin-top: 8px;';
+
       mediaElements.forEach(media => {
         media.style.maxWidth = '100%';
         media.style.height = 'auto';
         media.style.borderRadius = '8px';
-        media.style.marginTop = '8px';
+        media.style.marginTop = '6px';
         media.style.display = 'block';
         media.style.boxSizing = 'border-box';
+        mediaContainer.appendChild(media);
       });
 
-      tweetCard.appendChild(iconWrapper);
+      tweetCard.innerHTML = userHeaderHtml;
       tweetCard.appendChild(bodyWrapper);
+      if (mediaElements.length > 0) {
+        tweetCard.appendChild(mediaContainer);
+      }
+
       container.appendChild(tweetCard);
     });
 
