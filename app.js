@@ -2128,7 +2128,7 @@ async function loadFutocyanContent() {
       tr.innerHTML = `
         <td style="padding: 8px 4px; vertical-align: middle;">
           <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
-            ${isLive ? '<span style="background: #ff3b30; color: #fff; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; animation: pulse 1.5s infinite;">🔴 LIVE中</span>' : ''}
+            ${isLive ? '<span style="background: #ff3b30; color: #fff; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; animation: pulse 1.5s infinite;">🔴LIVE</span>' : ''}
             <a href="${item.link}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: var(--text-main, #007aff); text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">
               ${item.title}
             </a>
