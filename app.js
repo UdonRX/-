@@ -203,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initKnowledge();
   initTwitter();
   initYoutube();
+  initFutocyan(); // 布団ちゃん機能の初期化
   initModals();
   registerSW();
 });
@@ -348,10 +349,8 @@ async function fetchYoutubeData(channelIdentifier) {
     }
 
     // Shortsの判定 (通常縦動画やdurationが短いもの、あるいはタイトルのハッシュタグ等)
-    // YouTube Data APIのcontentDetails.duration (ISO 8601) で60秒以下か確認可能
     let isShort = false;
     const durationISO = video.contentDetails?.duration || '';
-    // 簡易的な判定: PT1M未満であればショートの可能性が高い
     if (durationISO) {
       const match = durationISO.match(/PT(?:(\d+)M)?(?:(\d+)S)?/);
       if (match) {
@@ -1958,12 +1957,10 @@ async function loadAllYoutubeContent() {
       const filtered = allVideos.filter(item => {
         let matchesType = false;
         if (window.currentType === 'long') {
-          // 通常の動画 (ショートではなく、かつライブ関連ではない、または通常の動画枠)
           matchesType = !item.isShort && item.liveStatus === 'none';
         } else if (window.currentType === 'short') {
           matchesType = item.isShort;
         } else if (window.currentType === 'live') {
-          // 生配信中、生配信予定、生配信の録画
           matchesType = item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed';
         }
 
@@ -2059,6 +2056,95 @@ async function loadAllYoutubeContent() {
   } catch (err) {
     console.error(err);
     container.innerHTML = '<div class="loading">YouTube情報の取得中にエラーが発生しました</div>';
+  }
+}
+
+// --- 布団ちゃん機能の追加（YouTubeセクションの下） ---
+function initFutocyan() {
+  const youtubeSection = document.getElementById('youtube-section') || document.querySelector('.youtube-section');
+  if (!youtubeSection) return;
+
+  // すでに存在していなければ作成
+  let futocyanSection = document.getElementById('futocyan-section');
+  if (!futocyanSection) {
+    futocyanSection = document.createElement('div');
+    futocyanSection.id = 'futocyan-section';
+    futocyanSection.className = 'section'; // 既存の共通セクションクラスがあれば適用
+    futocyanSection.style.cssText = 'margin-top: 24px; background: var(--card-bg, #fff); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color, #e0e0e0);';
+    
+    // YouTubeセクションの直後に挿入
+    youtubeSection.parentNode.insertBefore(futocyanSection, youtubeSection.nextSibling);
+  }
+
+  futocyanSection.innerHTML = `
+    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h2 style="font-size: 16px; margin: 0;">布団ちゃん</h2>
+      <button id="futocyan-refresh-btn" class="btn" style="padding: 4px 8px; font-size: 12px; cursor: pointer;">更新</button>
+    </div>
+    <div id="futocyan-content" style="font-size: 13px;">
+      <div class="loading">読み込み中...</div>
+    </div>
+  `;
+
+  document.getElementById('futocyan-refresh-btn').onclick = loadFutocyanContent;
+  loadFutocyanContent();
+}
+
+async function loadFutocyanContent() {
+  const container = document.getElementById('futocyan-content');
+  if (!container) return;
+  container.innerHTML = '<div class="loading">布団ちゃんの情報を読み込み中...</div>';
+
+  try {
+    const feedUrl = 'https://rss.app/feeds/jHml07gZvosRuZXm.xml';
+    const items = await fetchNewsRSS(feedUrl);
+
+    if (items.length === 0) {
+      container.innerHTML = '<div class="loading">データが見つかりませんでした</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    const table = document.createElement('table');
+    table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;';
+
+    items.forEach(item => {
+      const isLive = item.description && item.description.toUpperCase().includes('LIVE');
+      
+      // 日本時間に変換
+      let dateStr = '';
+      if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
+        dateStr = item.pubDate.toLocaleString('ja-JP', {
+          month: 'numeric',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+
+      const tr = document.createElement('tr');
+      tr.style.cssText = 'border-bottom: 1px solid rgba(0,0,0,0.1);';
+
+      tr.innerHTML = `
+        <td style="padding: 8px 4px; vertical-align: middle;">
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+            ${isLive ? '<span style="background: #ff3b30; color: #fff; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; animation: pulse 1.5s infinite;">🔴 LIVE中</span>' : ''}
+            <a href="${item.link}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: var(--text-main, #007aff); text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">
+              ${item.title}
+            </a>
+          </div>
+          <div style="font-size: 11px; color: #666; margin-top: 2px;">
+            ${dateStr}
+          </div>
+        </td>
+      `;
+      table.appendChild(tr);
+    });
+
+    container.appendChild(table);
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = '<div class="loading" style="color: red;">情報の取得に失敗しました</div>';
   }
 }
 
