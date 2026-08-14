@@ -359,7 +359,6 @@ async function fetchYoutubeData(channelIdentifier) {
         wasEverLive = true;
       } else if (liveDetails.scheduledStartTime) {
         liveStatus = 'upcoming'; 
-        // タイムゾーン（JSTなど）を正しくパースする
         scheduledStartTime = new Date(liveDetails.scheduledStartTime);
       } else {
         liveStatus = 'completed';
@@ -370,7 +369,6 @@ async function fetchYoutubeData(channelIdentifier) {
     let isShort = false;
     const durationISO = video.contentDetails?.duration || '';
     if (durationISO) {
-      // ISO 8601形式のduration（PT#H#M#Sなど）を正確に秒数にパースする処理
       const match = durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
       if (match) {
         const hours = parseInt(match[1] || 0, 10);
@@ -2294,7 +2292,7 @@ window.openYoutubeModalByIndex = function(index) {
     });
   }
 
-  // 要件A-3: iOSでバックグラウンド移行時にオーディオが一時停止されるのを防ぐための無音オーディオ継続ハック（必要に応じた常時再生コンテキスト維持）
+  // 要件A-3: iOSでバックグラウンド移行時にオーディオが一時停止されるのを防ぐための無音オーディオ継続ハック
   setupBackgroundAudioKeepAlive();
 };
 
@@ -2338,7 +2336,6 @@ window.toggleLandscapeFullscreen = async function() {
   } catch (err) {
     console.log('Fullscreen/Orientation API notice:', err);
     // 3. iOS SafariなどでScreenOrientationが使えない場合やフルスクリーンが制限される場合のフォールバック
-    // レイアウト自体を横画面風にトグルまたはメッセージ通知
     toggleCssLandscapeFallback(wrapper);
   }
 };
@@ -2434,7 +2431,6 @@ function setupModalDrag(modal) {
 window.closeYoutubeModal = function() {
   const modal = document.getElementById('youtube-video-modal');
   if (modal) modal.remove();
-  // モーダルを閉じたらメディアセッションの解放
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = null;
   }
