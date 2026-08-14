@@ -348,17 +348,21 @@ async function fetchYoutubeData(channelIdentifier) {
     const liveDetails = video.liveStreamingDetails;
     let liveStatus = 'none'; 
     let scheduledStartTime = null;
+    let wasEverLive = false; // 生配信（過去にライブ実施されたもの）かどうかの判定用フラグ
 
     if (liveDetails) {
       if (liveDetails.actualEndTime) {
         liveStatus = 'completed'; 
+        wasEverLive = true;
       } else if (liveDetails.actualStartTime) {
         liveStatus = 'live'; 
+        wasEverLive = true;
       } else if (liveDetails.scheduledStartTime) {
         liveStatus = 'upcoming'; 
         scheduledStartTime = new Date(liveDetails.scheduledStartTime);
       } else {
         liveStatus = 'completed';
+        wasEverLive = true;
       }
     }
 
@@ -389,7 +393,8 @@ async function fetchYoutubeData(channelIdentifier) {
       liveStatus,
       scheduledStartTime,
       durationISO,
-      liveDetails
+      liveDetails,
+      wasEverLive
     };
   });
 }
@@ -1964,10 +1969,10 @@ async function loadAllYoutubeContent() {
         let isPremiereSoon = false;
         let isPremiereFinished = false;
 
-        if (item.liveDetails && item.liveDetails.scheduledStartTime) {
+        // プレミア公開（予定時刻があるが、過去に一度もライブとして実配信されていないもの）の判定
+        if (item.liveDetails && item.liveDetails.scheduledStartTime && !item.wasEverLive) {
           const scheduledTime = new Date(item.liveDetails.scheduledStartTime);
           
-          // 動画の長さをパースするヘルパー
           let durationMs = 0;
           if (item.durationISO) {
             const match = item.durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -1982,13 +1987,10 @@ async function loadAllYoutubeContent() {
           const finishTime = new Date(scheduledTime.getTime() + durationMs);
 
           if (now < scheduledTime) {
-            // プレミア公開前
             isPremiereSoon = true;
           } else if (now >= scheduledTime && now <= finishTime) {
-            // プレミア公開中
             isPremiereSoon = true;
           } else {
-            // 公開時刻から動画の長さを経過した後（プレミア公開終了）
             isPremiereFinished = true;
           }
         }
@@ -1996,13 +1998,13 @@ async function loadAllYoutubeContent() {
         let matchesType = false;
 
         if (window.currentType === 'long') {
-          // 通常動画 または プレミア公開終了後の動画を「動画タブ」へ
-          matchesType = !item.isShort && (item.liveStatus === 'none' || isPremiereFinished);
+          // 通常動画 または プレミア公開終了後の動画を「動画タブ」へ（生配信後の録画は除外する）
+          matchesType = !item.isShort && !item.wasEverLive && (item.liveStatus === 'none' || isPremiereFinished);
         } else if (window.currentType === 'short') {
           matchesType = item.isShort;
         } else if (window.currentType === 'live') {
-          // 実際のライブ、またはプレミア公開前・公開中のものを「LIVEタブ」へ
-          const isLiveOrRecordedLive = (item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed') && !isPremiereFinished;
+          // 実際のライブ配信、予定・終了した生配信、またはプレミア公開前・中のものを「LIVEタブ」へ
+          const isLiveOrRecordedLive = (item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed' || item.wasEverLive) && !isPremiereFinished;
           matchesType = isLiveOrRecordedLive || isPremiereSoon;
         }
 
@@ -2067,7 +2069,7 @@ async function loadAllYoutubeContent() {
         let dateStr = '';
         let isLive = item.liveStatus === 'live';
 
-        if (item.liveStatus === 'upcoming' && item.scheduledStartTime) {
+        if (item.liveStatus === 'upcoming' && item.scheduledStartTime && !item.wasEverLive) {
           dateStr = `予定: ${formatCustomDate(item.scheduledStartTime)}開始`;
         } else if (isLive) {
           dateStr = '';
@@ -2384,7 +2386,7 @@ function initModals() {
           <div>
             <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">サイト名 / チャンネル名</label>
             <input type="text" id="add-feed-name" placeholder="例: NHKニュース" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
-          </div>
+-           </div>
           <div>
             <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">RSS URL または YouTubeチャンネルID</label>
             <input type="text" id="add-feed-url" placeholder="例: https://..." style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
