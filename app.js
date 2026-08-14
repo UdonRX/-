@@ -387,7 +387,9 @@ async function fetchYoutubeData(channelIdentifier) {
       thumbnail,
       isShort,
       liveStatus,
-      scheduledStartTime
+      scheduledStartTime,
+      durationISO,
+      liveDetails
     };
   });
 }
@@ -1956,19 +1958,52 @@ async function loadAllYoutubeContent() {
     window.currentType = 'long';
 
     window.updateVideoDisplay = function() {
+      const now = new Date();
+
       const filtered = allVideos.filter(item => {
+        let isPremiereSoon = false;
+        let isPremiereFinished = false;
+
+        if (item.liveDetails && item.liveDetails.scheduledStartTime) {
+          const scheduledTime = new Date(item.liveDetails.scheduledStartTime);
+          
+          // 動画の長さをパースするヘルパー
+          let durationMs = 0;
+          if (item.durationISO) {
+            const match = item.durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+            if (match) {
+              const hours = parseInt(match[1] || 0, 10);
+              const mins = parseInt(match[2] || 0, 10);
+              const secs = parseInt(match[3] || 0, 10);
+              durationMs = ((hours * 3600) + (mins * 60) + secs) * 1000;
+            }
+          }
+
+          const finishTime = new Date(scheduledTime.getTime() + durationMs);
+
+          if (now < scheduledTime) {
+            // プレミア公開前
+            isPremiereSoon = true;
+          } else if (now >= scheduledTime && now <= finishTime) {
+            // プレミア公開中
+            isPremiereSoon = true;
+          } else {
+            // 公開時刻から動画の長さを経過した後（プレミア公開終了）
+            isPremiereFinished = true;
+          }
+        }
+
         let matchesType = false;
-        
-        const titleLower = item.title.toLowerCase();
-        const isPremiere = titleLower.includes('プレミア公開') || titleLower.includes('premiere') || (item.liveStatus === 'completed' && item.scheduledStartTime && !item.title.includes('生配信') && !item.title.includes('LIVE'));
 
         if (window.currentType === 'long') {
-          matchesType = !item.isShort && (item.liveStatus === 'none' || isPremiere);
+          // 通常動画 または プレミア公開終了後の動画を「動画タブ」へ
+          matchesType = !item.isShort && (item.liveStatus === 'none' || isPremiereFinished);
         } else if (window.currentType === 'short') {
           matchesType = item.isShort;
         } else if (window.currentType === 'live') {
-          const isLiveOrRecordedLive = (item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed') && !isPremiere;
-          matchesType = isLiveOrRecordedLive;
+          // 実際のライブ、またはプレミア公開前・公開中のものを「LIVEタブ」へ
+          const isLiveOrRecordedLive = (item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed') && !isPremiereFinished;
+          matchesType = isLiveOrRecordedLive || isPremiereSoon;
         }
 
         const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
