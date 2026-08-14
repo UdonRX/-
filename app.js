@@ -348,7 +348,7 @@ async function fetchYoutubeData(channelIdentifier) {
     const liveDetails = video.liveStreamingDetails;
     let liveStatus = 'none'; 
     let scheduledStartTime = null;
-    let wasEverLive = false; // 生配信（過去にライブ実施されたもの）かどうかの判定用フラグ
+    let wasEverLive = false;
 
     if (liveDetails) {
       if (liveDetails.actualEndTime) {
@@ -359,7 +359,6 @@ async function fetchYoutubeData(channelIdentifier) {
         wasEverLive = true;
       } else if (liveDetails.scheduledStartTime) {
         liveStatus = 'upcoming'; 
-        // タイムゾーン（JSTなど）を正しくパースする
         scheduledStartTime = new Date(liveDetails.scheduledStartTime);
       } else {
         liveStatus = 'completed';
@@ -370,7 +369,6 @@ async function fetchYoutubeData(channelIdentifier) {
     let isShort = false;
     const durationISO = video.contentDetails?.duration || '';
     if (durationISO) {
-      // ISO 8601形式のduration（PT#H#M#Sなど）を正確に秒数にパースする処理
       const match = durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
       if (match) {
         const hours = parseInt(match[1] || 0, 10);
@@ -1967,36 +1965,29 @@ async function loadAllYoutubeContent() {
 
     window.currentType = 'long';
 
- window.updateVideoDisplay = function() {
+    window.updateVideoDisplay = function() {
       const now = new Date();
 
       const filtered = allVideos.filter(item => {
         let isPremiereSoon = false;
         let isPremiereFinished = false;
 
-        // プレミア公開（予定時刻があるが、過去に一度もライブとして実配信されていないもの）の判定
         if (item.liveDetails && item.liveDetails.scheduledStartTime && !item.wasEverLive) {
-          // 確実にDateオブジェクトに変換（数値・ミリ秒として扱うため .getTime() を利用）
           const scheduledTime = new Date(item.liveDetails.scheduledStartTime);
           
           if (!isNaN(scheduledTime.getTime())) {
             let durationMs = 0;
             if (item.durationISO) {
-              // ISO 8601形式の動画長さを正確にミリ秒に変換
               const match = item.durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
               if (match) {
                 const hours = parseInt(match[1] || 0, 10);
                 const mins = parseInt(match[2] || 0, 10);
                 const secs = parseInt(match[3] || 0, 10);
-                // 秒からミリ秒へ変換 (1秒 = 1000ミリ秒)
                 durationMs = ((hours * 3600) + (mins * 60) + secs) * 1000;
               }
             }
 
-            // 安全マージン（バッファ）の設定：API反映遅延を考慮して「10分間」の猶予をもたせる（ミリ秒単位）
             const safetyBufferMs = 10 * 60 * 1000; 
-            
-            // ミリ秒同士の数値として正確に足し算を行う
             const finishTimeWithBufferMs = scheduledTime.getTime() + durationMs + safetyBufferMs;
             const finishTimeWithBuffer = new Date(finishTimeWithBufferMs);
 
@@ -2013,12 +2004,10 @@ async function loadAllYoutubeContent() {
         let matchesType = false;
 
         if (window.currentType === 'long') {
-          // 通常動画 または プレミア公開終了後の動画を「動画タブ」へ（生配信後の録画は除外する）
           matchesType = !item.isShort && !item.wasEverLive && (item.liveStatus === 'none' || isPremiereFinished);
         } else if (window.currentType === 'short') {
           matchesType = item.isShort;
         } else if (window.currentType === 'live') {
-          // 実際のライブ配信、予定・終了した生配信、またはプレミア公開前・中のものを「LIVEタブ」へ
           const isLiveOrRecordedLive = (item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed' || item.wasEverLive) && !isPremiereFinished;
           matchesType = isLiveOrRecordedLive || isPremiereSoon;
         }
@@ -2203,6 +2192,7 @@ async function loadFutocyanContent() {
   }
 }
 
+// --- iOS バックグラウンド再生 & 横画面ボタン対応のモーダル・プレイヤー実装 ---
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
@@ -2210,6 +2200,8 @@ window.openYoutubeModalByIndex = function(index) {
   const item = list[index];
   const videoId = item.videoId;
   const title = item.title || '';
+  const channelName = item.displayName || item.channelName || '';
+  const thumbnail = item.thumbnail || '';
 
   let modal = document.getElementById('youtube-video-modal');
   if (!modal) {
@@ -2223,7 +2215,7 @@ window.openYoutubeModalByIndex = function(index) {
 
   modal.style.cssText = `
     position: fixed !important;
-    width: min(320px, 85vw) !important;
+    width: min(340px, 90vw) !important;
     height: auto !important;
     background: #000 !important;
     border-radius: 8px !important;
@@ -2257,22 +2249,83 @@ window.openYoutubeModalByIndex = function(index) {
         <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
       </div>
 
-      <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; overflow: hidden;">
-        <div style="position: absolute; top: 0; left: 0; width: 200%; height: 200%; transform: scale(0.5); transform-origin: 0 0;">
-          <iframe 
-            src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080" 
-            title="${title}"
-            style="width: 100%; height: 100%; border: none;"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-            allowfullscreen>
-          </iframe>
-        </div>
+      <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; overflow: hidden;" id="yt-player-wrapper">
+        <!-- iOSバックグラウンド再生・コントロールセンター対応のiframe、またはHTML5動画コンテナ -->
+        <!-- playsinline, webkit-playsinline による自動全画面化の防止とバックグラウンド移行時の継続動作制御 -->
+        <iframe 
+          id="yt-target-iframe"
+          src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080&enablejsapi=1" 
+          title="${title}"
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+          allowfullscreen>
+        </iframe>
+      </div>
+
+      <!-- 横画面（フルスクリーン）および追加コントロールバー -->
+      <div style="display: flex; justify-content: space-between; align-items: center; background: #1c1c1e; padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+        <span style="font-size: 10px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%;">${channelName}</span>
+        <button id="yt-landscape-btn" style="background: #007aff; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+          <span>⤢</span> 横画面にする
+        </button>
       </div>
     </div>
   `;
 
   setupModalDrag(modal);
+  setupMediaSessionAndControls(videoId, title, channelName, thumbnail);
 };
+
+// 1 & 2. Media Session API を活用したバックグラウンド再生・コントロールセンター連携
+function setupMediaSessionAndControls(videoId, title, artist, artworkUrl) {
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: title,
+      artist: artist || 'YouTube Video',
+      album: 'Web App Player',
+      artwork: [
+        { src: artworkUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: '512x512', type: 'image/jpeg' }
+      ]
+    });
+
+    // コントロールセンターからのアクションハンドラ登録
+    try {
+      navigator.mediaSession.setActionHandler('play', () => {
+        const iframe = document.getElementById('yt-target-iframe');
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: '' }), '*');
+        }
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        const iframe = document.getElementById('yt-target-iframe');
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: '' }), '*');
+        }
+      });
+    } catch (e) {
+      console.warn('MediaSession action handler setup warning:', e);
+    }
+  }
+
+  // 3. 横画面（フルスクリーン）ボタンのイベントリスナー設定
+  setTimeout(() => {
+    const landscapeBtn = document.getElementById('yt-landscape-btn');
+    const wrapper = document.getElementById('yt-player-wrapper');
+    if (landscapeBtn && wrapper) {
+      landscapeBtn.onclick = () => {
+        if (wrapper.requestFullscreen) {
+          wrapper.requestFullscreen();
+        } else if (wrapper.webkitRequestFullscreen) { // iOS Safari対応
+          wrapper.webkitRequestFullscreen();
+        }
+        // 画面の向きを可能であれば横向きに固定要請 (Screen Orientation API)
+        if (screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch(() => {});
+        }
+      };
+    }
+  }, 300);
+}
 
 function setupModalDrag(modal) {
   const handle = modal.querySelector('#yt-modal-drag-handle');
@@ -2343,6 +2396,9 @@ function setupModalDrag(modal) {
 window.closeYoutubeModal = function() {
   const modal = document.getElementById('youtube-video-modal');
   if (modal) modal.remove();
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.playbackState = 'none';
+  }
 };
 
 function renderTabs(containerId, feeds, onClickCallback) {
@@ -2401,7 +2457,7 @@ function initModals() {
           <div>
             <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">サイト名 / チャンネル名</label>
             <input type="text" id="add-feed-name" placeholder="例: NHKニュース" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
--           </div>
+          </div>
           <div>
             <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">RSS URL または YouTubeチャンネルID</label>
             <input type="text" id="add-feed-url" placeholder="例: https://..." style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
@@ -2431,7 +2487,7 @@ function initModals() {
     };
   };
 
-  setupAddModal('add-news-btn', 'ニュース配信先の追加', newsFeeds, 'newsFeeds', initNews);
+  setupAddModal('add-news-btn', 'ニュース配信先のadd-news-btn', newsFeeds, 'newsFeeds', initNews);
   setupAddModal('add-knowledge-btn', '知識配信先の追加', knowledgeFeeds, 'knowledgeFeeds', initKnowledge);
   setupAddModal('add-youtube-btn', 'YouTubeチャンネルの追加', youtubeFeeds, 'youtubeFeeds', initYoutube);
 }
