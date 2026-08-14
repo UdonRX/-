@@ -1967,7 +1967,7 @@ async function loadAllYoutubeContent() {
 
     window.currentType = 'long';
 
-    window.updateVideoDisplay = function() {
+ window.updateVideoDisplay = function() {
       const now = new Date();
 
       const filtered = allVideos.filter(item => {
@@ -1976,30 +1976,37 @@ async function loadAllYoutubeContent() {
 
         // プレミア公開（予定時刻があるが、過去に一度もライブとして実配信されていないもの）の判定
         if (item.liveDetails && item.liveDetails.scheduledStartTime && !item.wasEverLive) {
+          // 確実にDateオブジェクトに変換（数値・ミリ秒として扱うため .getTime() を利用）
           const scheduledTime = new Date(item.liveDetails.scheduledStartTime);
           
-          let durationMs = 0;
-          if (item.durationISO) {
-            // ISO 8601形式の動画長さをミリ秒に変換
-            const match = item.durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-            if (match) {
-              const hours = parseInt(match[1] || 0, 10);
-              const mins = parseInt(match[2] || 0, 10);
-              const secs = parseInt(match[3] || 0, 10);
-              durationMs = ((hours * 3600) + (mins * 60) + secs) * 1000;
+          if (!isNaN(scheduledTime.getTime())) {
+            let durationMs = 0;
+            if (item.durationISO) {
+              // ISO 8601形式の動画長さを正確にミリ秒に変換
+              const match = item.durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+              if (match) {
+                const hours = parseInt(match[1] || 0, 10);
+                const mins = parseInt(match[2] || 0, 10);
+                const secs = parseInt(match[3] || 0, 10);
+                // 秒からミリ秒へ変換 (1秒 = 1000ミリ秒)
+                durationMs = ((hours * 3600) + (mins * 60) + secs) * 1000;
+              }
             }
-          }
 
-          // 安全マージン（バッファ）の設定：API反映遅延を考慮して「10分間」の猶予をもたせる
-          const safetyBufferMs = 10 * 60 * 1000; 
-          const finishTimeWithBuffer = new Date(scheduledTime.getTime() + durationMs + safetyBufferMs);
+            // 安全マージン（バッファ）の設定：API反映遅延を考慮して「10分間」の猶予をもたせる（ミリ秒単位）
+            const safetyBufferMs = 10 * 60 * 1000; 
+            
+            // ミリ秒同士の数値として正確に足し算を行う
+            const finishTimeWithBufferMs = scheduledTime.getTime() + durationMs + safetyBufferMs;
+            const finishTimeWithBuffer = new Date(finishTimeWithBufferMs);
 
-          if (now < scheduledTime) {
-            isPremiereSoon = true;
-          } else if (now >= scheduledTime && now <= finishTimeWithBuffer) {
-            isPremiereSoon = true;
-          } else {
-            isPremiereFinished = true;
+            if (now < scheduledTime) {
+              isPremiereSoon = true;
+            } else if (now >= scheduledTime && now <= finishTimeWithBuffer) {
+              isPremiereSoon = true;
+            } else {
+              isPremiereFinished = true;
+            }
           }
         }
 
