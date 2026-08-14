@@ -359,6 +359,7 @@ async function fetchYoutubeData(channelIdentifier) {
         wasEverLive = true;
       } else if (liveDetails.scheduledStartTime) {
         liveStatus = 'upcoming'; 
+        // タイムゾーン（JSTなど）を正しくパースする
         scheduledStartTime = new Date(liveDetails.scheduledStartTime);
       } else {
         liveStatus = 'completed';
@@ -369,11 +370,15 @@ async function fetchYoutubeData(channelIdentifier) {
     let isShort = false;
     const durationISO = video.contentDetails?.duration || '';
     if (durationISO) {
-      const match = durationISO.match(/PT(?:(\d+)M)?(?:(\d+)S)?/);
+      // ISO 8601形式のduration（PT#H#M#Sなど）を正確に秒数にパースする処理
+      const match = durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
       if (match) {
-        const mins = parseInt(match[1] || 0, 10);
-        const secs = parseInt(match[2] || 0, 10);
-        if (mins === 0 && secs > 0 && secs <= 60) {
+        const hours = parseInt(match[1] || 0, 10);
+        const mins = parseInt(match[2] || 0, 10);
+        const secs = parseInt(match[3] || 0, 10);
+        const totalSeconds = (hours * 3600) + (mins * 60) + secs;
+        
+        if (hours === 0 && mins === 0 && totalSeconds > 0 && totalSeconds <= 60) {
           isShort = true;
         }
       }
@@ -1975,6 +1980,7 @@ async function loadAllYoutubeContent() {
           
           let durationMs = 0;
           if (item.durationISO) {
+            // ISO 8601形式の動画長さをミリ秒に変換
             const match = item.durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
             if (match) {
               const hours = parseInt(match[1] || 0, 10);
@@ -1984,11 +1990,13 @@ async function loadAllYoutubeContent() {
             }
           }
 
-          const finishTime = new Date(scheduledTime.getTime() + durationMs);
+          // 安全マージン（バッファ）の設定：API反映遅延を考慮して「10分間」の猶予をもたせる
+          const safetyBufferMs = 10 * 60 * 1000; 
+          const finishTimeWithBuffer = new Date(scheduledTime.getTime() + durationMs + safetyBufferMs);
 
           if (now < scheduledTime) {
             isPremiereSoon = true;
-          } else if (now >= scheduledTime && now <= finishTime) {
+          } else if (now >= scheduledTime && now <= finishTimeWithBuffer) {
             isPremiereSoon = true;
           } else {
             isPremiereFinished = true;
@@ -2412,7 +2420,7 @@ function initModals() {
         initFunc();
       };
 
-      modal.classList.remove('hidden');
+      modal.classList.add('hidden');
     };
   };
 
