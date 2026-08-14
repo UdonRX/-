@@ -348,7 +348,7 @@ async function fetchYoutubeData(channelIdentifier) {
     const liveDetails = video.liveStreamingDetails;
     let liveStatus = 'none'; 
     let scheduledStartTime = null;
-    let wasEverLive = false;
+    let wasEverLive = false; // 生配信（過去にライブ実施されたもの）かどうかの判定用フラグ
 
     if (liveDetails) {
       if (liveDetails.actualEndTime) {
@@ -359,6 +359,7 @@ async function fetchYoutubeData(channelIdentifier) {
         wasEverLive = true;
       } else if (liveDetails.scheduledStartTime) {
         liveStatus = 'upcoming'; 
+        // タイムゾーン（JSTなど）を正しくパースする
         scheduledStartTime = new Date(liveDetails.scheduledStartTime);
       } else {
         liveStatus = 'completed';
@@ -369,6 +370,7 @@ async function fetchYoutubeData(channelIdentifier) {
     let isShort = false;
     const durationISO = video.contentDetails?.duration || '';
     if (durationISO) {
+      // ISO 8601形式のduration（PT#H#M#Sなど）を正確に秒数にパースする処理
       const match = durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
       if (match) {
         const hours = parseInt(match[1] || 0, 10);
@@ -2192,7 +2194,9 @@ async function loadFutocyanContent() {
   }
 }
 
-// --- iOS バックグラウンド再生 & 横画面ボタン対応のモーダル・プレイヤー実装 ---
+// ==========================================
+// A & B 対応: YouTubeモーダルとメディア・画面回転制御
+// ==========================================
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
   if (!list || index < 0 || index >= list.length) return;
@@ -2200,8 +2204,7 @@ window.openYoutubeModalByIndex = function(index) {
   const item = list[index];
   const videoId = item.videoId;
   const title = item.title || '';
-  const channelName = item.displayName || item.channelName || '';
-  const thumbnail = item.thumbnail || '';
+  const channelName = item.displayName || '';
 
   let modal = document.getElementById('youtube-video-modal');
   if (!modal) {
@@ -2215,7 +2218,7 @@ window.openYoutubeModalByIndex = function(index) {
 
   modal.style.cssText = `
     position: fixed !important;
-    width: min(340px, 90vw) !important;
+    width: min(320px, 85vw) !important;
     height: auto !important;
     background: #000 !important;
     border-radius: 8px !important;
@@ -2250,81 +2253,116 @@ window.openYoutubeModalByIndex = function(index) {
       </div>
 
       <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; overflow: hidden;" id="yt-player-wrapper">
-        <!-- iOSバックグラウンド再生・コントロールセンター対応のiframe、またはHTML5動画コンテナ -->
-        <!-- playsinline, webkit-playsinline による自動全画面化の防止とバックグラウンド移行時の継続動作制御 -->
-        <iframe 
-          id="yt-target-iframe"
-          src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080&enablejsapi=1" 
-          title="${title}"
-          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-          allowfullscreen>
-        </iframe>
-      </div>
-
-      <!-- 横画面（フルスクリーン）および追加コントロールバー -->
-      <div style="display: flex; justify-content: space-between; align-items: center; background: #1c1c1e; padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.1);">
-        <span style="font-size: 10px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%;">${channelName}</span>
-        <button id="yt-landscape-btn" style="background: #007aff; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-          <span>⤢</span> 横画面にする
+        <div style="position: absolute; top: 0; left: 0; width: 200%; height: 200%; transform: scale(0.5); transform-origin: 0 0;">
+          <iframe 
+            id="yt-active-iframe"
+            src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080" 
+            title="${title}"
+            style="width: 100%; height: 100%; border: none;"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+            allowfullscreen>
+          </iframe>
+        </div>
+        <!-- 要件B: 横画面切り替えボタン（プレイヤーUI上への重ね配置） -->
+        <button id="yt-landscape-btn" onclick="toggleLandscapeFullscreen()" title="横画面表示（全画面）" style="position: absolute; bottom: 8px; right: 8px; z-index: 10; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+          <span>⤢ 横画面</span>
         </button>
       </div>
     </div>
   `;
 
   setupModalDrag(modal);
-  setupMediaSessionAndControls(videoId, title, channelName, thumbnail);
-};
 
-// 1 & 2. Media Session API を活用したバックグラウンド再生・コントロールセンター連携
-function setupMediaSessionAndControls(videoId, title, artist, artworkUrl) {
+  // 要件A-1 & A-2: Media Session APIによるバックグラウンド再生・ロック画面コントロール連携
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: title,
-      artist: artist || 'YouTube Video',
-      album: 'Web App Player',
+      artist: channelName || 'YouTube',
       artwork: [
-        { src: artworkUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: '512x512', type: 'image/jpeg' }
+        { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpg' }
       ]
     });
 
-    // コントロールセンターからのアクションハンドラ登録
-    try {
-      navigator.mediaSession.setActionHandler('play', () => {
-        const iframe = document.getElementById('yt-target-iframe');
-        if (iframe && iframe.contentWindow) {
-          iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: '' }), '*');
-        }
-      });
-      navigator.mediaSession.setActionHandler('pause', () => {
-        const iframe = document.getElementById('yt-target-iframe');
-        if (iframe && iframe.contentWindow) {
-          iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: '' }), '*');
-        }
-      });
-    } catch (e) {
-      console.warn('MediaSession action handler setup warning:', e);
-    }
+    // コントロールセンターやロック画面からの操作ハンドラ
+    navigator.mediaSession.setActionHandler('play', () => {
+      const iframe = document.getElementById('yt-active-iframe');
+      if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      const iframe = document.getElementById('yt-active-iframe');
+      if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+    });
   }
 
-  // 3. 横画面（フルスクリーン）ボタンのイベントリスナー設定
-  setTimeout(() => {
-    const landscapeBtn = document.getElementById('yt-landscape-btn');
-    const wrapper = document.getElementById('yt-player-wrapper');
-    if (landscapeBtn && wrapper) {
-      landscapeBtn.onclick = () => {
-        if (wrapper.requestFullscreen) {
-          wrapper.requestFullscreen();
-        } else if (wrapper.webkitRequestFullscreen) { // iOS Safari対応
-          wrapper.webkitRequestFullscreen();
-        }
-        // 画面の向きを可能であれば横向きに固定要請 (Screen Orientation API)
-        if (screen.orientation && screen.orientation.lock) {
-          screen.orientation.lock('landscape').catch(() => {});
-        }
-      };
+  // 要件A-3: iOSでバックグラウンド移行時にオーディオが一時停止されるのを防ぐための無音オーディオ継続ハック（必要に応じた常時再生コンテキスト維持）
+  setupBackgroundAudioKeepAlive();
+};
+
+// 要件A-3: iOS Safari/PWA向けバックグラウンドオーディオ継続用ダミーオーディオ維持処理
+let bgAudioElement = null;
+function setupBackgroundAudioKeepAlive() {
+  if (!bgAudioElement) {
+    bgAudioElement = document.createElement('audio');
+    bgAudioElement.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+    bgAudioElement.loop = true;
+    bgAudioElement.setAttribute('playsinline', '');
+    document.body.appendChild(bgAudioElement);
+  }
+  bgAudioElement.play().catch(() => {});
+}
+
+// 要件B: Screen Orientation API とフルスクリーン化の実装（フォールバック対応）
+window.toggleLandscapeFullscreen = async function() {
+  const wrapper = document.getElementById('yt-player-wrapper');
+  const iframe = document.getElementById('yt-active-iframe');
+  if (!wrapper && !iframe) return;
+
+  const targetElem = iframe || wrapper;
+
+  try {
+    // 1. フルスクリーンリクエスト（標準およびwebkit系）
+    if (targetElem.requestFullscreen) {
+      await targetElem.requestFullscreen();
+    } else if (targetElem.webkitEnterFullscreen) {
+      targetElem.webkitEnterFullscreen(); // iOS Safari等のHTMLVideoElement用
+    } else if (wrapper.requestFullscreen) {
+      await wrapper.requestFullscreen();
     }
-  }, 300);
+
+    // 2. Screen Orientation API による横画面固定（対応環境のみ）
+    if (screen.orientation && screen.orientation.lock) {
+      await screen.orientation.lock('landscape').catch(() => {
+        // ロックが拒否された場合や非対応ブラウザの場合はスルー（フォールバックへ）
+      });
+    }
+  } catch (err) {
+    console.log('Fullscreen/Orientation API notice:', err);
+    // 3. iOS SafariなどでScreenOrientationが使えない場合やフルスクリーンが制限される場合のフォールバック
+    // レイアウト自体を横画面風にトグルまたはメッセージ通知
+    toggleCssLandscapeFallback(wrapper);
+  }
+};
+
+// CSSによる横画面風トグルフォールバック（iOS用）
+function toggleCssLandscapeFallback(wrapper) {
+  if (!wrapper) return;
+  if (!wrapper.classList.contains('css-landscape-mode')) {
+    wrapper.classList.add('css-landscape-mode');
+    wrapper.style.position = 'fixed';
+    wrapper.style.top = '0';
+    wrapper.style.left = '0';
+    wrapper.style.width = '100vw';
+    wrapper.style.height = '100vh';
+    wrapper.style.zIndex = '9999999';
+    wrapper.style.paddingTop = '0';
+  } else {
+    wrapper.classList.remove('css-landscape-mode');
+    wrapper.style.position = 'relative';
+    wrapper.style.width = '100%';
+    wrapper.style.height = 'auto';
+    wrapper.style.zIndex = 'auto';
+    wrapper.style.paddingTop = '56.25%';
+  }
 }
 
 function setupModalDrag(modal) {
@@ -2396,8 +2434,9 @@ function setupModalDrag(modal) {
 window.closeYoutubeModal = function() {
   const modal = document.getElementById('youtube-video-modal');
   if (modal) modal.remove();
+  // モーダルを閉じたらメディアセッションの解放
   if ('mediaSession' in navigator) {
-    navigator.mediaSession.playbackState = 'none';
+    navigator.mediaSession.metadata = null;
   }
 };
 
@@ -2457,7 +2496,7 @@ function initModals() {
           <div>
             <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">サイト名 / チャンネル名</label>
             <input type="text" id="add-feed-name" placeholder="例: NHKニュース" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
-          </div>
+           </div>
           <div>
             <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">RSS URL または YouTubeチャンネルID</label>
             <input type="text" id="add-feed-url" placeholder="例: https://..." style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
@@ -2487,7 +2526,7 @@ function initModals() {
     };
   };
 
-  setupAddModal('add-news-btn', 'ニュース配信先のadd-news-btn', newsFeeds, 'newsFeeds', initNews);
+  setupAddModal('add-news-btn', 'ニュース配信先の追加', newsFeeds, 'newsFeeds', initNews);
   setupAddModal('add-knowledge-btn', '知識配信先の追加', knowledgeFeeds, 'knowledgeFeeds', initKnowledge);
   setupAddModal('add-youtube-btn', 'YouTubeチャンネルの追加', youtubeFeeds, 'youtubeFeeds', initYoutube);
 }
