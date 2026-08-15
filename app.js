@@ -2702,3 +2702,233 @@ async function loadShortsContent() {
     `;
   }
 }
+
+// ==========================================
+// ニュースショート動画自動生成・縦型スワイプビューワー機能
+// ==========================================
+function initNewsShortsFeature() {
+  // 既存のボタン配置やヘッダーを崩さず、ニュースセクションなどに「ショート動画で見る」ボタンを安全にフック
+  const newsSection = document.getElementById('news-section') || document.querySelector('.news-section');
+  if (!newsSection) return;
+
+  const headerActions = newsSection.querySelector('.section-header .action-buttons') || newsSection.querySelector('.section-header');
+  if (headerActions && !document.getElementById('open-news-shorts-btn')) {
+    const shortBtn = document.createElement('button');
+    shortBtn.id = 'open-news-shorts-btn';
+    shortBtn.className = 'btn primary';
+    shortBtn.style.cssText = 'background: #ff3b30; color: #fff; border: none; font-weight: bold;';
+    shortBtn.textContent = '🎬 ショート動画';
+    shortBtn.title = 'ニュースを15秒ショート動画で視聴';
+    shortBtn.onclick = () => openNewsShortsViewer();
+    
+    if (headerActions.classList.contains('action-buttons')) {
+      headerActions.prepend(shortBtn);
+    } else {
+      headerActions.appendChild(shortBtn);
+    }
+  }
+}
+
+// ショート動画の原稿（台本）要約ロジック（15秒向けに簡潔化）
+function generateShortScript(title, description) {
+  let cleanText = description.replace(/<[^>]*>?/gm, '').trim();
+  if (cleanText.length > 60) {
+    cleanText = cleanText.substring(0, 60) + '…';
+  }
+  return {
+    hook: `【速報】${title}`,
+    body: cleanText,
+    cta: '詳細はブラウザで確認！'
+  };
+}
+
+// 縦型全画面スワイプビューワーモーダルの起動
+async function openNewsShortsViewer() {
+  // 既存のニュースアイテム群を取得
+  const newsItemsContainer = document.getElementById('news-content');
+  if (!newsItemsContainer) {
+    alert('ニュース記事が読み込まれていません。');
+    return;
+  }
+
+  const links = Array.from(newsItemsContainer.querySelectorAll('.news-item')).map(item => {
+    const a = item.querySelector('a');
+    const time = item.querySelector('.news-time')?.textContent || '';
+    return {
+      title: a ? a.textContent : '無題ニュース',
+      url: a ? a.href : '#',
+      time: time
+    };
+  });
+
+  if (links.length === 0) {
+    alert('再生できるニュースが見つかりません。');
+    return;
+  }
+
+  // 既存モーダルの重複を防ぐ
+  let viewerModal = document.getElementById('news-shorts-viewer-modal');
+  if (viewerModal) viewerModal.remove();
+
+  viewerModal = document.createElement('div');
+  viewerModal.id = 'news-shorts-viewer-modal';
+  viewerModal.style.cssText = `
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: #000; z-index: 9999999; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; overflow: hidden;
+    touch-action: pan-y; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  `;
+
+  viewerModal.innerHTML = `
+    <div style="position: absolute; top: 12px; right: 12px; z-index: 100000; display: flex; gap: 8px;">
+      <button id="shorts-close-btn" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4); color: #fff; width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;">✕</button>
+    </div>
+    
+    <div id="shorts-swipe-container" style="width: 100%; max-width: 430px; height: 100%; max-height: 932px; position: relative; background: #111; overflow: hidden; display: flex; flex-direction: column;">
+      <div id="shorts-slides-wrapper" style="width: 100%; height: 100%; display: flex; flex-direction: column; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);"></div>
+      
+      <!-- ナビゲーション操作ボタン（上下スワイプ補助） -->
+      <div style="position: absolute; right: 16px; bottom: 100px; display: flex; flex-direction: column; gap: 16px; z-index: 10000;">
+        <button id="shorts-prev-btn" style="width: 48px; height: 48px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.3); color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;">▲</button>
+        <button id="shorts-next-btn" style="width: 48px; height: 48px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.3); color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;">▼</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(viewerModal);
+
+  const wrapper = viewerModal.querySelector('#shorts-slides-wrapper');
+  let currentIndex = 0;
+
+  // 各スライド（9:16比率の縦型カード）の描画
+  links.forEach((news, idx) => {
+    const script = generateShortScript(news.title, news.title);
+    const slide = document.createElement('div');
+    slide.className = 'shorts-slide';
+    slide.style.cssText = `
+      min-width: 100%; min-height: 100%; height: 100%; box-sizing: border-box;
+      display: flex; flex-direction: column; justify-content: space-between;
+      padding: 40px 24px 60px 24px; position: relative; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff; overflow: hidden; flex-shrink: 0;
+    `;
+
+    slide.innerHTML = `
+      <div style="position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: rgba(255,255,255,0.2);">
+        <div class="shorts-progress-bar" style="width: 0%; height: 100%; background: #ff3b30; transition: width 15s linear;"></div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; opacity: 0.8;">
+        <span style="background: rgba(255,59,48,0.8); padding: 2px 8px; border-radius: 4px; font-weight: bold;">AIニュース Shorts</span>
+        <span>${news.time}</span>
+      </div>
+
+      <div style="margin: auto 0; display: flex; flex-direction: column; gap: 16px;">
+        <h3 style="font-size: 22px; line-height: 1.4; font-weight: bold; margin: 0; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">${script.hook}</h3>
+        <p style="font-size: 15px; line-height: 1.6; opacity: 0.9; margin: 0; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 4px solid #ff3b30;">${script.body}</p>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <a href="${news.url}" target="_blank" rel="noopener" style="display: block; text-align: center; background: #007aff; color: #fff; padding: 12px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; box-shadow: 0 4px 12px rgba(0,122,255,0.4);">元記事を読む ↗</a>
+        <button class="shorts-speak-btn" data-text="${script.hook}。${script.body}" style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px;">🔊 音声で聴く (15秒)</button>
+      </div>
+    `;
+    wrapper.appendChild(slide);
+  });
+
+  const updateSlidePosition = () => {
+    wrapper.style.transform = `translateY(-${currentIndex * 100}%)`;
+    // 音声読み上げ中の場合は停止
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    // プログレスバーアニメーションの制御
+    const bars = wrapper.querySelectorAll('.shorts-progress-bar');
+    bars.forEach((bar, i) => {
+      bar.style.transition = 'none';
+      bar.style.width = '0%';
+      if (i === currentIndex) {
+        setTimeout(() => {
+          bar.style.transition = 'width 15s linear';
+          bar.style.width = '100%';
+        }, 50);
+      }
+    });
+
+    // 自動音声再生（オプション有効時）
+    playCurrentSlideAudio(currentIndex);
+  };
+
+  const playCurrentSlideAudio = (index) => {
+    if (!('speechSynthesis' in window)) return;
+    const slides = wrapper.querySelectorAll('.shorts-slide');
+    const speakBtn = slides[index]?.querySelector('.shorts-speak-btn');
+    if (speakBtn) {
+      const text = speakBtn.getAttribute('data-text');
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ja-JP';
+      utterance.rate = 1.1; // ショート動画向けに少し早口
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  // イベント設定
+  viewerModal.querySelector('#shorts-close-btn').onclick = () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    viewerModal.remove();
+  };
+
+  viewerModal.querySelector('#shorts-next-btn').onclick = () => {
+    if (currentIndex < links.length - 1) {
+      currentIndex++;
+      updateSlidePosition();
+    }
+  };
+
+  viewerModal.querySelector('#shorts-prev-btn').onclick = () => {
+    if (currentIndex > 0) {
+      currentIndex--;
+      updateSlidePosition();
+    }
+  };
+
+  // タッチ・スワイプ操作の実装
+  let startY = 0;
+  viewerModal.addEventListener('touchstart', (e) => {
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  viewerModal.addEventListener('touchend', (e) => {
+    const endY = e.changedTouches[0].clientY;
+    const diff = startY - endY;
+    if (Math.abs(diff) > 50) {
+      if (diff > 0 && currentIndex < links.length - 1) {
+        currentIndex++; // 上スワイプ -> 次へ
+      } else if (diff < 0 && currentIndex > 0) {
+        currentIndex--; // 下スワイプ -> 前へ
+      }
+      updateSlidePosition();
+    }
+  }, { passive: true });
+
+  // 音声ボタンの手動操作
+  wrapper.querySelectorAll('.shorts-speak-btn').forEach((btn, idx) => {
+    btn.onclick = () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const text = btn.getAttribute('data-text');
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ja-JP';
+        window.speechSynthesis.speak(utterance);
+      }
+    };
+  });
+
+  // 初回スライドの音声・プログレス開始
+  updateSlidePosition();
+}
+
+// 既存のDOMContentLoaded内に初期化処理を追加
+document.addEventListener('DOMContentLoaded', () => {
+  // ... (既存の初期化コード群) ...
+  initNewsShortsFeature();
+});
