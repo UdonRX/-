@@ -1,71 +1,39 @@
-/* iOSのセーフエリア（ノッチ・ホームバー）対応 */
 :root {
-  --safe-top: env(safe-area-inset-top, 20px);
-  --safe-bottom: env(safe-area-inset-bottom, 20px);
-  --bg-color: #f2f2f7;
+  --bg-main: #f2f2f7;
   --card-bg: #ffffff;
-  --primary-color: #007aff;
-  --warning-color: #ff9500; /* 編集ボタン用（オレンジ） */
-  --danger-color: #ff3b30;
-  --text-color: #1c1c1e;
+  --text-main: #1c1c1e;
   --text-sub: #8e8e93;
-  --border-color: #e5e5ea;
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  -webkit-tap-highlight-color: transparent;
+  --border-color: #c7c7cc;
+  --primary-color: #007aff;
 }
 
 body {
+  margin: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background-color: var(--bg-main);
+  color: var(--text-main);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  padding-top: var(--safe-top);
-  padding-bottom: calc(var(--safe-bottom) + 20px);
-  padding-left: env(safe-area-inset-left, 12px);
-  padding-right: env(safe-area-inset-right, 12px);
-  /* 拡大（ズーム）防止対策 */
-  touch-action: manipulation;
-}
-
-/* マイ・ダッシュボード非表示化に伴う上部余白調整 */
-header {
-  display: none;
+  overflow-x: hidden;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 main {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-top: 0;
-  padding-top: 0;
-}
-
-/* --- セクション間の余白統一 --- */
-.section,
-#weather-section,
-#news-section,
-#knowledge-section,
-#twitter-section,
-#youtube-section {
-  margin-bottom: 24px;
+  padding: 12px;
+  max-width: 600px;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .card {
   background: var(--card-bg);
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-color);
 }
 
-.card:first-child {
-  margin-top: 0;
-}
-
-.card-header,
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -73,9 +41,9 @@ main {
   margin-bottom: 12px;
 }
 
-h2 {
+.section-header h2 {
   font-size: 18px;
-  font-weight: 600;
+  margin: 0;
 }
 
 .action-buttons {
@@ -84,483 +52,165 @@ h2 {
   align-items: center;
 }
 
-/* ボタン装飾 */
 .btn {
-  border: none;
-  background: #e5e5ea;
-  color: var(--text-color);
   padding: 6px 12px;
-  border-radius: 14px;
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: #fff;
   cursor: pointer;
-  white-space: nowrap; /* ボタンテキストの折り返し防止 */
+  font-size: 13px;
 }
 
 .btn.primary {
   background: var(--primary-color);
   color: #fff;
-}
-
-.btn.warning {
-  background: var(--warning-color);
-  color: #fff;
-}
-
-.btn.danger {
-  background: var(--danger-color);
-  color: #fff;
-}
-
-/* スクロールエリア定義 */
-.horizontal-scroll {
-  display: flex;
-  overflow-x: auto;
-  gap: 12px;
-  padding-bottom: 8px;
-  -webkit-overflow-scrolling: touch;
-}
-
-.vertical-scroll,
-#news-content,
-#knowledge-content {
-  max-height: 400px;
-  overflow-y: auto;
-  border-top: 1px solid var(--border-color);
-  padding-top: 8px;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* 天気スタイル */
-.weather-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 60px;
-  padding: 8px;
-  background: #f8f8f8;
-  border-radius: 12px;
-}
-
-.weather-time {
-  font-size: 12px;
-  color: var(--text-sub);
-}
-
-.weather-icon {
-  font-size: 24px;
-  margin: 6px 0;
-}
-
-.weather-temp {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-/* タブスタイル */
-.tab-container,
-.tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  margin-bottom: 8px;
-  padding-bottom: 4px;
-}
-
-.tab-btn {
-  padding: 6px 14px;
-  background: var(--bg-color);
-  border-radius: 16px;
-  font-size: 13px;
-  white-space: nowrap;
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-}
-
-.tab-btn.active {
-  background: var(--primary-color);
-  color: #fff;
   border-color: var(--primary-color);
 }
 
-/* --- ニュースリスト（左テキスト・右サムネイル対応） --- */
-.news-item {
+.btn.warning {
+  background: #ff9500;
+  color: #fff;
+  border-color: #ff9500;
+}
+
+.horizontal-scroll {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+  gap: 8px;
+  scrollbar-width: none;
+}
+.horizontal-scroll::-webkit-scrollbar {
+  display: none;
 }
 
-.news-item:last-child {
-  border-bottom: none;
+.vertical-scroll {
+  max-height: 300px;
+  overflow-y: auto;
 }
 
-.news-content {
-  flex: 1;
-  min-width: 0; /* テキスト溢れ防止 */
+.news-item {
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
 }
 
 .news-link {
+  color: var(--primary-color);
   text-decoration: none;
-  color: var(--text-color);
   font-weight: 500;
   font-size: 14px;
   display: block;
-  line-height: 1.4;
+  margin-bottom: 4px;
 }
 
 .news-time {
   font-size: 11px;
   color: var(--text-sub);
-  margin-top: 4px;
-}
-
-.news-thumbnail {
-  width: 80px;
-  height: 60px;
-  object-fit: cover;
-  border-radius: 8px;
-  flex-shrink: 0;
-  background-color: #eee;
-}
-
-/* --- Twitter/Nitterリスト --- */
-.tweet-item {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.tweet-item:last-child {
-  border-bottom: none;
-}
-
-.tweet-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-  gap: 8px;
-}
-
-.tweet-user-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.tweet-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-  background-color: var(--border-color);
-  flex-shrink: 0;
-}
-
-.tweet-avatar-placeholder {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: #e1e8ed;
-  color: var(--text-sub);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
-.tweet-account {
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--primary-color);
-}
-
-.tweet-time {
-  font-size: 11px;
-  color: var(--text-sub);
-}
-
-.tweet-body {
-  font-size: 14px;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-.tweet-body a {
-  color: var(--primary-color);
-  text-decoration: underline;
-}
-
-.tweet-media img,
-.tweet-media video,
-.tweet-body img,
-.tweet-body video {
-  max-width: 100%;
-  height: auto;
-  border-radius: 12px;
-  margin-top: 8px;
-  display: block;
-}
-
-/* --- YouTubeリスト --- */
-.youtube-item {
-  display: flex;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.youtube-item:last-child {
-  border-bottom: none;
-}
-
-.youtube-thumbnail {
-  width: 120px;
-  height: 67.5px; /* 16:9比率 */
-  object-fit: cover;
-  border-radius: 8px;
-  flex-shrink: 0;
-  background-color: #eee;
-}
-
-.youtube-info {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  flex: 1;
-  min-width: 0;
-}
-
-.youtube-channel {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-sub);
-}
-
-.youtube-link {
-  text-decoration: none;
-  color: var(--text-color);
-  font-weight: 600;
-  font-size: 13.5px;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 2px 0;
-}
-
-.youtube-time {
-  font-size: 11px;
-  color: var(--text-sub);
-}
-
-/* --- モーダル --- */
-.modal {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 16px;
-}
-
-.modal.hidden {
-  display: none;
-}
-
-.modal-content {
-  background: #fff;
-  padding: 20px;
-  border-radius: 16px;
-  width: 100%;
-  max-width: 520px;
-  max-height: 85vh;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-header {
-  flex-shrink: 0;
-}
-
-.modal-content input {
-  width: 100%;
-  padding: 10px;
-  margin: 4px 0;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 16px;
-}
-
-#modal-body {
-  overflow-y: auto;
-  max-height: 60vh;
-  padding-right: 4px;
-  margin-bottom: 12px;
-}
-
-.modal-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 8px;
-  margin-top: 16px;
-  width: 100%;
-}
-
-.modal-footer,
-#modal .modal-buttons {
-  flex-shrink: 0;
-  margin-top: auto;
-}
-
-#modal-add-row-btn {
-  margin-right: auto;
-  padding: 8px 12px;
-}
-
-.modal-actions .btn {
-  font-size: 13px;
-  padding: 8px 12px;
-}
-
-#modal-nitter-btn,
-#modal-cancel-btn,
-#modal-submit-btn {
-  margin: 0 !important;
-}
-
-.delete-list-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-color);
 }
 
 .loading {
-  font-size: 13px;
-  color: var(--text-sub);
-  padding: 16px;
   text-align: center;
-}
-
-/* --- YouTubeカスタムスタイル --- */
-.yt-fixed-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  background: var(--card-bg);
-  padding-top: 4px;
-  padding-bottom: 4px;
-}
-
-/* チャンネルフィルタのコンテナ */
-.yt-filter-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  width: 100%;
-}
-
-.yt-select {
-  flex: 0 0 calc(75% - 4px);
-  width: calc(75% - 4px);
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: var(--bg-color);
-  color: var(--text-color);
-  border: 1px solid var(--border-color);
+  color: var(--text-sub);
+  padding: 20px;
   font-size: 13px;
+}
+
+.modal {
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+}
+.modal.hidden {
+  display: none;
+}
+.modal-content {
+  background: #fff;
+  width: 90%;
+  max-width: 400px;
+  border-radius: 12px;
+  padding: 20px;
   box-sizing: border-box;
 }
 
-.yt-badge {
-  flex: 1;
+/* --- TikTok風 ショート動画プレイヤー用スタイル --- */
+.shorts-modal {
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100dvh;
+  background: #000;
+  z-index: 999999;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
 }
-
-.yt-reset-btn {
-  background: #e5e5ea;
-  border: 1px solid var(--border-color);
-  color: var(--text-color);
-  width: 30px;
-  height: 30px;
+.shorts-modal.hidden {
+  display: none;
+}
+.shorts-close-btn {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: 16px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border: none;
+  font-size: 24px;
+  width: 36px; height: 36px;
   border-radius: 50%;
   cursor: pointer;
-  font-size: 14px;
+  z-index: 1000000;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-
-/* テーブルスタイル */
-.yt-video-table {
+.shorts-container {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  table-layout: fixed;
+  height: 100dvh;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
-
-.yt-video-table tr {
-  border-bottom: 1px solid var(--border-color);
-  cursor: pointer;
+.shorts-container::-webkit-scrollbar {
+  display: none;
 }
-
-.yt-thumb-wrapper {
+.short-slide {
+  width: 100%;
+  height: 100dvh;
+  scroll-snap-align: start;
   position: relative;
-  width: 64px;
-  height: 36px;
+  background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
-  border-radius: 4px;
-  background: #000;
 }
-
-.yt-thumb-wrapper img {
+.short-slide img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-
-.yt-play-icon {
+.short-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.3);
+  bottom: 0; left: 0; width: 100%;
+  padding: 24px 16px max(24px, env(safe-area-inset-bottom)) 16px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.8));
   color: #fff;
-  font-size: 10px;
+  box-sizing: border-box;
 }
-
-.yt-title {
+.short-date {
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 4px;
+}
+.short-title {
+  font-size: 16px;
   font-weight: bold;
+  margin-bottom: 8px;
   line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
-
-.yt-meta {
-  font-size: 11px;
-  color: var(--text-sub);
-  margin-top: 2px;
+.short-telop {
+  font-size: 14px;
+  line-height: 1.4;
+  background: rgba(0,0,0,0.4);
+  padding: 8px;
+  border-radius: 6px;
 }
