@@ -1822,7 +1822,7 @@ async function loadTwitterContent() {
           targetVideoUrl = media.src || media.querySelector('source')?.src || '';
         }
 
-        if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com'] || targetVideoUrl.endsWith('.mp4'))) {
+     if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com') || targetVideoUrl.endsWith('.mp4'))) {
           const videoLinkBox = document.createElement('a');
           videoLinkBox.href = targetVideoUrl;
           videoLinkBox.target = '_blank';
