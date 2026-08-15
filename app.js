@@ -1822,7 +1822,7 @@ async function loadTwitterContent() {
           targetVideoUrl = media.src || media.querySelector('source')?.src || '';
         }
 
-        if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com') || targetVideoUrl.endsWith('.mp4'))) {
+        if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com'] || targetVideoUrl.endsWith('.mp4'))) {
           const videoLinkBox = document.createElement('a');
           videoLinkBox.href = targetVideoUrl;
           videoLinkBox.target = '_blank';
@@ -2194,7 +2194,7 @@ async function loadFutocyanContent() {
 }
 
 // ==========================================
-// YouTubeモーダルとメディア・画面回転制御
+// A & B 対応: YouTubeモーダルとメディア・画面回転制御
 // ==========================================
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
@@ -2248,7 +2248,7 @@ window.openYoutubeModalByIndex = function(index) {
           <button onclick="openYoutubeModalByIndex(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'}; font-size: 11px;">▼ 次</button>
         </div>
         <div style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">⠿ ${title}</div>
-        <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
+        <button id="yt-modal-close-btn" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
       </div>
 
       <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; overflow: hidden;" id="yt-player-wrapper">
@@ -2268,6 +2268,15 @@ window.openYoutubeModalByIndex = function(index) {
       </div>
     </div>
   `;
+
+  // 【修正1】バツボタンで動画ウィンドウが確実に閉じるようにイベントリスナーを明示的に紐付け
+  const closeBtn = modal.querySelector('#yt-modal-close-btn');
+  if (closeBtn) {
+    closeBtn.onclick = (e) => {
+      e.stopPropagation();
+      window.closeYoutubeModal();
+    };
+  }
 
   setupModalDrag(modal);
 
@@ -2517,7 +2526,7 @@ function initModals() {
 }
 
 // ==========================================
-// ニュースショート動画機能
+// ニュースショート動画機能（仕様変更対応版）
 // ==========================================
 
 function initNewsShortsFeature() {
@@ -2525,13 +2534,15 @@ function initNewsShortsFeature() {
   const modal = document.getElementById('shorts-modal');
   const closeBtn = document.getElementById('close-shorts-modal');
 
-  if (playBtn) {
+  // 【修正2】初期状態や自動で開く処理を一切行わず、
+  // ユーザーが専用のアイコン（#play-news-shorts-btn）を明示的にクリックしたときのみ開くように制御
+  if (playBtn && modal) {
     playBtn.onclick = () => {
       openNewsShortsModal();
     };
   }
 
-  if (closeBtn) {
+  if (closeBtn && modal) {
     closeBtn.onclick = () => {
       modal.classList.add('hidden');
       stopAllShortsMedia();
@@ -2554,82 +2565,48 @@ async function openNewsShortsModal() {
   const container = document.getElementById('shorts-scroll-container');
   if (!modal || !container) return;
 
+  // 明示的なクリック時のみモーダルを表示
   modal.classList.remove('hidden');
   container.innerHTML = '<div style="color:#fff; display:flex; justify-content:center; align-items:center; height:100%;">ショート動画を生成・読込中...</div>';
 
   try {
-    const items = typeof fetchNewsRSS === 'function' ? await fetchNewsRSS(currentNewsUrl || newsFeeds[0].url) : [];
-    
+    const items = typeof fetchNewsRSS === 'function' && newsFeeds.length > 0 
+      ? await fetchNewsRSS(newsFeeds[0].url) 
+      : [];
+
     if (!items || items.length === 0) {
-      container.innerHTML = '<div style="color:#fff; text-align:center; padding:40px;">動画化できるニュースがありません</div>';
+      container.innerHTML = '<div style="color:#fff; display:flex; justify-content:center; align-items:center; height:100%;">表示できるニュースがありません</div>';
       return;
     }
 
     container.innerHTML = '';
-
+    
     items.forEach((item, index) => {
       const slide = document.createElement('div');
-      slide.className = 'short-video-slide';
-
-      const bgImg = item.imageUrl || `https://picsum.photos/seed/${index + 100}/720/1280`;
-      const audioSrc = item.audioUrl || '';
-      const dateStr = typeof formatCustomDate === 'function' ? formatCustomDate(item.pubDate) : (item.pubDate || '');
-
-      slide.innerHTML = `
-        <img src="${bgImg}" class="short-bg-image" alt="background">
-        <div class="short-gradient-overlay"></div>
-        ${audioSrc ? `<audio src="${audioSrc}" preload="auto" playsinline></audio>` : ''}
-        <div class="short-content-box">
-          <div class="short-date">${dateStr}</div>
-          <h3 class="short-title">${item.title}</h3>
-          <div class="short-telop" id="telop-${index}">${item.description || item.title}</div>
-          <a href="${item.link}" target="_blank" rel="noopener" style="color: #fff; font-size: 13px; text-decoration: underline; margin-top: 4px;">元の記事を読む ↗</a>
-        </div>
+      slide.style.cssText = `
+        width: 100%;
+        height: 100%;
+        flex-shrink: 0;
+        scroll-snap-align: start;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: #111;
+        color: #fff;
+        padding: 24px;
+        box-sizing: border-box;
+        position: relative;
       `;
-
-      slide.onclick = () => {
-        const audio = slide.querySelector('audio');
-        if (audio) {
-          if (audio.paused) { audio.play(); } else { audio.pause(); }
-        }
-      };
-
+      slide.innerHTML = `
+        <div style="font-size: 18px; font-weight: bold; margin-bottom: 16px; text-align: center;">${item.title}</div>
+        <div style="font-size: 14px; opacity: 0.8; text-align: center; max-width: 400px; line-height: 1.5;">${item.description || ''}</div>
+      `;
       container.appendChild(slide);
     });
 
-    setupIntersectionObserverForShorts();
-
   } catch (err) {
     console.error(err);
-    container.innerHTML = '<div style="color:#ff3b30; text-align:center; padding:40px;">ショート動画の読み込みに失敗しました</div>';
+    container.innerHTML = '<div style="color:#ff3b30; display:flex; justify-content:center; align-items:center; height:100%;">読み込みに失敗しました</div>';
   }
-}
-
-function setupIntersectionObserverForShorts() {
-  const container = document.getElementById('shorts-scroll-container');
-  if (!container) return;
-
-  const slides = container.querySelectorAll('.short-video-slide');
-  const observerOptions = {
-    root: container,
-    threshold: 0.6
-  };
-
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      const audio = entry.target.querySelector('audio');
-      if (entry.isIntersecting) {
-        if (audio) {
-          audio.play().catch(() => {});
-        }
-      } else {
-        if (audio) {
-          audio.pause();
-          audio.currentTime = 0;
-        }
-      }
-    });
-  }, observerOptions);
-
-  slides.forEach(slide => observer.observe(slide));
 }
