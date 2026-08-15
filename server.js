@@ -6,69 +6,267 @@ const app = express();
 const parser = new Parser();
 const PORT = process.env.PORT || 3000;
 
+// Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.static('.'));
 
-// プリセットのデフォルトRSS（ITmediaニュースなど）
-const DEFAULT_RSS_URL = 'https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml';
+// ===== 定数 =====
 
-// 背景カラーのバリエーション（動画風モック用）
 const BG_THEMES = [
   'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
   'linear-gradient(135deg, #2b1055 0%, #7597de 100%)',
   'linear-gradient(135deg, #0f2027 0%, #203a43 100%, #2c5364 100%)',
-  'linear-gradient(135deg, #3a1c71 0%, #d76d77 100%, #ffaf7b 100%)'
+  'linear-gradient(135deg, #3a1c71 0%, #d76d77 100%, #ffaf7b 100%)',
+  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+  'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
 ];
 
-// RSS取得およびショート動画風データへの変換API
-app.get('/api/generate-shorts', async (req, res) => {
-  const rssUrl = req.query.url || DEFAULT_RSS_URL;
+const ICON_URLS = [
+  '📰', '📚', '🚀', '💡', '🌟', '📢', '🎯', '✨'
+];
+
+// ===== キャッシュ =====
+
+const videoCache = new Map();
+
+// ===== ユーティリティ関数 =====
+
+/**
+ * テキストを15秒の音読時間に最適な長さに要約
+ */
+function optimizeTextForVoiceOver(text, maxChars = 60) {
+  const sentences = text.split(/[。！？]/);
+  let result = '';
+  
+  for (const sentence of sentences) {
+    if ((result + sentence).length > maxChars) break;
+    result += sentence + '。';
+  }
+  
+  return result.trim() || text.substring(0, maxChars);
+}
+
+/**
+ * SVG ベースのプレースホルダー画像を生成
+ */
+function generatePlaceholderSVG(title, bgGradient) {
+  const svgContent = `
+    <svg width="1080" height="1920" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+          <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+        </linearGradient>
+      </defs>
+      <rect width="1080" height="1920" fill="url(#grad)"/>
+      <text x="540" y="960" font-size="72" font-weight="bold" fill="white" text-anchor="middle" font-family="Arial">
+        ${title.substring(0, 20)}
+      </text>
+      <text x="540" y="1050" font-size="32" fill="rgba(255,255,255,0.7)" text-anchor="middle" font-family="Arial">
+        ニュース
+      </text>
+    </svg>
+  `;
+  
+  return Buffer.from(svgContent).toString('base64');
+}
+
+/**
+ * キャッシュキーを生成
+ */
+function generateCacheKey(title, content) {
+  return `${Buffer.from(title).toString('base64')}_${Buffer.from(content).toString('base64')}`.substring(0, 80);
+}
+
+// ===== API エンドポイント =====
+
+/**
+ * GET /api/rss
+ * RSS フィード取得用（CORS プロキシ）
+ */
+app.get('/api/rss', async (req, res) => {
+  const { url } = req.query;
+  
+  if (!url) {
+    return res.status(400).json({
+      success: false,
+      error: 'url パラメータが必須です'
+    });
+  }
 
   try {
-    const feed = await parser.parseURL(rssUrl);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; NewsReader/1.0)'
+      }
+    });
     
-    // RSSの各アイテムをショート動画用のデータ構造に変換
-    const shortsData = feed.items.slice(0, 10).map((item, index) => {
-      // ShortGPTなどの動画生成エンジンに渡すテキスト抽出処理のベース
-      const rawTitle = item.title || '無題のニュース';
-      const rawContent = item.contentSnippet || item.content || item.summary || '詳細情報はありません。';
-      
-      // 15秒のショート動画向けにテキストを簡潔化・構造化
-      const shortScript = {
-        hook: `【速報】${rawTitle}`,
-        body: rawContent.length > 90 ? rawContent.substring(0, 90) + '…' : rawContent,
-        cta: '元記事をチェック ↗'
-      };
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
 
-      return {
-        id: `short-${index}`,
-        title: rawTitle,
-        link: item.link || '#',
-        pubDate: item.pubDate ? new Date(item.pubDate).toLocaleString('ja-JP') : '',
-        script: shortScript,
-        background: BG_THEMES[index % BG_THEMES.length],
-        // モック用動画URL（実運用時はここでShortGPT等で生成したMP4のURLを割り当て）
-        videoUrl: null 
-      };
-    });
-
-    res.json({
-      success: true,
-      feedTitle: feed.title || 'RSSショート動画',
-      count: shortsData.length,
-      items: shortsData
-    });
-
+    const xmlText = await response.text();
+    res.set('Content-Type', 'application/xml');
+    res.send(xmlText);
   } catch (error) {
-    console.error('RSS Parse Error:', error);
+    console.error('RSS fetch error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'RSSの取得または解析に失敗しました。URLを確認してください。',
       error: error.message
     });
   }
 });
 
+/**
+ * POST /api/generate-video
+ * RSS アイテムをショート動画データに変換
+ */
+app.post('/api/generate-video', async (req, res) => {
+  const { title, content, source = 'news', feedName } = req.body;
+
+  if (!title || !content) {
+    return res.status(400).json({
+      success: false,
+      error: 'title と content は必須です'
+    });
+  }
+
+  try {
+    const cacheKey = generateCacheKey(title, content);
+    if (videoCache.has(cacheKey)) {
+      console.log(`✓ Cache hit: ${cacheKey.substring(0, 20)}...`);
+      return res.json({
+        success: true,
+        videoData: videoCache.get(cacheKey),
+        cached: true
+      });
+    }
+
+    const voiceOverText = optimizeTextForVoiceOver(content);
+    const bgGradient = BG_THEMES[Math.floor(Math.random() * BG_THEMES.length)];
+    const icon = ICON_URLS[Math.floor(Math.random() * ICON_URLS.length)];
+    const thumbnailBase64 = generatePlaceholderSVG(title, bgGradient);
+
+    const videoData = {
+      id: `video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      title: title.substring(0, 100),
+      content: content.substring(0, 200),
+      voiceOverText: voiceOverText,
+      thumbnailBase64: thumbnailBase64,
+      duration: 15,
+      background: bgGradient,
+      icon: icon,
+      source: source,
+      feedName: feedName || 'Unknown',
+      timestamp: new Date().toISOString()
+    };
+
+    videoCache.set(cacheKey, videoData);
+
+    res.json({
+      success: true,
+      videoData: videoData,
+      cached: false
+    });
+
+  } catch (error) {
+    console.error('Video generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/generate-shorts-batch
+ * 複数の RSS アイテムをバッチ処理
+ */
+app.post('/api/generate-shorts-batch', async (req, res) => {
+  const { items = [], source = 'news' } = req.body;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'items 配列は必須で、最低1つの要素が必要です'
+    });
+  }
+
+  try {
+    const videoDataList = items.map((item, idx) => {
+      const { title, content, feedName } = item;
+
+      if (!title || !content) {
+        return null;
+      }
+
+      const cacheKey = generateCacheKey(title, content);
+      if (videoCache.has(cacheKey)) {
+        return videoCache.get(cacheKey);
+      }
+
+      const voiceOverText = optimizeTextForVoiceOver(content);
+      const bgGradient = BG_THEMES[idx % BG_THEMES.length];
+      const icon = ICON_URLS[idx % ICON_URLS.length];
+      const thumbnailBase64 = generatePlaceholderSVG(title, bgGradient);
+
+      const videoData = {
+        id: `video_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 9)}`,
+        title: title.substring(0, 100),
+        content: content.substring(0, 200),
+        voiceOverText: voiceOverText,
+        thumbnailBase64: thumbnailBase64,
+        duration: 15,
+        background: bgGradient,
+        icon: icon,
+        source: source,
+        feedName: feedName || 'Unknown',
+        timestamp: new Date().toISOString()
+      };
+
+      videoCache.set(cacheKey, videoData);
+      return videoData;
+    }).filter(v => v !== null);
+
+    res.json({
+      success: true,
+      count: videoDataList.length,
+      videoDataList: videoDataList
+    });
+
+  } catch (error) {
+    console.error('Batch generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/cache-stats
+ * キャッシュ統計（デバッグ用）
+ */
+app.get('/api/cache-stats', (req, res) => {
+  res.json({
+    cacheSize: videoCache.size
+  });
+});
+
+// ===== エラーハンドリング =====
+
+app.use((err, req, res, next) => {
+  console.error('Global error:', err);
+  res.status(500).json({
+    success: false,
+    error: 'Internal Server Error'
+  });
+});
+
+// ===== サーバー起動 =====
+
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`📡 API endpoints available`);
 });
