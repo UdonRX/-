@@ -37,10 +37,6 @@
       <div class="section-header">
         <h2>ニュース</h2>
         <div class="action-buttons">
-          <!-- ショート動画一括視聴ボタン追加 -->
-          <button id="play-news-shorts-btn" class="btn primary" style="display:inline-flex; align-items:center; gap:4px; padding:4px 8px;">
-            <img src="icons/video-play.png" style="width:16px; height:16px;" alt="play">
-          </button>
           <button id="add-news-btn" class="btn primary">追加</button>
           <button id="del-news-btn" class="btn warning">編集</button>
         </div>
@@ -75,7 +71,9 @@
           <button id="del-twitter-btn" class="btn warning">編集</button>
         </div>
       </div>
-      <div id="twitter-content" class="vertical-scroll"></div>
+      <div id="twitter-content" class="vertical-scroll">
+        <!-- app.js 内でここにコンテンツが生成されます -->
+      </div>
     </section>
 
     <!-- 5. YouTube -->
@@ -103,19 +101,6 @@
       <div class="modal-actions">
         <button id="modal-cancel-btn" class="btn">キャンセル</button>
         <button id="modal-submit-btn" class="btn primary">保存</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- TikTok風ニュースショート動画プレイヤー用モーダル -->
-  <div id="shorts-modal" class="modal hidden" style="background: rgba(0,0,0,0.9); z-index: 999999; padding: 0; display: flex; align-items: center; justify-content: center;">
-    <div style="position: relative; width: 100vw; height: 100vh; height: 100dvh; max-width: 430px; background: #000; overflow: hidden; display: flex; flex-direction: column;">
-      <!-- 閉じるボタン (安全エリア対応) -->
-      <button id="close-shorts-modal" style="position: absolute; top: calc(env(safe-area-inset-top, 16px) + 12px); left: 16px; z-index: 100; background: rgba(0,0,0,0.5); border: none; color: #fff; width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;">✕</button>
-      
-      <!-- 上下スワイプコンテナ -->
-      <div id="shorts-scroll-container" style="flex: 1; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; width: 100%; height: 100%;">
-        <!-- 動的にショート動画カードが挿入されます -->
       </div>
     </div>
   </div>
