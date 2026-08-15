@@ -349,7 +349,7 @@ async function fetchYoutubeData(channelIdentifier) {
     const liveDetails = video.liveStreamingDetails;
     let liveStatus = 'none'; 
     let scheduledStartTime = null;
-    let wasEverLive = false; // 生配信（過去にライブ実施されたもの）かどうかの判定用フラグ
+    let wasEverLive = false;
 
     if (liveDetails) {
       if (liveDetails.actualEndTime) {
@@ -2194,7 +2194,7 @@ async function loadFutocyanContent() {
 }
 
 // ==========================================
-// A & B 対応: YouTubeモーダルとメディア・画面回転制御
+// YouTubeモーダルとメディア・画面回転制御
 // ==========================================
 window.openYoutubeModalByIndex = function(index) {
   const list = window.currentVideoList;
@@ -2262,7 +2262,6 @@ window.openYoutubeModalByIndex = function(index) {
             allowfullscreen>
           </iframe>
         </div>
-        <!-- 要件B: 横画面切り替えボタン（プレイヤーUI上への重ね配置） -->
         <button id="yt-landscape-btn" onclick="toggleLandscapeFullscreen()" title="横画面表示（全画面）" style="position: absolute; bottom: 8px; right: 8px; z-index: 10; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
           <span>⤢ 横画面</span>
         </button>
@@ -2272,7 +2271,6 @@ window.openYoutubeModalByIndex = function(index) {
 
   setupModalDrag(modal);
 
-  // 要件A-1 & A-2: Media Session APIによるバックグラウンド再生・ロック画面コントロール連携
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: title,
@@ -2282,7 +2280,6 @@ window.openYoutubeModalByIndex = function(index) {
       ]
     });
 
-    // コントロールセンターやロック画面からの操作ハンドラ
     navigator.mediaSession.setActionHandler('play', () => {
       const iframe = document.getElementById('yt-active-iframe');
       if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
@@ -2293,11 +2290,9 @@ window.openYoutubeModalByIndex = function(index) {
     });
   }
 
-  // 要件A-3: iOSでバックグラウンド移行時にオーディオが一時停止されるのを防ぐための無音オーディオ継続ハック
   setupBackgroundAudioKeepAlive();
 };
 
-// 要件A-3: iOS Safari/PWA向けバックグラウンドオーディオ継続用ダミーオーディオ維持処理
 let bgAudioElement = null;
 function setupBackgroundAudioKeepAlive() {
   if (!bgAudioElement) {
@@ -2310,7 +2305,6 @@ function setupBackgroundAudioKeepAlive() {
   bgAudioElement.play().catch(() => {});
 }
 
-// 要件B: Screen Orientation API とフルスクリーン化の実装（フォールバック対応）
 window.toggleLandscapeFullscreen = async function() {
   const wrapper = document.getElementById('yt-player-wrapper');
   const iframe = document.getElementById('yt-active-iframe');
@@ -2319,29 +2313,23 @@ window.toggleLandscapeFullscreen = async function() {
   const targetElem = iframe || wrapper;
 
   try {
-    // 1. フルスクリーンリクエスト（標準およびwebkit系）
     if (targetElem.requestFullscreen) {
       await targetElem.requestFullscreen();
     } else if (targetElem.webkitEnterFullscreen) {
-      targetElem.webkitEnterFullscreen(); // iOS Safari等のHTMLVideoElement用
+      targetElem.webkitEnterFullscreen();
     } else if (wrapper.requestFullscreen) {
       await wrapper.requestFullscreen();
     }
 
-    // 2. Screen Orientation API による横画面固定（対応環境のみ）
     if (screen.orientation && screen.orientation.lock) {
-      await screen.orientation.lock('landscape').catch(() => {
-        // ロックが拒否された場合や非対応ブラウザの場合はスルー（フォールバックへ）
-      });
+      await screen.orientation.lock('landscape').catch(() => {});
     }
   } catch (err) {
     console.log('Fullscreen/Orientation API notice:', err);
-    // 3. iOS SafariなどでScreenOrientationが使えない場合やフルスクリーンが制限される場合のフォールバック
     toggleCssLandscapeFallback(wrapper);
   }
 };
 
-// CSSによる横画面風トグルフォールバック（iOS用）
 function toggleCssLandscapeFallback(wrapper) {
   if (!wrapper) return;
   if (!wrapper.classList.contains('css-landscape-mode')) {
@@ -2529,7 +2517,7 @@ function initModals() {
 }
 
 // ==========================================
-// ニュースショート動画機能（追加部分）
+// ニュースショート動画機能
 // ==========================================
 
 function initNewsShortsFeature() {
@@ -2570,7 +2558,6 @@ async function openNewsShortsModal() {
   container.innerHTML = '<div style="color:#fff; display:flex; justify-content:center; align-items:center; height:100%;">ショート動画を生成・読込中...</div>';
 
   try {
-    // 既存のニュース取得関数名（例: fetchNewsRSS や既存のitems配列）に合わせて適宜読み替えてください
     const items = typeof fetchNewsRSS === 'function' ? await fetchNewsRSS(currentNewsUrl || newsFeeds[0].url) : [];
     
     if (!items || items.length === 0) {
@@ -2623,20 +2610,23 @@ function setupIntersectionObserverForShorts() {
   if (!container) return;
 
   const slides = container.querySelectorAll('.short-video-slide');
-  const observerOptions = { root: container, threshold: 0.6 };
+  const observerOptions = {
+    root: container,
+    threshold: 0.6
+  };
 
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       const audio = entry.target.querySelector('audio');
-      if (!audio) return;
-
       if (entry.isIntersecting) {
-        container.querySelectorAll('audio').forEach(a => {
-          if (a !== audio) { a.pause(); a.currentTime = 0; }
-        });
-        audio.play().catch(e => console.log("Autoplay prevented:", e));
+        if (audio) {
+          audio.play().catch(() => {});
+        }
       } else {
-        audio.pause();
+        if (audio) {
+          audio.pause();
+          audio.currentTime = 0;
+        }
       }
     });
   }, observerOptions);
