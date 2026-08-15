@@ -41,8 +41,8 @@
       <div class="section-header">
         <h2>ニュース</h2>
         <div class="action-buttons">
-          <!-- 動画ショート再生ボタン（追加ボタンの左側に配置） -->
-          <button id="news-video-player-btn" class="btn icon-btn" title="ショート動画で視聴" style="padding: 2px 6px; background: transparent; border: none; cursor: pointer; display: inline-flex; align-items: center;">
+          <!-- ニュースカードの追加ボタンの左側に指定アイコンを表示 -->
+          <button id="news-video-player-btn" class="btn icon-btn" title="ショート動画で視聴" style="padding: 2px 6px; background: transparent; border: none; cursor: pointer;">
             <img src="icons/video-play.png" alt="動画再生" style="width: 24px; height: 24px; vertical-align: middle;">
           </button>
           <button id="add-news-btn" class="btn primary">追加</button>
@@ -60,9 +60,9 @@
       <div class="section-header">
         <h2>知識</h2>
         <div class="action-buttons">
-          <!-- 知識機能の追加ボタンの左側にもアイコンを配置（必要に応じて流用） -->
-          <button id="knowledge-video-player-btn" class="btn icon-btn" title="ショート動画で視聴" style="padding: 2px 6px; background: transparent; border: none; cursor: pointer; display: inline-flex; align-items: center;">
-            <img src="icons/video-play.png" alt="動画再生" style="width: 24px; height: 24px; vertical-align: middle;">
+          <!-- 知識カードの追加ボタンの左側に指定アイコンを表示（必要に応じて画像パスを変更してください） -->
+          <button id="knowledge-video-player-btn" class="btn icon-btn" title="知識ショート動画" style="padding: 2px 6px; background: transparent; border: none; cursor: pointer;">
+            <img src="icons/video-play.png" alt="知識動画" style="width: 24px; height: 24px; vertical-align: middle;">
           </button>
           <button id="add-knowledge-btn" class="btn primary">追加</button>
           <button id="del-knowledge-btn" class="btn warning">編集</button>
@@ -84,7 +84,9 @@
         </div>
       </div>
       <div id="twitter-tabs" class="tab-container horizontal-scroll" style="margin-bottom: 8px;"></div>
-      <div id="twitter-content" class="vertical-scroll"></div>
+      <div id="twitter-content" class="vertical-scroll">
+        <div class="loading">Twitterデータを読み込み中...</div>
+      </div>
     </section>
 
     <!-- 5. YouTube -->
