@@ -2526,7 +2526,7 @@ function initModals() {
 }
 
 // ==========================================
-// ニュースショート動画機能（仕様変更対応版）
+// ニュースショート動画機能（修正版）
 // ==========================================
 
 function initNewsShortsFeature() {
@@ -2534,17 +2534,20 @@ function initNewsShortsFeature() {
   const modal = document.getElementById('shorts-modal');
   const closeBtn = document.getElementById('close-shorts-modal');
 
-  // 【修正2】初期状態や自動で開く処理を一切行わず、
-  // ユーザーが専用のアイコン（#play-news-shorts-btn）を明示的にクリックしたときのみ開くように制御
-  if (playBtn && modal) {
+  // 初期状態でモーダルを確実に隠す
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+
+  if (playBtn) {
     playBtn.onclick = () => {
       openNewsShortsModal();
     };
   }
 
-  if (closeBtn && modal) {
+  if (closeBtn) {
     closeBtn.onclick = () => {
-      modal.classList.add('hidden');
+      if (modal) modal.classList.add('hidden');
       stopAllShortsMedia();
     };
   }
@@ -2565,48 +2568,43 @@ async function openNewsShortsModal() {
   const container = document.getElementById('shorts-scroll-container');
   if (!modal || !container) return;
 
-  // 明示的なクリック時のみモーダルを表示
   modal.classList.remove('hidden');
   container.innerHTML = '<div style="color:#fff; display:flex; justify-content:center; align-items:center; height:100%;">ショート動画を生成・読込中...</div>';
 
   try {
-    const items = typeof fetchNewsRSS === 'function' && newsFeeds.length > 0 
-      ? await fetchNewsRSS(newsFeeds[0].url) 
-      : [];
-
+    const items = typeof fetchNewsRSS === 'function' ? await fetchNewsRSS(currentNewsUrl || newsFeeds[0].url) : [];
+    
     if (!items || items.length === 0) {
-      container.innerHTML = '<div style="color:#fff; display:flex; justify-content:center; align-items:center; height:100%;">表示できるニュースがありません</div>';
+      container.innerHTML = '<div style="color:#fff; text-align:center; padding:40px;">動画化できるニュースがありません</div>';
       return;
     }
 
     container.innerHTML = '';
-    
+
     items.forEach((item, index) => {
       const slide = document.createElement('div');
-      slide.style.cssText = `
-        width: 100%;
-        height: 100%;
-        flex-shrink: 0;
-        scroll-snap-align: start;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        background: #111;
-        color: #fff;
-        padding: 24px;
-        box-sizing: border-box;
-        position: relative;
-      `;
+      slide.className = 'short-video-slide';
+
+      const bgImg = item.imageUrl || `https://picsum.photos/seed/${index + 100}/720/1280`;
+      const audioSrc = item.audioUrl || '';
+      const dateStr = typeof formatCustomDate === 'function' ? formatCustomDate(item.pubDate) : (item.pubDate || '');
+
       slide.innerHTML = `
-        <div style="font-size: 18px; font-weight: bold; margin-bottom: 16px; text-align: center;">${item.title}</div>
-        <div style="font-size: 14px; opacity: 0.8; text-align: center; max-width: 400px; line-height: 1.5;">${item.description || ''}</div>
+        <img src="${bgImg}" class="short-bg-image" alt="background">
+        <div class="short-gradient-overlay"></div>
+        ${audioSrc ? `<audio src="${audioSrc}" preload="auto" playsinline></audio>` : ''}
+        <div class="short-content-box">
+          <div class="short-date">${dateStr}</div>
+          <h3 class="short-title">${item.title}</h3>
+          <div class="short-telop" id="telop-${index}">${item.description || item.title}</div>
+          <a href="${item.link}" target="_blank" rel="noopener" style="color: #fff; font-size: 13px; text-decoration: underline; margin-top: 4px;">元の記事を読む ↗</a>
+        </div>
       `;
+
       container.appendChild(slide);
     });
-
   } catch (err) {
     console.error(err);
-    container.innerHTML = '<div style="color:#ff3b30; display:flex; justify-content:center; align-items:center; height:100%;">読み込みに失敗しました</div>';
+    container.innerHTML = '<div style="color:#fff; text-align:center; padding:40px;">読み込みに失敗しました</div>';
   }
 }
