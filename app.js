@@ -1166,18 +1166,59 @@ async function loadNewsContent(url) {
 
     container.innerHTML = '';
 
-    items.forEach(item => {
-      const newsDiv = document.createElement('div');
-      newsDiv.className = 'news-item';
-      
-      const dateStr = formatCustomDate(item.pubDate);
+items.forEach((item, itemIndex) => {
+  const newsDiv = document.createElement('div');
+  newsDiv.className = 'news-item';
 
-      newsDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${dateStr}</div>
-      `;
-      container.appendChild(newsDiv);
+  const dateStr = formatCustomDate(item.pubDate);
+
+  newsDiv.innerHTML = `
+    <div class="news-content">
+      <a
+        href="${item.link}"
+        target="_blank"
+        rel="noopener"
+        class="news-link">
+        ${item.title}
+      </a>
+
+      <div class="news-time">
+        ${dateStr}
+      </div>
+    </div>
+
+    <button
+      class="news-video-btn"
+      type="button"
+      title="ショート動画を作成"
+      aria-label="ショート動画を作成">
+
+      <img
+        src="icons/video-play.png"
+        alt=""
+        aria-hidden="true">
+    </button>
+  `;
+
+  const videoButton =
+    newsDiv.querySelector('.news-video-btn');
+
+  videoButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    openShortVideoPlayer({
+      section: 'news',
+      feedUrl: url,
+      itemIndex,
+      item,
+      feedName: getFeedName('news', url)
     });
+  });
+
+  container.appendChild(newsDiv);
+});
+
   } catch (err) {
     if (currentNewsUrl !== url) return;
     console.error(err);
@@ -1212,24 +1253,1099 @@ async function loadKnowledgeContent(url) {
     }
 
     container.innerHTML = '';
+items.forEach((item, itemIndex) => {
+  const newsDiv = document.createElement('div');
+  newsDiv.className = 'news-item';
 
-    items.forEach(item => {
-      const newsDiv = document.createElement('div');
-      newsDiv.className = 'news-item';
-      
-      const dateStr = formatCustomDate(item.pubDate);
+  const dateStr = formatCustomDate(item.pubDate);
 
-      newsDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${dateStr}</div>
-      `;
-      container.appendChild(newsDiv);
+  newsDiv.innerHTML = `
+    <div class="news-content">
+      <a
+        href="${item.link}"
+        target="_blank"
+        rel="noopener"
+        class="news-link">
+        ${item.title}
+      </a>
+
+      <div class="news-time">
+        ${dateStr}
+      </div>
+    </div>
+
+    <button
+      class="news-video-btn"
+      type="button"
+      title="ショート動画を作成"
+      aria-label="ショート動画を作成">
+
+      <img
+        src="icons/video-play.png"
+        alt=""
+        aria-hidden="true">
+    </button>
+  `;
+
+  const videoButton =
+    newsDiv.querySelector('.news-video-btn');
+
+  videoButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    openShortVideoPlayer({
+      section: 'knowledge',
+      feedUrl: url,
+      itemIndex,
+      item,
+      feedName: getFeedName('knowledge', url)
     });
+  });
+
+  container.appendChild(newsDiv);
+});
+
   } catch (err) {
     if (currentKnowledgeUrl !== url) return;
     console.error(err);
     container.innerHTML = '<div class="loading">知識の取得に失敗しました</div>';
   }
+}
+
+/* =========================================================
+ * ショート動画機能
+ * ========================================================= */
+
+const VIDEO_API_ENDPOINT = '/api/video';
+
+const shortVideoState = {
+  section: 'news',
+  feedIndex: 0,
+  itemIndex: 0,
+
+  feeds: [],
+
+  // RSS取得結果を保存
+  itemsByFeed: new Map(),
+
+  loading: false,
+
+  touch: {
+    x: 0,
+    y: 0,
+    active: false
+  }
+};
+
+
+/* ---------------------------------------------------------
+ * RSS名取得
+ * --------------------------------------------------------- */
+
+function getFeedName(section, url) {
+  const feeds =
+    section === 'knowledge'
+      ? knowledgeFeeds
+      : newsFeeds;
+
+  const feed = feeds.find(
+    feed => feed.url === url
+  );
+
+  return feed?.name || '';
+}
+
+
+/* ---------------------------------------------------------
+ * 動画画面用RSS一覧
+ * --------------------------------------------------------- */
+
+function getVideoFeeds(section) {
+  const feeds =
+    section === 'knowledge'
+      ? knowledgeFeeds
+      : newsFeeds;
+
+  return feeds.map(feed => ({
+    ...feed,
+    section
+  }));
+}
+
+
+/* ---------------------------------------------------------
+ * RSS記事取得
+ * --------------------------------------------------------- */
+
+async function getVideoItems(section, feedIndex) {
+
+  const feeds =
+    getVideoFeeds(section);
+
+  const feed = feeds[feedIndex];
+
+  if (!feed) {
+    return [];
+  }
+
+  const cacheKey =
+    `${section}:${feed.url}`;
+
+  if (
+    shortVideoState.itemsByFeed.has(cacheKey)
+  ) {
+    return shortVideoState.itemsByFeed.get(cacheKey);
+  }
+
+  const items =
+    await fetchNewsRSS(feed.url);
+
+  shortVideoState.itemsByFeed.set(
+    cacheKey,
+    items
+  );
+
+  return items;
+}
+
+
+/* ---------------------------------------------------------
+ * HTMLエスケープ
+ * --------------------------------------------------------- */
+
+function escapeHtml(value) {
+
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+
+}
+
+
+/* ---------------------------------------------------------
+ * 動画プレイヤー初期化
+ * --------------------------------------------------------- */
+
+function ensureShortVideoPlayer() {
+
+  const player =
+    document.getElementById(
+      'short-video-player'
+    );
+
+  if (!player) {
+    return;
+  }
+
+  if (
+    player.dataset.initialized === 'true'
+  ) {
+    return;
+  }
+
+  player.dataset.initialized = 'true';
+
+  player.innerHTML = `
+
+    <div class="short-video-shell">
+
+      <div class="short-video-topbar">
+
+        <button
+          id="short-video-close"
+          class="short-video-close"
+          type="button"
+          aria-label="閉じる">
+          ×
+        </button>
+
+        <div
+          id="short-video-feed-tabs"
+          class="short-video-feed-tabs">
+        </div>
+
+        <div
+          id="short-video-status"
+          class="short-video-status">
+        </div>
+
+      </div>
+
+
+      <div
+        id="short-video-track"
+        class="short-video-track">
+      </div>
+
+
+      <div class="short-video-hint">
+        ↑↓ 記事 / ←→ RSS
+      </div>
+
+    </div>
+  `;
+
+
+  document
+    .getElementById('short-video-close')
+    ?.addEventListener(
+      'click',
+      closeShortVideoPlayer
+    );
+
+
+  player.addEventListener(
+    'touchstart',
+    onShortVideoTouchStart,
+    { passive: true }
+  );
+
+
+  player.addEventListener(
+    'touchend',
+    onShortVideoTouchEnd,
+    { passive: true }
+  );
+}
+
+
+/* ---------------------------------------------------------
+ * RSSタブ描画
+ * --------------------------------------------------------- */
+
+function renderShortVideoFeedTabs() {
+
+  const tabs =
+    document.getElementById(
+      'short-video-feed-tabs'
+    );
+
+  if (!tabs) {
+    return;
+  }
+
+  tabs.innerHTML =
+    shortVideoState.feeds
+      .map((feed, index) => {
+
+        return `
+          <button
+            type="button"
+            class="short-video-feed-tab
+              ${index === shortVideoState.feedIndex
+                ? 'active'
+                : ''}"
+            data-feed-index="${index}">
+            ${escapeHtml(feed.name)}
+          </button>
+        `;
+
+      })
+      .join('');
+
+
+  tabs
+    .querySelectorAll(
+      '.short-video-feed-tab'
+    )
+    .forEach(button => {
+
+      button.addEventListener(
+        'click',
+        () => {
+
+          switchShortVideoFeed(
+            Number(
+              button.dataset.feedIndex
+            )
+          );
+
+        }
+      );
+
+    });
+}
+
+
+/* ---------------------------------------------------------
+ * 動画プレイヤーを開く
+ * --------------------------------------------------------- */
+
+async function openShortVideoPlayer({
+  section,
+  feedUrl,
+  itemIndex,
+  item,
+  feedName
+}) {
+
+  ensureShortVideoPlayer();
+
+
+  const feeds =
+    getVideoFeeds(section);
+
+
+  const feedIndex =
+    Math.max(
+      0,
+      feeds.findIndex(
+        feed => feed.url === feedUrl
+      )
+    );
+
+
+  shortVideoState.section =
+    section;
+
+  shortVideoState.feeds =
+    feeds;
+
+  shortVideoState.feedIndex =
+    feedIndex;
+
+  shortVideoState.itemIndex =
+    Number.isInteger(itemIndex)
+      ? itemIndex
+      : 0;
+
+
+  const player =
+    document.getElementById(
+      'short-video-player'
+    );
+
+  player?.classList.remove('hidden');
+
+  document.body.classList.add(
+    'short-video-open'
+  );
+
+
+  renderShortVideoFeedTabs();
+
+
+  await requestAndRenderShortVideo({
+
+    section,
+    feedUrl,
+    itemIndex:
+      shortVideoState.itemIndex,
+
+    item,
+
+    feedName
+  });
+}
+
+
+/* ---------------------------------------------------------
+ * プレイヤーを閉じる
+ * --------------------------------------------------------- */
+
+function closeShortVideoPlayer() {
+
+  const player =
+    document.getElementById(
+      'short-video-player'
+    );
+
+  player?.classList.add('hidden');
+
+  document.body.classList.remove(
+    'short-video-open'
+  );
+
+
+  const video =
+    document.querySelector(
+      '#short-video-track video'
+    );
+
+  if (video) {
+
+    video.pause();
+
+    video.removeAttribute('src');
+
+    video.load();
+
+  }
+}
+
+
+/* ---------------------------------------------------------
+ * Renderへ動画生成リクエスト
+ * --------------------------------------------------------- */
+
+async function requestAndRenderShortVideo({
+  section,
+  feedUrl,
+  itemIndex,
+  item,
+  feedName
+}) {
+
+  if (
+    shortVideoState.loading ||
+    !item
+  ) {
+    return;
+  }
+
+
+  shortVideoState.loading =
+    true;
+
+
+  const status =
+    document.getElementById(
+      'short-video-status'
+    );
+
+  if (status) {
+    status.textContent =
+      '動画を生成中…';
+  }
+
+
+  try {
+
+    const response =
+      await fetch(
+        `${VIDEO_API_ENDPOINT}/generate`,
+        {
+          method: 'POST',
+
+          headers: {
+            'Content-Type':
+              'application/json'
+          },
+
+          body: JSON.stringify({
+
+            section,
+
+            feed: {
+              name:
+                feedName ||
+                getFeedName(
+                  section,
+                  feedUrl
+                ),
+
+              url:
+                feedUrl
+            },
+
+            item: {
+
+              index:
+                itemIndex,
+
+              title:
+                item.title,
+
+              url:
+                item.link,
+
+              description:
+                item.description || '',
+
+              publishedAt:
+                item.pubDate instanceof Date
+                  ? item.pubDate.toISOString()
+                  : item.pubDate
+
+            }
+
+          })
+        }
+      );
+
+
+    if (!response.ok) {
+
+      const message =
+        await response.text();
+
+      throw new Error(
+        message ||
+        `動画生成APIエラー (${response.status})`
+      );
+
+    }
+
+
+    const data =
+      await response.json();
+
+
+    renderShortVideo(data);
+
+
+    if (status) {
+
+      status.textContent =
+        data.mode === 'mock'
+          ? 'MOCK動画'
+          : '生成完了';
+
+    }
+
+  } catch (error) {
+
+    console.error(
+      '[ShortVideo]',
+      error
+    );
+
+    renderShortVideoError(
+      error.message ||
+      '動画生成に失敗しました'
+    );
+
+  } finally {
+
+    shortVideoState.loading =
+      false;
+
+  }
+}
+
+
+/* ---------------------------------------------------------
+ * 動画表示
+ * --------------------------------------------------------- */
+
+function renderShortVideo(data) {
+
+  const track =
+    document.getElementById(
+      'short-video-track'
+    );
+
+  if (!track) {
+    return;
+  }
+
+
+  track.innerHTML = '';
+
+
+  const slide =
+    document.createElement('article');
+
+  slide.className =
+    'short-video-slide';
+
+
+  const videoUrl =
+    data.video?.url ||
+    data.videoUrl ||
+    '';
+
+
+  const title =
+    data.article?.title ||
+    'ショート動画';
+
+
+  const articleUrl =
+    data.article?.url ||
+    '';
+
+
+  if (videoUrl) {
+
+    const video =
+      document.createElement('video');
+
+    video.className =
+      'short-video-element';
+
+    video.src =
+      videoUrl;
+
+    video.controls =
+      true;
+
+    video.playsInline =
+      true;
+
+    video.autoplay =
+      true;
+
+    video.loop =
+      true;
+
+    video.muted =
+      true;
+
+    video.preload =
+      'metadata';
+
+
+    slide.appendChild(video);
+
+  } else {
+
+    const mock =
+      document.createElement('div');
+
+    mock.className =
+      'short-video-mock';
+
+    mock.innerHTML = `
+
+      <div class="short-video-mock-badge">
+        VIDEO MOCK
+      </div>
+
+      <h2>
+        ${escapeHtml(title)}
+      </h2>
+
+      <p>
+        動画生成データを受信しました。
+      </p>
+
+    `;
+
+    slide.appendChild(mock);
+
+  }
+
+
+  const overlay =
+    document.createElement('div');
+
+  overlay.className =
+    'short-video-overlay';
+
+
+  overlay.innerHTML = `
+
+    <div class="short-video-title">
+      ${escapeHtml(title)}
+    </div>
+
+    <div class="short-video-meta">
+      ${
+        shortVideoState.section ===
+        'knowledge'
+          ? '知識'
+          : 'ニュース'
+      }
+    </div>
+
+    ${
+      articleUrl
+        ? `
+          <a
+            href="${escapeHtml(articleUrl)}"
+            target="_blank"
+            rel="noopener"
+            class="short-video-source">
+            元記事を開く ↗
+          </a>
+        `
+        : ''
+    }
+
+  `;
+
+
+  slide.appendChild(
+    overlay
+  );
+
+
+  track.appendChild(
+    slide
+  );
+}
+
+
+/* ---------------------------------------------------------
+ * エラー
+ * --------------------------------------------------------- */
+
+function renderShortVideoError(
+  message
+) {
+
+  const track =
+    document.getElementById(
+      'short-video-track'
+    );
+
+  if (!track) {
+    return;
+  }
+
+
+  track.innerHTML = `
+
+    <div class="short-video-error">
+
+      <strong>
+        動画を生成できませんでした
+      </strong>
+
+      <p>
+        ${escapeHtml(message)}
+      </p>
+
+      <button
+        type="button"
+        class="btn primary"
+        id="short-video-retry">
+        再試行
+      </button>
+
+    </div>
+
+  `;
+
+
+  document
+    .getElementById(
+      'short-video-retry'
+    )
+    ?.addEventListener(
+      'click',
+      () => {
+        navigateShortVideo(
+          0,
+          0
+        );
+      }
+    );
+}
+
+
+/* ---------------------------------------------------------
+ * 上下・左右移動
+ * --------------------------------------------------------- */
+
+async function navigateShortVideo(
+  verticalDelta,
+  horizontalDelta
+) {
+
+  if (
+    shortVideoState.loading
+  ) {
+    return;
+  }
+
+
+  /* ---------- 左右 = RSS ---------- */
+
+  if (horizontalDelta !== 0) {
+
+    const nextFeedIndex =
+      shortVideoState.feedIndex +
+      horizontalDelta;
+
+
+    if (
+      nextFeedIndex < 0 ||
+      nextFeedIndex >=
+        shortVideoState.feeds.length
+    ) {
+      return;
+    }
+
+
+    shortVideoState.feedIndex =
+      nextFeedIndex;
+
+    shortVideoState.itemIndex =
+      0;
+
+
+    renderShortVideoFeedTabs();
+
+
+    const feed =
+      shortVideoState.feeds[
+        nextFeedIndex
+      ];
+
+
+    const items =
+      await getVideoItems(
+        feed.section,
+        nextFeedIndex
+      );
+
+
+    if (!items.length) {
+
+      renderShortVideoError(
+        'このRSSには記事がありません。'
+      );
+
+      return;
+
+    }
+
+
+    await requestAndRenderShortVideo({
+
+      section:
+        feed.section,
+
+      feedUrl:
+        feed.url,
+
+      itemIndex:
+        0,
+
+      item:
+        items[0],
+
+      feedName:
+        feed.name
+
+    });
+
+
+    return;
+  }
+
+
+  /* ---------- 上下 = 記事 ---------- */
+
+  if (verticalDelta !== 0) {
+
+    const items =
+      await getVideoItems(
+        shortVideoState.section,
+        shortVideoState.feedIndex
+      );
+
+
+    if (!items.length) {
+      return;
+    }
+
+
+    const nextIndex =
+      shortVideoState.itemIndex +
+      verticalDelta;
+
+
+    if (
+      nextIndex < 0 ||
+      nextIndex >= items.length
+    ) {
+      return;
+    }
+
+
+    shortVideoState.itemIndex =
+      nextIndex;
+
+
+    const feed =
+      shortVideoState.feeds[
+        shortVideoState.feedIndex
+      ];
+
+
+    await requestAndRenderShortVideo({
+
+      section:
+        shortVideoState.section,
+
+      feedUrl:
+        feed.url,
+
+      itemIndex:
+        nextIndex,
+
+      item:
+        items[nextIndex],
+
+      feedName:
+        feed.name
+
+    });
+
+  }
+
+}
+
+
+/* ---------------------------------------------------------
+ * RSSタブ直接切替
+ * --------------------------------------------------------- */
+
+function switchShortVideoFeed(
+  feedIndex
+) {
+
+  if (
+    feedIndex < 0 ||
+    feedIndex >=
+      shortVideoState.feeds.length
+  ) {
+    return;
+  }
+
+
+  const delta =
+    feedIndex -
+    shortVideoState.feedIndex;
+
+
+  if (delta !== 0) {
+
+    navigateShortVideo(
+      0,
+      delta
+    );
+
+  }
+
+}
+
+
+/* ---------------------------------------------------------
+ * タッチ開始
+ * --------------------------------------------------------- */
+
+function onShortVideoTouchStart(
+  event
+) {
+
+  const touch =
+    event.changedTouches[0];
+
+  if (!touch) {
+    return;
+  }
+
+
+  shortVideoState.touch = {
+
+    x:
+      touch.clientX,
+
+    y:
+      touch.clientY,
+
+    active:
+      true
+
+  };
+
+}
+
+
+/* ---------------------------------------------------------
+ * タッチ終了
+ * --------------------------------------------------------- */
+
+function onShortVideoTouchEnd(
+  event
+) {
+
+  const touch =
+    event.changedTouches[0];
+
+
+  if (
+    !touch ||
+    !shortVideoState.touch.active
+  ) {
+    return;
+  }
+
+
+  const dx =
+    touch.clientX -
+    shortVideoState.touch.x;
+
+
+  const dy =
+    touch.clientY -
+    shortVideoState.touch.y;
+
+
+  shortVideoState.touch.active =
+    false;
+
+
+  const absX =
+    Math.abs(dx);
+
+
+  const absY =
+    Math.abs(dy);
+
+
+  const threshold =
+    Math.max(
+      45,
+      Math.min(
+        window.innerWidth,
+        window.innerHeight
+      ) * 0.08
+    );
+
+
+  if (
+    Math.max(absX, absY) <
+    threshold
+  ) {
+    return;
+  }
+
+
+  /*
+   * 重要:
+   *
+   * 横方向が長ければRSS
+   * 縦方向が長ければ記事
+   *
+   * 斜めスワイプでも
+   * 両方を発火させない。
+   */
+
+  if (absX > absY) {
+
+    // 左 → 次のRSS
+    // 右 → 前のRSS
+
+    navigateShortVideo(
+      0,
+      dx < 0
+        ? 1
+        : -1
+    );
+
+  } else {
+
+    // 上 → 次の記事
+    // 下 → 前の記事
+
+    navigateShortVideo(
+      dy < 0
+        ? 1
+        : -1,
+      0
+    );
+
+  }
+
 }
 
 // 画像プレビュー・モーダル表示
