@@ -2547,7 +2547,7 @@ function initNewsShortsFeature() {
       left: 0;
       width: 100vw;
       height: 100vh;
-      background: rgba(0, 0, 0, 0.9);
+      background: rgba(0, 0, 0, 0.95);
       z-index: 999999;
       display: none;
       align-items: center;
@@ -2556,7 +2556,7 @@ function initNewsShortsFeature() {
     shortsModal.innerHTML = `
       <div style="position: relative; width: 100%; max-width: 400px; height: 100%; background: #000; display: flex; flex-direction: column;">
         <button id="close-shorts-modal" style="position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 20px; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; z-index: 1000000; display: flex; align-items: center; justify-content: center;">✕</button>
-        <div id="shorts-container" style="flex: 1; overflow-y: scroll; scroll-snap-type: y mandatory; color: #fff; text-align: center; display: flex; flex-direction: column;">
+        <div id="shorts-container" style="flex: 1; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; color: #fff; text-align: center; display: flex; flex-direction: column;">
           <!-- ショート動画コンテンツがここに挿入されます -->
         </div>
       </div>
@@ -2572,7 +2572,6 @@ function initNewsShortsFeature() {
   const triggerBtn = playBtn || document.getElementById('news-shorts-trigger') || document.querySelector('.news-shorts-icon');
   
   if (triggerBtn) {
-    // 既存のイベント重複を防ぐためクローン置換または直接代入
     triggerBtn.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2590,7 +2589,7 @@ function initNewsShortsFeature() {
     };
   }
 
-  // モーダルの背景クリックでも閉じたい場合の処理（任意）
+  // モーダルの背景クリックでも閉じたい場合の処理
   shortsModal.onclick = (e) => {
     if (e.target === shortsModal) {
       closeShortsModal();
@@ -2606,7 +2605,7 @@ function openShortsModal() {
   modal.classList.remove('hidden');
   modal.style.display = 'flex';
   
-  // 必要であればここでショート動画のデータをロード・描画する処理を呼び出す
+  // RSSフィード等から実際のショート動画データをロード・描画する
   loadShortsContent();
 }
 
@@ -2618,23 +2617,88 @@ function closeShortsModal() {
   modal.classList.add('hidden');
   modal.style.display = 'none';
 
-  // 再生中のメディアやiframeがある場合は停止・クリアする
+  // 再生中の音声やコンテナの中身をクリアする
   const container = document.getElementById('shorts-container');
   if (container) {
     container.innerHTML = '';
   }
 }
 
-// ショート動画の中身を構築するダミー/サンプル関数（必要に応じて拡張可能）
-function loadShortsContent() {
-  const container = document.getElementById('shorts-container');
-  if (!container) return;
+// ショート動画の中身を構築・RSS読み込みを行う関数
+async function loadShortsContent() {
+  const container = id => document.getElementById(id);
+  const shortsContainer = container('shorts-container');
+  if (!shortsContainer) return;
 
-  // 初期プレースホルダーまたはニュース・知識カードからの情報読み込み
-  container.innerHTML = `
+  // ローディング表示
+  shortsContainer.innerHTML = `
     <div style="flex: 0 0 100%; height: 100%; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 20px; box-sizing: border-box;">
-      <h3 style="font-size: 18px; margin-bottom: 10px;">ニュース & 知識 ショート動画</h3>
-      <p style="font-size: 14px; color: #ccc;">上下にスワイプして情報を閲覧できます</p>
+      <p style="font-size: 14px; color: #aaa;">ニュースや知識情報を取得中...</p>
     </div>
   `;
+
+  try {
+    // 登録されているニュースフィードの先頭（または結合）からアイテムを取得
+    let targetUrl = '';
+    if (typeof newsFeeds !== 'undefined' && newsFeeds.length > 0) {
+      targetUrl = newsFeeds[0].url;
+    } else if (typeof DEFAULT_NEWS !== 'undefined' && DEFAULT_NEWS.length > 0) {
+      targetUrl = DEFAULT_NEWS[0].url;
+    }
+
+    let items = [];
+    if (targetUrl && typeof fetchNewsRSS === 'function') {
+      items = await fetchNewsRSS(targetUrl);
+    }
+
+    if (!items || items.length === 0) {
+      shortsContainer.innerHTML = `
+        <div style="flex: 0 0 100%; height: 100%; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 20px; box-sizing: border-box;">
+          <p style="font-size: 14px; color: #ff6b6b;">表示できるニュースが見つかりませんでした。</p>
+        </div>
+      `;
+      return;
+    }
+
+    // 縦型ショート風のスライドを生成して流し込む
+    shortsContainer.innerHTML = '';
+    items.slice(0, 10).forEach((item, index) => {
+      const slide = document.createElement('div');
+      slide.style.cssText = `
+        flex: 0 0 100%;
+        height: 100%;
+        scroll-snap-align: start;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 40px 24px;
+        box-sizing: border-box;
+        background: linear-gradient(135deg, #111 0%, #222 100%);
+        border-bottom: 1px solid #333;
+        position: relative;
+        text-align: left;
+      `;
+
+      slide.innerHTML = `
+        <div style="font-size: 12px; color: #aaa; margin-bottom: 8px;">ショートニュース #${index + 1}</div>
+        <div style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+          <h2 style="font-size: 20px; line-height: 1.4; margin-bottom: 16px; color: #fff; font-weight: bold;">${item.title}</h2>
+          <p style="font-size: 14px; line-height: 1.6; color: #ddd; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;">${item.description.replace(/<[^>]*>?/gm, '')}</p>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+          <span style="font-size: 11px; color: #888;">${new Date(item.pubDate).toLocaleDateString()}</span>
+          ${item.link ? `<a href="${item.link}" target="_blank" style="color: #4dabf7; font-size: 12px; text-decoration: none; background: rgba(77,171,247,0.1); padding: 6px 12px; border-radius: 20px;">元記事を読む →</a>` : ''}
+        </div>
+      `;
+      shortsContainer.appendChild(slide);
+    });
+
+  } catch (error) {
+    console.error('ショート動画の読み込みに失敗しました:', error);
+    shortsContainer.innerHTML = `
+      <div style="flex: 0 0 100%; height: 100%; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 20px; box-sizing: border-box;">
+        <p style="font-size: 14px; color: #ff6b6b;">データの取得に失敗しました。</p>
+      </div>
+    `;
+  }
 }
