@@ -1,124 +1,88 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>ダッシュボード</title>
-  
-  <!-- PWA & iOS 設定 -->
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#f2f2f7">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="ダッシュボード">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+// アプリ更新時はバージョン（v1, v2, v3...）を更新してください
+const CACHE_NAME = 'pwa-dashboard-v2';
 
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
+// キャッシュ対象の静的ファイル
+const STATIC_ASSETS = [
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './manifest.json',
+  './icons/icon-192.png',
+  './icons/icon-512.png'
+];
 
-  <main>
-    <!-- 1. 今日の天気 -->
-    <section class="card" id="weather-section">
-      <div class="section-header">
-        <h2>天気</h2>
-        <div class="action-buttons">
-          <button id="add-weather-btn" class="btn primary">追加</button>
-          <button id="del-weather-btn" class="btn warning">編集</button>
-        </div>
-      </div>
-      <div id="weather-container" class="horizontal-scroll">
-        <div class="loading">天気データを読み込み中...</div>
-      </div>
-    </section>
+// インストール処理：ファイルをキャッシュ
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(STATIC_ASSETS);
+    }).then(() => {
+      // 新しい ServiceWorker をすぐに有効化
+      return self.skipWaiting();
+    })
+  );
+});
 
-    <!-- 2. 今日のニュース -->
-    <section class="card" id="news-section">
-      <div class="section-header">
-        <h2>ニュース</h2>
-        <div class="action-buttons">
-          <!-- 動画生成・視聴ボタンを追加 -->
-          <button id="news-video-gen-btn" class="btn primary" title="ショート動画で視聴">
-            <img src="icons/video-play.png" alt="動画" style="width:16px; height:16px; vertical-align:middle;"> 動画
-          </button>
-          <button id="add-news-btn" class="btn primary">追加</button>
-          <button id="del-news-btn" class="btn warning">編集</button>
-        </div>
-      </div>
-      <div id="news-tabs" class="tab-container horizontal-scroll"></div>
-      <div id="news-content" class="vertical-scroll">
-        <div class="loading">ニュースを選択してください</div>
-      </div>
-    </section>
+// アクティベート処理：古いキャッシュを削除してクライアントを即時制御
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          // 現在の CACHE_NAME 以外の古いキャッシュを削除
+          if (cacheName !== CACHE_NAME) {
+            console.log('[SW] Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => {
+      // 制御下のページ（表示中のタブ）を即座に更新されたSWの制御下に置く
+      return self.clients.claim();
+    })
+  );
+});
 
-    <!-- 3. 知識 -->
-    <section class="card" id="knowledge-section">
-      <div class="section-header">
-        <h2>知識</h2>
-        <div class="action-buttons">
-          <!-- 動画生成・視聴ボタンを追加 -->
-          <button id="knowledge-video-gen-btn" class="btn primary" title="ショート動画で視聴">
-            <img src="icons/video-play.png" alt="動画" style="width:16px; height:16px; vertical-align:middle;"> 動画
-          </button>
-          <button id="add-knowledge-btn" class="btn primary">追加</button>
-          <button id="del-knowledge-btn" class="btn warning">編集</button>
-        </div>
-      </div>
-      <div id="knowledge-tabs" class="tab-container horizontal-scroll"></div>
-      <div id="knowledge-content" class="vertical-scroll">
-        <div class="loading">知識データを選択してください</div>
-      </div>
-    </section>
+// フェッチ処理：API通信（Open-MeteoやCORSプロキシ等）はネットワークから取得し、エラー時は安全に処理
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
 
-    <!-- 4. Twitter -->
-    <section class="card" id="twitter-section">
-      <div class="section-header">
-        <h2>Twitter</h2>
-        <div class="action-buttons">
-          <button id="add-twitter-btn" class="btn primary">追加</button>
-          <button id="del-twitter-btn" class="btn warning">編集</button>
-        </div>
-      </div>
-      <div id="twitter-content" class="vertical-scroll"></div>
-    </section>
+  // 外部APIやCORSプロキシ、RSS関連はキャッシュせず常に最新を取得（通信失敗時もエラーをキャッチする）
+  if (
+    url.origin !== location.origin ||
+    url.pathname.startsWith('/api/') ||
+    url.hostname.includes('open-meteo.com') ||
+    url.hostname.includes('corsproxy.io') ||
+    url.hostname.includes('allorigins.win') ||
+    url.hostname.includes('rss2json.com')
+  ) {
+    event.respondWith(
+      fetch(event.request).catch((err) => {
+        // 通信失敗時にService Worker全体がクラッシュするのを防ぐ
+        console.warn('Service Worker 外部リクエスト通信エラー:', event.request.url);
+        return new Response('', { status: 503, statusText: 'Service Unavailable' });
+      })
+    );
+    return;
+  }
 
-    <!-- 5. YouTube -->
-    <section class="card" id="youtube-section">
-      <div class="section-header">
-        <h2>YouTube</h2>
-        <div class="action-buttons">
-          <button id="add-youtube-btn" class="btn primary">追加</button>
-          <button id="del-youtube-btn" class="btn warning">編集</button>
-        </div>
-      </div>
-      <div id="youtube-content" class="vertical-scroll">
-        <div class="loading">配信先を追加してください。</div>
-      </div>
-    </section>
-  </main>
-
-  <!-- 縦型ショート動画スワイププレイヤー用モーダル -->
-  <div id="shorts-player-modal" class="modal hidden" style="background: #000; padding: 0;">
-    <div id="shorts-container" class="shorts-container">
-      <!-- 動的にショート動画スライドが挿入されます -->
-    </div>
-    <button id="close-shorts-modal" class="btn" style="position: absolute; top: env(safe-area-inset-top, 16px); right: 16px; z-index: 10000; background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 40px; height: 40px; border: none; font-size: 18px;">✕</button>
-  </div>
-
-  <!-- 汎用モーダルダイアログ -->
-  <div id="modal" class="modal hidden">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="modal-title">項目を追加</h3>
-      </div>
-      <div id="modal-body"></div>
-      <div class="modal-actions">
-        <button id="modal-cancel-btn" class="btn">キャンセル</button>
-        <button id="modal-submit-btn" class="btn primary">保存</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="app.js"></script>
-</body>
-</html>
+  // 静的ファイル：ネットワークを優先し、オフライン時はキャッシュから返す（Network First）
+  event.respondWith(
+    fetch(event.request)
+      .then((networkResponse) => {
+        // 取得できたらキャッシュを更新
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        // オフラインなど通信失敗時はキャッシュから返す
+        return caches.match(event.request);
+      })
+  );
+});
