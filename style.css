@@ -564,3 +564,416 @@ h2 {
   color: var(--text-sub);
   margin-top: 2px;
 }
+
+/* ===== リセット・基本設定 ===== */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f2f2f7;
+  color: #333;
+  
+  /* セーフエリア対応 */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+main {
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ===== ショート動画プレイヤー ===== */
+
+.short-video-player-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  z-index: 10000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease;
+  
+  /* セーフエリア */
+  top: max(0, env(safe-area-inset-top));
+  height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+.short-video-player-modal.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.short-video-player-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* クローズボタン */
+.short-video-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* タブセレクタ */
+.short-video-tab-selector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.6);
+  gap: 8px;
+}
+
+.tab-switch-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 18px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.tab-switch-btn:active {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.current-feed-info {
+  flex: 1;
+  text-align: center;
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* スクロールコンテナ */
+.short-video-scroll-container {
+  flex: 1;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  -webkit-scroll-snap-type: y mandatory;
+}
+
+.short-video-scroll-container.video-player-mode {
+  overflow-y: visible;
+}
+
+/* 動画カード */
+.short-video-card {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  
+  display: flex;
+  align-items: flex-end;
+  position: relative;
+  overflow: hidden;
+}
+
+.short-video-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.6));
+  z-index: 1;
+}
+
+.short-video-card-overlay {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.short-video-content {
+  color: white;
+}
+
+.short-video-icon {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.short-video-title {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+
+.short-video-feed-name {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.short-video-play-btn {
+  width: 100%;
+  padding: 12px;
+  background: #007aff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 16px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.short-video-play-btn:active {
+  opacity: 0.8;
+}
+
+/* ビデオプレイヤー */
+.video-player-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-player {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-frame {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(0,0,0,0.6));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-info {
+  color: white;
+  text-align: center;
+  padding: 20px;
+}
+
+.video-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+.video-title {
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 12px;
+  line-height: 1.3;
+}
+
+.video-text {
+  font-size: 16px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+.video-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 20px;
+  z-index: 10;
+}
+
+.video-control-btn {
+  width: 100%;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.video-control-btn:active {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.video-control-btn.close {
+  background: rgba(255, 59, 48, 0.6);
+}
+
+/* インジケーター */
+.short-video-indicator {
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.4);
+  color: white;
+  text-align: center;
+  font-size: 12px;
+}
+
+/* ===== 既存スタイル ===== */
+
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.section-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #e8e8e8;
+  color: #333;
+}
+
+.btn.primary {
+  background: #007aff;
+  color: white;
+}
+
+.tab-container {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.vertical-scroll {
+  max-height: 400px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.horizontal-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ===== 短版サイズ対応 ===== */
+
+@media (max-height: 600px) {
+  .short-video-title {
+    font-size: 18px;
+  }
+
+  .video-title {
+    font-size: 20px;
+  }
+
+  .video-text {
+    font-size: 14px;
+  }
+}
+
+/* ===== ダークモード対応 ===== */
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1c1c1e;
+    color: #fff;
+  }
+
+  .card {
+    background: #2c2c2e;
+    color: #fff;
+  }
+}
