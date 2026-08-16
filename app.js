@@ -1,20 +1,22 @@
 // --- JMA (気象庁API) 地域コード定義 & 地名マッピング表 ---
+// forecast/data/forecast/{code}.json の府県予報区コードは6桁。
 const JMA_PREF_CODES = {
-  "宗谷地方": "11000",
-  "上川・留萌地方": "12000",
-  "石狩・空知・後志地方": "16000",
-  "網走・北見・紋別地方": "13000",
-  "釧路・根室地方、十勝地方": "14100",
-  "胆振・日高地方": "15000",
-  "渡島・檜山地方": "17000",
-  "青森県": "20000",
-  "秋田県": "50000",
-  "岩手県": "30000",
-  "宮城県": "40000",
-  "山形県": "60000",
-  "福島県": "70000",
-  "茨城県": "80000",
-  "栃木県": "90000",
+  "宗谷地方": "011000",
+  "上川・留萌地方": "012000",
+  "石狩・空知・後志地方": "016000",
+  "網走・北見・紋別地方": "013000",
+  "釧路・根室地方": "014100",
+  "十勝地方": "014030",
+  "胆振・日高地方": "015000",
+  "渡島・檜山地方": "017000",
+  "青森県": "020000",
+  "秋田県": "050000",
+  "岩手県": "030000",
+  "宮城県": "040000",
+  "山形県": "060000",
+  "福島県": "070000",
+  "茨城県": "080000",
+  "栃木県": "090000",
   "群馬県": "100000",
   "埼玉県": "110000",
   "東京都": "130000",
@@ -51,7 +53,7 @@ const JMA_PREF_CODES = {
   "佐賀県": "410000",
   "熊本県": "430000",
   "宮崎県": "450000",
-  "鹿児島県、奄美地方": "460100",
+  "鹿児島県": "460100",
   "沖縄本島地方": "471000",
   "大東島地方": "472000",
   "宮古島地方": "473000",
@@ -71,13 +73,14 @@ const ALL_PREFECTURES = [
 
 // 北海道・沖縄の振分マッピング
 const HOKKAIDO_SUB_AREAS = {
-  "稚内": "11000", "宗谷": "11000",
-  "旭川": "12000", "留萌": "12000", "上川": "12000",
-  "札幌": "16000", "石狩": "16000", "空知": "16000", "後志": "16000", "小樽": "16000",
-  "網走": "13000", "北見": "13000", "紋別": "13000",
-  "釧路": "14100", "根室": "14100", "帯広": "14100", "十勝": "14100",
-  "室欄": "15000", "苫小牧": "15000", "胆振": "15000", "日高": "15000",
-  "函館": "17000", "渡島": "17000", "檜山": "17000"
+  "稚内": "011000", "宗谷": "011000",
+  "旭川": "012000", "留萌": "012000", "上川": "012000",
+  "札幌": "016000", "石狩": "016000", "空知": "016000", "後志": "016000", "小樽": "016000",
+  "網走": "013000", "北見": "013000", "紋別": "013000",
+  "釧路": "014100", "根室": "014100",
+  "帯広": "014030", "十勝": "014030",
+  "室欄": "015000", "苫小牧": "015000", "胆振": "015000", "日高": "015000",
+  "函館": "017000", "渡島": "017000", "檜山": "017000"
 };
 
 const OKINAWA_SUB_AREAS = {
@@ -194,8 +197,34 @@ function saveStoredFeeds(key, data) {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
+// v14: v13以前で先頭の0が欠けた5桁コードが保存済みでも自動修復する。
+// 例: 宮城県 40000 -> 040000。
+function normalizeJmaForecastCode(code) {
+  const raw = String(code ?? '').trim();
+  if (!/^\d+$/.test(raw)) return raw;
+  return raw.length < 6 ? raw.padStart(6, '0') : raw;
+}
+
+function migrateStoredWeatherLocationCodes(locations) {
+  if (!Array.isArray(locations)) return [];
+  let changed = false;
+  const migrated = locations.map((loc) => {
+    if (!loc || typeof loc !== 'object') return loc;
+    const normalized = normalizeJmaForecastCode(loc.code);
+    if (normalized && normalized !== String(loc.code ?? '')) {
+      changed = true;
+      return { ...loc, code: normalized };
+    }
+    return loc;
+  });
+  if (changed) saveStoredFeeds('weatherLocations', migrated);
+  return migrated;
+}
+
 // グローバル変数
-let weatherLocations = loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS);
+let weatherLocations = migrateStoredWeatherLocationCodes(
+  loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS)
+);
 let currentWeatherIdx = 0;
 let currentWeatherMode = '3day';
 let currentAreaSubIndex = 0;
@@ -211,10 +240,9 @@ let currentTwitterIdx = (() => {
 })();
 
 // Twitter: Render Free のコールドスタート復帰待ちを自動再試行する。
-// 1秒ごと・重複リクエストなし。90回を超えたら5秒間隔へ落として通信を抑える。
-const TWITTER_WAKE_RETRY_FAST_MS = 1000;
-const TWITTER_WAKE_RETRY_SLOW_MS = 5000;
-const TWITTER_WAKE_RETRY_FAST_LIMIT = 90;
+// 取得処理が「まだ情報なし」で完了した後、5秒待って次の取得を行う。
+// fetchはawaitで直列実行されるのでリクエストは重複しない。
+const TWITTER_WAKE_RETRY_MS = 5000;
 let twitterRetryTimer = null;
 let twitterRetryCount = 0;
 let twitterRetryFeedUrl = '';
@@ -446,7 +474,9 @@ let currentKnowledgeUrl = '';
 
 // 初期化
 document.addEventListener('DOMContentLoaded', () => {
-  weatherLocations = loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS);
+  weatherLocations = migrateStoredWeatherLocationCodes(
+    loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS)
+  );
   newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
   knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
   youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
@@ -751,6 +781,12 @@ async function renderWeatherData() {
     return;
   }
 
+  const normalizedCode = normalizeJmaForecastCode(loc.code);
+  if (normalizedCode !== String(loc.code)) {
+    loc.code = normalizedCode;
+    saveStoredFeeds('weatherLocations', weatherLocations);
+  }
+
   container.innerHTML = '<div class="loading" style="text-align:center; padding:16px;">天気情報を読み込み中...</div>';
 
   const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"];
@@ -1026,7 +1062,12 @@ async function renderWeatherData() {
   } catch (err) {
     console.error(err);
     if (areaSelectContainer) areaSelectContainer.innerHTML = '';
-    container.innerHTML = '<div style="text-align:center; padding: 16px; color:red;">天気データの取得に失敗しました</div>';
+    container.innerHTML = `
+      <div style="text-align:center; padding:16px; color:red;">
+        天気データの取得に失敗しました
+        <div style="font-size:10px; opacity:.7; margin-top:4px;">気象庁コード: ${String(loc.code || '')}</div>
+      </div>
+    `;
   }
 }
 
@@ -1235,7 +1276,7 @@ function resolveJmaCode(prefName, originalQuery) {
         return HOKKAIDO_SUB_AREAS[key];
       }
     }
-    return "16000";
+    return "016000";
   }
 
   if (prefName === "沖縄県") {
@@ -3105,17 +3146,14 @@ function scheduleTwitterAutoRetry(feedUrl, reason = '') {
   twitterRetryFeedUrl = feedUrl;
   twitterRetryCount += 1;
 
-  const delay = twitterRetryCount <= TWITTER_WAKE_RETRY_FAST_LIMIT
-    ? TWITTER_WAKE_RETRY_FAST_MS
-    : TWITTER_WAKE_RETRY_SLOW_MS;
+  const delay = TWITTER_WAKE_RETRY_MS;
 
   const container = document.getElementById('twitter-content');
   if (container) {
-    const intervalText = delay === 1000 ? '1秒' : '5秒';
     container.innerHTML = `
       <div class="loading twitter-wake-loading">
         <div style="font-weight:700; margin-bottom:4px;">Twitterサーバーの起動を待っています…</div>
-        <div style="font-size:11px; opacity:.75;">${intervalText}ごとに自動更新します（${twitterRetryCount}回目）</div>
+        <div style="font-size:11px; opacity:.75;">情報なしを確認後、5秒待って自動更新します（${twitterRetryCount}回目）</div>
         ${reason ? `<div style="font-size:10px; opacity:.55; margin-top:4px;">${reason}</div>` : ''}
       </div>
     `;
@@ -3852,6 +3890,8 @@ function destroyYoutubePlayerController() {
   }
 
   youtubePlayerController = null;
+  const modal = document.getElementById('youtube-video-modal');
+  if (modal) modal.dataset.playerReady = '0';
 }
 
 function updateYoutubeMediaSession(item) {
@@ -3991,6 +4031,8 @@ function attachYoutubePlayerController(index) {
           onReady(event) {
             if (attachSerial !== youtubePlayerAttachSerial) return;
             youtubePlayerController = event.target;
+            const readyModal = document.getElementById('youtube-video-modal');
+            if (readyModal) readyModal.dataset.playerReady = '1';
             updateYoutubeModalForIndex(index);
 
             // 一覧タップ時はiframe側の autoplay=1 に加えて、
@@ -4002,6 +4044,11 @@ function attachYoutubePlayerController(index) {
             }
           },
           onStateChange: handleYoutubePlayerStateChange,
+          onAutoplayBlocked() {
+            console.info('[YouTube] autoplay blocked by browser');
+            const blockedModal = document.getElementById('youtube-video-modal');
+            if (blockedModal) blockedModal.dataset.autoplayBlocked = '1';
+          },
           onError(event) {
             console.warn('[YouTube] player error:', event?.data);
           }
@@ -4022,6 +4069,39 @@ window.openYoutubeModalByIndex = function(index) {
   if (!list || index < 0 || index >= list.length) return;
 
   const item = list[index];
+
+  // v14: 2回目以降は同じYT.Playerを保持して再利用する。
+  // ユーザーが一覧をタップした同じイベント内でloadVideoById()を呼ぶことで、
+  // iPhoneでiframeを作り直すたびにautoplayが再ブロックされる問題を避ける。
+  const reusableModal = document.getElementById('youtube-video-modal');
+  if (
+    reusableModal &&
+    reusableModal.dataset.playerReady === '1' &&
+    youtubePlayerController?.loadVideoById
+  ) {
+    reusableModal.style.setProperty('display', 'block', 'important');
+    reusableModal.style.setProperty('visibility', 'visible', 'important');
+    reusableModal.dataset.landscapeRequested = '0';
+    reusableModal.classList.remove('yt-css-landscape-mode', 'yt-css-landscape-fill');
+    applyYoutubeWindowedModalStyle(reusableModal);
+
+    updateYoutubeModalForIndex(index);
+    updateYoutubeAutoNextUi();
+
+    try {
+      youtubePlayerController.loadVideoById({
+        videoId: item.videoId,
+        startSeconds: 0
+      });
+      youtubePlayerController.playVideo?.();
+    } catch (err) {
+      console.info('[YouTube] reused player playback notice:', err);
+    }
+
+    updateYoutubeMediaSession(item);
+    return;
+  }
+
   const videoId = item.videoId;
   const title = item.title || '';
   const channelName = item.displayName || '';
@@ -4444,11 +4524,19 @@ function setupModalDrag(modal) {
 }
 
 window.closeYoutubeModal = async function() {
-  destroyYoutubePlayerController();
+  // Playerは破棄せず、一時停止して非表示で保持する。
+  // 次の一覧タップでは同じPlayerを再利用して即時loadVideoById()する。
+  if (youtubeAutoAdvanceTimer) {
+    clearTimeout(youtubeAutoAdvanceTimer);
+    youtubeAutoAdvanceTimer = null;
+  }
+  try { youtubePlayerController?.pauseVideo?.(); } catch (_) {}
+
   const modal = document.getElementById('youtube-video-modal');
   if (modal) {
     await exitYoutubeLandscapeMode();
-    modal.remove();
+    modal.style.setProperty('display', 'none', 'important');
+    modal.style.setProperty('visibility', 'hidden', 'important');
   }
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = null;
