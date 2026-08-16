@@ -308,37 +308,6 @@ h2 {
 }
 
 
-/* Twitter: 外部遷移せずカード内で動画再生し、スクロール位置を保持 */
-.tweet-inline-video-box {
-  width: 100%;
-  margin-top: 8px;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #000;
-}
-
-.tweet-inline-video {
-  display: block;
-  width: 100%;
-  max-height: 420px;
-  background: #000;
-  border-radius: 12px;
-}
-
-.tweet-video-fallback {
-  display: block;
-  padding: 10px 12px;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: #1da1f2;
-  background: #15202b;
-  text-decoration: none;
-}
-
-.tweet-video-fallback[hidden] {
-  display: none;
-}
 
 /* --- YouTubeリスト --- */
 .youtube-item {
@@ -1351,132 +1320,130 @@ body.summary-open {
   padding-top: 0 !important;
 }
 
-/* ===== v10: Twitter video.twimg.com same-origin proxy ===== */
-.tweet-inline-video {
-  min-height: 160px;
-}
 
-/* ===== v10: YouTube PiP / 横画面レイアウト修正 ===== */
+
+/* v11: 通常表示のYouTube操作バーは3要素（横画面 / ヒント / YouTubeで開く）。 */
 .yt-orientation-control-bar {
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto;
 }
 
-.yt-pip-btn {
-  min-height: 32px;
-  padding: 5px 9px;
-  border: 1px solid rgba(255,255,255,0.28);
-  border-radius: 8px;
-  background: rgba(255,255,255,0.10);
-  color: #fff;
-  font-size: 11px;
+/* ===== v11: Twitter動画は外部再生だけに戻す ===== */
+.tweet-video-external-btn {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(29, 161, 242, 0.35);
+  border-radius: 12px;
+  background: rgba(29, 161, 242, 0.08);
+  color: #1d9bf0;
+  font-size: 13px;
   font-weight: 700;
-  white-space: nowrap;
+  text-align: left;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: manipulation;
 }
 
-.yt-pip-message {
-  grid-column: 1 / -1;
-  padding: 7px 8px;
-  border-radius: 7px;
-  background: rgba(255,255,255,0.12);
-  color: #fff;
-  font-size: 10px;
-  line-height: 1.35;
-}
-
-/*
- * iPhone portraitでScreen Orientation lockが使えない場合。
- * 重要: 回転前のサイズを 100vw x 100vh にする。
- * -90deg 回転すると物理的には 100vh x 100vw となり、横長画面いっぱいになる。
- * また「元の上部バー」が左側、「元の下部バー」が右側へ移る。
+/* ===== v11: YouTube横画面 3カラム統一 =====
+ * portrait端末で擬似回転した場合も、実際に端末が横向きの場合も同じ配置。
+ * 左: X / 前 / 次
+ * 中央: 動画
+ * 右: 縦画面 / YouTubeで開く
  */
 #youtube-video-modal.yt-css-landscape-mode {
+  width: 100vh !important;
+  height: 100vw !important;
+  max-width: none !important;
   top: 50% !important;
   left: 50% !important;
   right: auto !important;
   bottom: auto !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: none !important;
-  border-radius: 0 !important;
   transform: translate(-50%, -50%) rotate(-90deg) !important;
   transform-origin: center center !important;
+  border-radius: 0 !important;
   overflow: hidden !important;
   z-index: 9999999 !important;
 }
 
-#youtube-video-modal.yt-css-landscape-mode > .yt-modal-layout {
-  width: 100% !important;
-  height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-  min-height: 0 !important;
-}
-
-#youtube-video-modal.yt-css-landscape-mode #yt-modal-drag-handle,
-#youtube-video-modal.yt-css-landscape-mode .yt-orientation-control-bar {
-  flex: 0 0 auto !important;
-}
-
-#youtube-video-modal.yt-css-landscape-mode #yt-player-wrapper {
-  position: relative !important;
-  display: block !important;
-  flex: 1 1 auto !important;
-  width: 100% !important;
-  height: 0 !important;
-  min-height: 200px !important;
-  padding-top: 0 !important;
-  overflow: hidden !important;
-  background: #000 !important;
-}
-
-/*
- * 端末が実際に横向きになった場合、回転を外して3カラム化。
- * 左=前/次/閉じる、中央=動画、右=縦画面/PiP/YouTubeリンク。
- */
+#youtube-video-modal.yt-css-landscape-mode > .yt-modal-layout,
 #youtube-video-modal.yt-css-landscape-fill > .yt-modal-layout,
 #youtube-video-modal:fullscreen > .yt-modal-layout {
   width: 100% !important;
   height: 100% !important;
-  display: grid !important;
-  grid-template-columns: 94px minmax(0, 1fr) 118px !important;
-  grid-template-rows: minmax(0, 1fr) !important;
+  min-width: 0 !important;
   min-height: 0 !important;
+  display: grid !important;
+  grid-template-columns: 78px minmax(0, 1fr) 104px !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  background: #000 !important;
+  overflow: hidden !important;
 }
 
+#youtube-video-modal.yt-css-landscape-mode #yt-modal-drag-handle,
 #youtube-video-modal.yt-css-landscape-fill #yt-modal-drag-handle,
 #youtube-video-modal:fullscreen #yt-modal-drag-handle {
   grid-column: 1 !important;
   grid-row: 1 !important;
-  min-width: 0 !important;
+  width: 100% !important;
   height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-  justify-content: center !important;
-  align-items: stretch !important;
-  gap: 8px !important;
-  padding: 8px 6px !important;
+  min-width: 0 !important;
   box-sizing: border-box !important;
-}
-
-#youtube-video-modal.yt-css-landscape-fill #yt-modal-drag-handle > div:first-child,
-#youtube-video-modal:fullscreen #yt-modal-drag-handle > div:first-child {
   display: flex !important;
   flex-direction: column !important;
-  gap: 7px !important;
-}
-
-#youtube-video-modal.yt-css-landscape-fill #yt-modal-drag-handle > div:nth-child(2),
-#youtube-video-modal:fullscreen #yt-modal-drag-handle > div:nth-child(2) {
-  white-space: normal !important;
-  text-align: center !important;
-  line-height: 1.25 !important;
-  margin: 4px 0 !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  padding: max(8px, env(safe-area-inset-top)) 6px max(8px, env(safe-area-inset-bottom)) !important;
+  border-right: 1px solid rgba(255,255,255,0.14) !important;
+  background: #1c1c1e !important;
   overflow: hidden !important;
-  display: -webkit-box !important;
-  -webkit-line-clamp: 4 !important;
-  -webkit-box-orient: vertical !important;
 }
 
+#youtube-video-modal.yt-css-landscape-mode .yt-close-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-close-btn,
+#youtube-video-modal:fullscreen .yt-close-btn {
+  order: 1 !important;
+  width: 100% !important;
+  min-height: 36px !important;
+  border-radius: 7px !important;
+  background: rgba(255,255,255,0.12) !important;
+  font-size: 19px !important;
+  flex: 0 0 auto !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode .yt-nav-buttons,
+#youtube-video-modal.yt-css-landscape-fill .yt-nav-buttons,
+#youtube-video-modal:fullscreen .yt-nav-buttons {
+  order: 2 !important;
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 9px !important;
+  flex: 0 0 auto !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode .yt-prev-btn,
+#youtube-video-modal.yt-css-landscape-mode .yt-next-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-prev-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-next-btn,
+#youtube-video-modal:fullscreen .yt-prev-btn,
+#youtube-video-modal:fullscreen .yt-next-btn {
+  width: 100% !important;
+  min-height: 38px !important;
+  box-sizing: border-box !important;
+  padding: 5px 2px !important;
+  white-space: nowrap !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode .yt-modal-title,
+#youtube-video-modal.yt-css-landscape-fill .yt-modal-title,
+#youtube-video-modal:fullscreen .yt-modal-title {
+  display: none !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode #yt-player-wrapper,
 #youtube-video-modal.yt-css-landscape-fill #yt-player-wrapper,
 #youtube-video-modal:fullscreen #yt-player-wrapper {
   grid-column: 2 !important;
@@ -1485,43 +1452,73 @@ body.summary-open {
   display: block !important;
   width: 100% !important;
   height: 100% !important;
-  min-width: 200px !important;
-  min-height: 200px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
   padding-top: 0 !important;
   overflow: hidden !important;
   background: #000 !important;
 }
 
+#youtube-video-modal.yt-css-landscape-mode #yt-player-wrapper > div,
+#youtube-video-modal.yt-css-landscape-fill #yt-player-wrapper > div,
+#youtube-video-modal:fullscreen #yt-player-wrapper > div {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 200% !important;
+  height: 200% !important;
+  transform: scale(0.5) !important;
+  transform-origin: 0 0 !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode .yt-orientation-control-bar,
 #youtube-video-modal.yt-css-landscape-fill .yt-orientation-control-bar,
 #youtube-video-modal:fullscreen .yt-orientation-control-bar {
   grid-column: 3 !important;
   grid-row: 1 !important;
   width: 100% !important;
   height: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
   display: flex !important;
   flex-direction: column !important;
   align-items: stretch !important;
-  justify-content: center !important;
-  gap: 9px !important;
-  padding: 8px 6px !important;
-  box-sizing: border-box !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  padding: max(8px, env(safe-area-inset-top)) 6px max(8px, env(safe-area-inset-bottom)) !important;
   border-top: 0 !important;
   border-left: 1px solid rgba(255,255,255,0.14) !important;
+  background: #1c1c1e !important;
+  overflow: hidden !important;
 }
 
+#youtube-video-modal.yt-css-landscape-mode .yt-orientation-swipe-hint,
 #youtube-video-modal.yt-css-landscape-fill .yt-orientation-swipe-hint,
 #youtube-video-modal:fullscreen .yt-orientation-swipe-hint {
-  white-space: normal !important;
-  line-height: 1.35 !important;
+  display: none !important;
 }
 
-#youtube-video-modal.yt-css-landscape-fill .yt-open-official,
-#youtube-video-modal:fullscreen .yt-open-official,
-#youtube-video-modal.yt-css-landscape-fill .yt-pip-btn,
-#youtube-video-modal:fullscreen .yt-pip-btn,
+#youtube-video-modal.yt-css-landscape-mode .yt-orientation-btn,
 #youtube-video-modal.yt-css-landscape-fill .yt-orientation-btn,
 #youtube-video-modal:fullscreen .yt-orientation-btn {
   width: 100% !important;
+  min-height: 42px !important;
+  margin: 0 !important;
   box-sizing: border-box !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode .yt-open-official,
+#youtube-video-modal.yt-css-landscape-fill .yt-open-official,
+#youtube-video-modal:fullscreen .yt-open-official {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  margin-top: auto !important;
+  padding: 9px 4px !important;
+  border-radius: 7px !important;
+  background: rgba(255,255,255,0.10) !important;
   text-align: center !important;
+  white-space: normal !important;
+  line-height: 1.25 !important;
+  flex: 0 0 auto !important;
 }
