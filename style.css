@@ -771,14 +771,16 @@ body.summary-open {
 }
 
 .summary-ai-content {
-  margin-top: 14px;
-  min-height: 150px;
-  flex: 1 1 auto;
-  overflow: hidden;
+  margin-top: 8px;
+  min-height: 0;
+  max-height: 42%;
+  flex: 0 0 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .summary-section-label {
-  margin: 10px 0 6px;
+  margin: 6px 0 6px;
   font-size: 11px;
   font-weight: 700;
   color: var(--text-sub);
@@ -789,12 +791,6 @@ body.summary-open {
   margin-top: 0;
 }
 
-.summary-catchcopy {
-  font-size: 20px;
-  line-height: 1.35;
-  font-weight: 800;
-  color: var(--text-color);
-}
 
 .summary-points {
   margin: 0;
@@ -817,19 +813,27 @@ body.summary-open {
 }
 
 .summary-chat-log {
-  flex: 0 1 116px;
-  min-height: 0;
-  max-height: 116px;
+  flex: 1 1 220px;
+  min-height: 150px;
+  max-height: none;
   overflow-y: auto;
   margin-top: 10px;
-  padding-top: 8px;
+  padding: 10px 8px 4px;
   border-top: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: #fafafa;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
-.summary-chat-log:empty {
-  display: none;
+.summary-chat-log:empty::before {
+  content: "AIとの会話はここに表示されます";
+  display: block;
+  padding: 14px 4px;
+  color: var(--text-sub);
+  font-size: 12px;
+  text-align: center;
 }
 
 .summary-chat-bubble {
@@ -953,9 +957,6 @@ body.summary-open {
     font-size: 16px;
   }
 
-  .summary-catchcopy {
-    font-size: 18px;
-  }
 
   .summary-points {
     gap: 5px;
@@ -963,8 +964,9 @@ body.summary-open {
   }
 
   .summary-chat-log {
-    flex-basis: 86px;
-    max-height: 86px;
+    flex-basis: 150px;
+    min-height: 120px;
+    max-height: none;
   }
 }
 
@@ -997,4 +999,18 @@ body.summary-open {
 .summary-content-source.rss {
   color: #8a5a00;
   background: #fff4d6;
+}
+
+
+/* AI要約画面：左右タブ切替と操作領域の干渉防止 */
+.summary-original-link,
+.summary-chat-form,
+.summary-chat-input,
+.summary-chat-send,
+.summary-close-btn {
+  touch-action: manipulation;
+}
+
+.summary-points-label {
+  margin-top: 2px;
 }
