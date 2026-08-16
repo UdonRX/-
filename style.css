@@ -1666,3 +1666,83 @@ body.summary-open {
     font-size: 9px;
   }
 }
+
+/* =========================================================
+ * v15: Shorts専用 縦長YouTubeプレーヤー
+ * Shortsタブから開いた動画だけ9:16表示。
+ * 横画面ボタン/画面回転スワイプは非表示・無効。
+ * 通常動画/LIVEには影響しない。
+ * ========================================================= */
+#youtube-video-modal.yt-shorts-mode {
+  box-sizing: border-box !important;
+  max-width: calc(100vw - 20px) !important;
+  max-height: calc(100dvh - 20px) !important;
+}
+
+/* Shorts本体は9:16。既存iframeの2倍描画→0.5縮小方式は維持する。 */
+#youtube-video-modal.yt-shorts-mode #yt-player-wrapper {
+  position: relative !important;
+  width: 100% !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  padding-top: 177.7777778% !important; /* 16 / 9 */
+  overflow: hidden !important;
+  background: #000 !important;
+}
+
+#youtube-video-modal.yt-shorts-mode #yt-player-wrapper > div {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 200% !important;
+  height: 200% !important;
+  transform: scale(0.5) !important;
+  transform-origin: 0 0 !important;
+}
+
+/* Shortsでは横画面機能そのものを見せない。 */
+#youtube-video-modal.yt-shorts-mode .yt-orientation-btn,
+#youtube-video-modal.yt-shorts-mode .yt-orientation-swipe-hint {
+  display: none !important;
+}
+
+/* 下部は「連続再生」と「YouTubeで開く」だけに再構成。 */
+#youtube-video-modal.yt-shorts-mode .yt-orientation-control-bar {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 8px !important;
+  touch-action: manipulation !important;
+}
+
+#youtube-video-modal.yt-shorts-mode .yt-auto-next-btn {
+  grid-column: 1 !important;
+  width: fit-content !important;
+  max-width: 100% !important;
+  justify-self: start !important;
+}
+
+#youtube-video-modal.yt-shorts-mode .yt-open-official {
+  grid-column: 2 !important;
+  justify-self: end !important;
+}
+
+/* Shortsではドラッグ可能な通常ウィンドウのまま。横画面クラスは使わない。 */
+#youtube-video-modal.yt-shorts-mode > .yt-modal-layout {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  background: #000 !important;
+}
+
+@media (max-height: 700px) {
+  #youtube-video-modal.yt-shorts-mode .yt-modal-header {
+    padding-block: 4px !important;
+  }
+
+  #youtube-video-modal.yt-shorts-mode .yt-orientation-control-bar {
+    padding-block: 5px !important;
+  }
+}
