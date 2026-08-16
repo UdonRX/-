@@ -1,8 +1,0 @@
-{
-  "rewrites": [
-    {
-      "source": "/api/video/:path*",
-      "destination": "https://rss-short-video-backend.onrender.com/api/video/:path*"
-    }
-  ]
-}
