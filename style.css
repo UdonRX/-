@@ -1350,3 +1350,178 @@ body.summary-open {
   height: auto !important;
   padding-top: 0 !important;
 }
+
+/* ===== v10: Twitter video.twimg.com same-origin proxy ===== */
+.tweet-inline-video {
+  min-height: 160px;
+}
+
+/* ===== v10: YouTube PiP / 横画面レイアウト修正 ===== */
+.yt-orientation-control-bar {
+  grid-template-columns: auto 1fr auto auto;
+}
+
+.yt-pip-btn {
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.10);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.yt-pip-message {
+  grid-column: 1 / -1;
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+/*
+ * iPhone portraitでScreen Orientation lockが使えない場合。
+ * 重要: 回転前のサイズを 100vw x 100vh にする。
+ * -90deg 回転すると物理的には 100vh x 100vw となり、横長画面いっぱいになる。
+ * また「元の上部バー」が左側、「元の下部バー」が右側へ移る。
+ */
+#youtube-video-modal.yt-css-landscape-mode {
+  top: 50% !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  border-radius: 0 !important;
+  transform: translate(-50%, -50%) rotate(-90deg) !important;
+  transform-origin: center center !important;
+  overflow: hidden !important;
+  z-index: 9999999 !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode > .yt-modal-layout {
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode #yt-modal-drag-handle,
+#youtube-video-modal.yt-css-landscape-mode .yt-orientation-control-bar {
+  flex: 0 0 auto !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode #yt-player-wrapper {
+  position: relative !important;
+  display: block !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  height: 0 !important;
+  min-height: 200px !important;
+  padding-top: 0 !important;
+  overflow: hidden !important;
+  background: #000 !important;
+}
+
+/*
+ * 端末が実際に横向きになった場合、回転を外して3カラム化。
+ * 左=前/次/閉じる、中央=動画、右=縦画面/PiP/YouTubeリンク。
+ */
+#youtube-video-modal.yt-css-landscape-fill > .yt-modal-layout,
+#youtube-video-modal:fullscreen > .yt-modal-layout {
+  width: 100% !important;
+  height: 100% !important;
+  display: grid !important;
+  grid-template-columns: 94px minmax(0, 1fr) 118px !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  min-height: 0 !important;
+}
+
+#youtube-video-modal.yt-css-landscape-fill #yt-modal-drag-handle,
+#youtube-video-modal:fullscreen #yt-modal-drag-handle {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+  padding: 8px 6px !important;
+  box-sizing: border-box !important;
+}
+
+#youtube-video-modal.yt-css-landscape-fill #yt-modal-drag-handle > div:first-child,
+#youtube-video-modal:fullscreen #yt-modal-drag-handle > div:first-child {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 7px !important;
+}
+
+#youtube-video-modal.yt-css-landscape-fill #yt-modal-drag-handle > div:nth-child(2),
+#youtube-video-modal:fullscreen #yt-modal-drag-handle > div:nth-child(2) {
+  white-space: normal !important;
+  text-align: center !important;
+  line-height: 1.25 !important;
+  margin: 4px 0 !important;
+  overflow: hidden !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 4 !important;
+  -webkit-box-orient: vertical !important;
+}
+
+#youtube-video-modal.yt-css-landscape-fill #yt-player-wrapper,
+#youtube-video-modal:fullscreen #yt-player-wrapper {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  position: relative !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 200px !important;
+  min-height: 200px !important;
+  padding-top: 0 !important;
+  overflow: hidden !important;
+  background: #000 !important;
+}
+
+#youtube-video-modal.yt-css-landscape-fill .yt-orientation-control-bar,
+#youtube-video-modal:fullscreen .yt-orientation-control-bar {
+  grid-column: 3 !important;
+  grid-row: 1 !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  gap: 9px !important;
+  padding: 8px 6px !important;
+  box-sizing: border-box !important;
+  border-top: 0 !important;
+  border-left: 1px solid rgba(255,255,255,0.14) !important;
+}
+
+#youtube-video-modal.yt-css-landscape-fill .yt-orientation-swipe-hint,
+#youtube-video-modal:fullscreen .yt-orientation-swipe-hint {
+  white-space: normal !important;
+  line-height: 1.35 !important;
+}
+
+#youtube-video-modal.yt-css-landscape-fill .yt-open-official,
+#youtube-video-modal:fullscreen .yt-open-official,
+#youtube-video-modal.yt-css-landscape-fill .yt-pip-btn,
+#youtube-video-modal:fullscreen .yt-pip-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-orientation-btn,
+#youtube-video-modal:fullscreen .yt-orientation-btn {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  text-align: center !important;
+}
