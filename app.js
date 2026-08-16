@@ -1186,6 +1186,7 @@ function setFeedSwiper(type, swiper) {
   }
 }
 
+
 function getCurrentFeedIndex(type) {
   return type === 'news' ? currentNewsFeedIdx : currentKnowledgeFeedIdx;
 }
@@ -1226,6 +1227,11 @@ function initSwipeFeedSection(type) {
   const feeds = getFeedsByType(type);
   const container = document.getElementById(getFeedContentId(type));
   if (!container) return;
+
+  if (typeof container._feedSwipeCleanup === 'function') {
+    container._feedSwipeCleanup();
+    container._feedSwipeCleanup = null;
+  }
 
   const oldSwiper = getFeedSwiper(type);
   if (oldSwiper) {
@@ -1275,17 +1281,26 @@ function initSwipeFeedSection(type) {
     return;
   }
 
+  // iPhoneでは「横Swiperの中に縦スクロール」があるため、
+  // Swiper自身に方向判定を任せつつ、touch-action: pan-y で縦スクロールをSafariへ渡す。
   const swiper = new Swiper(`#${getFeedContentId(type)}`, {
     direction: 'horizontal',
+    slidesPerView: 1,
     initialSlide: getCurrentFeedIndex(type),
-    speed: 240,
-    threshold: 12,
-    touchAngle: 32,
-    resistanceRatio: 0.72,
-    edgeSwipeDetection: true,
-    edgeSwipeThreshold: 24,
+    speed: 260,
+    resistance: true,
+    resistanceRatio: 0.65,
+    allowTouchMove: true,
+    touchEventsTarget: 'container',
+    threshold: 8,
+    touchAngle: 55,
     touchStartPreventDefault: false,
     touchMoveStopPropagation: false,
+    passiveListeners: false,
+    preventClicks: true,
+    preventClicksPropagation: true,
+    preventInteractionOnTransition: true,
+    watchSlidesProgress: true,
     on: {
       slideChange() {
         activateFeedIndex(type, this.activeIndex, true);
@@ -1294,7 +1309,81 @@ function initSwipeFeedSection(type) {
   });
 
   setFeedSwiper(type, swiper);
+  installFeedSwipeFallback(type, container, swiper);
   activateFeedIndex(type, getCurrentFeedIndex(type), true);
+}
+
+// SwiperのドラッグがiOS Safari側に取り込まれた場合の保険。
+// 横方向が明確なジェスチャーだけ、指を離した時点でSwiperを1枚送る。
+function installFeedSwipeFallback(type, container, swiper) {
+  if (!container || !swiper) return;
+
+  let startX = 0;
+  let startY = 0;
+  let startTime = 0;
+  let startIndex = 0;
+  let tracking = false;
+
+  const onStart = (event) => {
+    if (event.touches?.length > 1) return;
+    const point = event.touches?.[0] || event;
+    startX = point.clientX || 0;
+    startY = point.clientY || 0;
+    startTime = Date.now();
+    startIndex = swiper.activeIndex;
+    tracking = true;
+  };
+
+  const onEnd = (event) => {
+    if (!tracking) return;
+    tracking = false;
+
+    const point = event.changedTouches?.[0] || event;
+    const dx = (point.clientX || 0) - startX;
+    const dy = (point.clientY || 0) - startY;
+    const elapsed = Math.max(1, Date.now() - startTime);
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    const velocityX = absX / elapsed;
+
+    if (absX <= absY * 1.25) return;
+    if (absX < 56 && velocityX < 0.35) return;
+
+    // Swiper自身のtouch/pointer処理が終わるのを1フレーム待つ。
+    // すでにSwiperが切り替えていれば、二重移動しない。
+    requestAnimationFrame(() => {
+      if (swiper.destroyed || swiper.activeIndex !== startIndex) return;
+
+      container.dataset.suppressClickUntil = String(Date.now() + 350);
+
+      if (dx < 0 && !swiper.isEnd) {
+        swiper.slideNext();
+      } else if (dx > 0 && !swiper.isBeginning) {
+        swiper.slidePrev();
+      }
+    });
+  };
+
+  const onCancel = () => { tracking = false; };
+  const onClick = (event) => {
+    const until = Number(container.dataset.suppressClickUntil || 0);
+    if (Date.now() < until) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
+  container.addEventListener('touchstart', onStart, { passive: true });
+  container.addEventListener('touchend', onEnd, { passive: true });
+  container.addEventListener('touchcancel', onCancel, { passive: true });
+  container.addEventListener('click', onClick, true);
+
+  container._feedSwipeCleanup = () => {
+    container.removeEventListener('touchstart', onStart);
+    container.removeEventListener('touchend', onEnd);
+    container.removeEventListener('touchcancel', onCancel);
+    container.removeEventListener('click', onClick, true);
+  };
 }
 
 function activateFeedIndex(type, index, fromSwiper = false) {
@@ -1633,9 +1722,17 @@ async function ensureSummaryLoaded(index) {
       })
     });
 
-    const data = await response.json().catch(() => ({}));
+    const rawResponse = await response.text();
+    let data = {};
+    try {
+      data = rawResponse ? JSON.parse(rawResponse) : {};
+    } catch (_) {
+      data = {};
+    }
+
     if (!response.ok) {
-      throw new Error(data.error || '要約APIエラー');
+      const detail = [data.error, data.detail].filter(Boolean).join(' / ');
+      throw new Error(detail || `要約APIエラー (HTTP ${response.status})`);
     }
 
     const result = {
@@ -1654,7 +1751,7 @@ async function ensureSummaryLoaded(index) {
 
     const errorText = document.createElement('div');
     errorText.className = 'summary-error';
-    errorText.textContent = '要約の取得に失敗しました。';
+    errorText.textContent = `要約の取得に失敗しました。\n${err?.message || '原因を取得できませんでした'}`;
 
     const retry = document.createElement('button');
     retry.type = 'button';
@@ -1783,9 +1880,17 @@ async function handleSummaryChatSubmit(event) {
       })
     });
 
-    const data = await response.json().catch(() => ({}));
+    const rawResponse = await response.text();
+    let data = {};
+    try {
+      data = rawResponse ? JSON.parse(rawResponse) : {};
+    } catch (_) {
+      data = {};
+    }
+
     if (!response.ok) {
-      throw new Error(data.error || 'チャットAPIエラー');
+      const detail = [data.error, data.detail].filter(Boolean).join(' / ');
+      throw new Error(detail || `チャットAPIエラー (HTTP ${response.status})`);
     }
 
     summaryChatHistories.set(key, [
@@ -1798,7 +1903,7 @@ async function handleSummaryChatSubmit(event) {
     summaryChatHistories.set(key, [
       ...previousHistory,
       { role: 'user', content: question },
-      { role: 'assistant', content: '回答の取得に失敗しました。もう一度試してください。' }
+      { role: 'assistant', content: `回答の取得に失敗しました。${err?.message ? `\n${err.message}` : ''}` }
     ]);
   } finally {
     sendBtn.disabled = false;
