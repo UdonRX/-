@@ -1522,3 +1522,75 @@ body.summary-open {
   line-height: 1.25 !important;
   flex: 0 0 auto !important;
 }
+
+
+/* =========================================================
+ * v12: YouTube横画面をiPhoneのvisual viewport内へ収める
+ * 左右操作列を固定pxではなくコンテナ比率で縮められるようにする。
+ * ========================================================= */
+#youtube-video-modal.yt-css-landscape-mode,
+#youtube-video-modal.yt-css-landscape-fill,
+#youtube-video-modal:fullscreen {
+  box-sizing: border-box !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode > .yt-modal-layout,
+#youtube-video-modal.yt-css-landscape-fill > .yt-modal-layout,
+#youtube-video-modal:fullscreen > .yt-modal-layout {
+  box-sizing: border-box !important;
+  grid-template-columns:
+    clamp(54px, 11%, 74px)
+    minmax(0, 1fr)
+    clamp(76px, 15%, 98px) !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode #yt-modal-drag-handle,
+#youtube-video-modal.yt-css-landscape-fill #yt-modal-drag-handle,
+#youtube-video-modal:fullscreen #yt-modal-drag-handle,
+#youtube-video-modal.yt-css-landscape-mode .yt-orientation-control-bar,
+#youtube-video-modal.yt-css-landscape-fill .yt-orientation-control-bar,
+#youtube-video-modal:fullscreen .yt-orientation-control-bar {
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  padding: 6px 5px !important;
+  overflow: hidden !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode .yt-close-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-close-btn,
+#youtube-video-modal:fullscreen .yt-close-btn,
+#youtube-video-modal.yt-css-landscape-mode .yt-prev-btn,
+#youtube-video-modal.yt-css-landscape-mode .yt-next-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-prev-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-next-btn,
+#youtube-video-modal:fullscreen .yt-prev-btn,
+#youtube-video-modal:fullscreen .yt-next-btn,
+#youtube-video-modal.yt-css-landscape-mode .yt-orientation-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-orientation-btn,
+#youtube-video-modal:fullscreen .yt-orientation-btn {
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  font-size: 11px !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode .yt-open-official,
+#youtube-video-modal.yt-css-landscape-fill .yt-open-official,
+#youtube-video-modal:fullscreen .yt-open-official {
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-wrap: anywhere !important;
+  font-size: 9px !important;
+}
+
+/* small iPhone向け: 操作列をさらに細くして中央動画を優先 */
+@media (max-width: 430px) {
+  #youtube-video-modal.yt-css-landscape-mode > .yt-modal-layout {
+    grid-template-columns:
+      clamp(50px, 10%, 66px)
+      minmax(0, 1fr)
+      clamp(70px, 14%, 90px) !important;
+  }
+}
