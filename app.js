@@ -206,6 +206,16 @@ let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 let twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
 let currentTwitterIdx = 0;
 
+// Twitter: 外部動画/リンクから戻ったときにフィードごとのスクロール位置を復元する
+const TWITTER_SCROLL_STORAGE_KEY = 'twitterScrollPositionsV1';
+let twitterScrollPositions = (() => {
+  try {
+    return JSON.parse(sessionStorage.getItem(TWITTER_SCROLL_STORAGE_KEY) || '{}');
+  } catch (_) {
+    return {};
+  }
+})();
+
 let currentNewsUrl = '';
 let currentKnowledgeUrl = '';
 
@@ -1162,6 +1172,9 @@ let summarySwiper = null;
 let summaryContext = null;
 let summaryBodyScrollY = 0;
 let summaryFeedSwitching = false;
+let summaryEdgeClosing = false;
+
+const SUMMARY_EDGE_SWIPE_WIDTH = 30;
 
 function getFeedsByType(type) {
   return type === 'news' ? newsFeeds : knowledgeFeeds;
@@ -1529,6 +1542,8 @@ function initSummaryUI() {
 
   // 要約画面では上下=記事移動、左右=RSSタブ移動として役割を分離する。
   installSummaryFeedSwipe();
+  // iPhone: 左端から右へスワイプするとSafariの戻る操作のように要約画面を閉じる。
+  installSummaryEdgeBackGesture();
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !overlay.classList.contains('hidden')) {
@@ -1563,6 +1578,12 @@ function installSummaryFeedSwipe() {
 
     const point = event.touches?.[0];
     if (!point) return;
+
+    // 左端30pxは「戻る/閉じる」ジェスチャー専用に予約する。
+    if (point.clientX <= SUMMARY_EDGE_SWIPE_WIDTH) {
+      tracking = false;
+      return;
+    }
 
     startX = lastX = point.clientX;
     startY = lastY = point.clientY;
@@ -1645,6 +1666,146 @@ function installSummaryFeedSwipe() {
   surface.addEventListener('touchend', finish, { passive: true });
   surface.addEventListener('touchcancel', cancel, { passive: true });
   surface.addEventListener('click', suppressClick, true);
+}
+
+
+function installSummaryEdgeBackGesture() {
+  const overlay = document.getElementById('summary-overlay');
+  if (!overlay || overlay.dataset.edgeBackInstalled === '1') return;
+
+  overlay.dataset.edgeBackInstalled = '1';
+
+  let tracking = false;
+  let horizontal = false;
+  let startX = 0;
+  let startY = 0;
+  let lastX = 0;
+  let startTime = 0;
+
+  const resetVisualState = () => {
+    overlay.classList.remove('summary-edge-dragging', 'summary-edge-finishing');
+    overlay.style.transform = '';
+    overlay.style.transition = '';
+    overlay.style.willChange = '';
+    overlay.style.boxShadow = '';
+    overlay.dataset.edgeSwiping = '0';
+    if (summarySwiper && !summarySwiper.destroyed) {
+      summarySwiper.allowTouchMove = true;
+    }
+  };
+
+  const onStart = (event) => {
+    if (overlay.classList.contains('hidden') || summaryEdgeClosing) return;
+    if (event.touches?.length !== 1) return;
+
+    const point = event.touches[0];
+    if (point.clientX > SUMMARY_EDGE_SWIPE_WIDTH) return;
+
+    // 入力欄やボタン操作は優先。ただし本文の左端からは戻る操作を許可。
+    if (event.target?.closest?.('input, textarea, select')) return;
+
+    tracking = true;
+    horizontal = false;
+    startX = lastX = point.clientX;
+    startY = point.clientY;
+    startTime = Date.now();
+    overlay.dataset.edgeSwiping = '1';
+  };
+
+  const onMove = (event) => {
+    if (!tracking) return;
+    const point = event.touches?.[0];
+    if (!point) return;
+
+    const dx = Math.max(0, point.clientX - startX);
+    const dy = point.clientY - startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    lastX = point.clientX;
+
+    if (!horizontal) {
+      if (absY > 16 && absY > absX * 1.15) {
+        tracking = false;
+        overlay.dataset.edgeSwiping = '0';
+        return;
+      }
+      if (absX >= 8 && absX > absY * 1.1) {
+        horizontal = true;
+        overlay.classList.add('summary-edge-dragging');
+        overlay.style.transition = 'none';
+        overlay.style.willChange = 'transform';
+        if (summarySwiper && !summarySwiper.destroyed) {
+          summarySwiper.allowTouchMove = false;
+        }
+      }
+    }
+
+    if (!horizontal) return;
+
+    if (event.cancelable) event.preventDefault();
+    event.stopPropagation();
+
+    // 指の動きにほぼ1:1で追従。画面幅を超えないように制限する。
+    const translateX = Math.min(window.innerWidth, dx);
+    overlay.style.transform = `translate3d(${translateX}px, 0, 0)`;
+    overlay.style.boxShadow = '-14px 0 30px rgba(0,0,0,0.16)';
+  };
+
+  const finish = (event) => {
+    if (!tracking) {
+      if (horizontal) resetVisualState();
+      return;
+    }
+
+    tracking = false;
+    if (!horizontal) {
+      resetVisualState();
+      return;
+    }
+
+    const point = event.changedTouches?.[0];
+    if (point) lastX = point.clientX;
+
+    const dx = Math.max(0, lastX - startX);
+    const elapsed = Math.max(1, Date.now() - startTime);
+    const velocity = dx / elapsed;
+    const threshold = Math.min(window.innerWidth * 0.30, 150);
+    const shouldClose = dx >= threshold || velocity >= 0.55;
+
+    if (shouldClose) {
+      summaryEdgeClosing = true;
+      overlay.classList.remove('summary-edge-dragging');
+      overlay.classList.add('summary-edge-finishing');
+      overlay.style.transition = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
+      overlay.style.transform = `translate3d(${window.innerWidth}px, 0, 0)`;
+
+      window.setTimeout(() => {
+        closeSummaryOverlay();
+        summaryEdgeClosing = false;
+        resetVisualState();
+      }, 225);
+    } else {
+      overlay.classList.remove('summary-edge-dragging');
+      overlay.classList.add('summary-edge-finishing');
+      overlay.style.transition = 'transform 180ms cubic-bezier(0.22, 1, 0.36, 1)';
+      overlay.style.transform = 'translate3d(0, 0, 0)';
+
+      window.setTimeout(() => {
+        resetVisualState();
+      }, 185);
+    }
+  };
+
+  const cancel = () => {
+    tracking = false;
+    horizontal = false;
+    resetVisualState();
+  };
+
+  overlay.addEventListener('touchstart', onStart, { passive: true, capture: true });
+  overlay.addEventListener('touchmove', onMove, { passive: false, capture: true });
+  overlay.addEventListener('touchend', finish, { passive: true, capture: true });
+  overlay.addEventListener('touchcancel', cancel, { passive: true, capture: true });
 }
 
 async function switchSummaryFeed(step) {
@@ -1771,6 +1932,12 @@ function closeSummaryOverlay() {
   if (!overlay || overlay.classList.contains('hidden')) return;
 
   overlay.classList.add('hidden');
+  overlay.classList.remove('summary-edge-dragging', 'summary-edge-finishing');
+  overlay.style.transform = '';
+  overlay.style.transition = '';
+  overlay.style.willChange = '';
+  overlay.style.boxShadow = '';
+  overlay.dataset.edgeSwiping = '0';
   overlay.setAttribute('aria-hidden', 'true');
 
   if (summarySwiper) {
@@ -2211,7 +2378,60 @@ function openImagePreviewModal(src) {
 }
 
 // --- Twitter 領域 ---
+function saveTwitterScrollPosition(feedUrl = twitterFeeds[currentTwitterIdx]?.url) {
+  const container = document.getElementById('twitter-content');
+  if (!container || !feedUrl) return;
+
+  twitterScrollPositions[feedUrl] = Math.max(0, Math.round(container.scrollTop || 0));
+  try {
+    sessionStorage.setItem(TWITTER_SCROLL_STORAGE_KEY, JSON.stringify(twitterScrollPositions));
+  } catch (_) {}
+}
+
+function getTwitterSavedScrollPosition(feedUrl) {
+  const value = Number(twitterScrollPositions?.[feedUrl]);
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function restoreTwitterScrollPosition(feedUrl) {
+  const container = document.getElementById('twitter-content');
+  if (!container || !feedUrl) return;
+
+  const target = getTwitterSavedScrollPosition(feedUrl);
+  // 画像レイアウト確定後にも再度適用して、iOS Safariの復元ずれを防ぐ。
+  requestAnimationFrame(() => {
+    container.scrollTop = target;
+    requestAnimationFrame(() => {
+      container.scrollTop = target;
+    });
+  });
+}
+
+function installTwitterScrollPersistence() {
+  const container = document.getElementById('twitter-content');
+  if (!container || container.dataset.scrollPersistenceInstalled === '1') return;
+  container.dataset.scrollPersistenceInstalled = '1';
+
+  let timer = null;
+  container.addEventListener('scroll', () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => saveTwitterScrollPosition(), 80);
+  }, { passive: true });
+
+  // 外部リンク/動画を開く直前に現在位置を保存する。captureでstopPropagationより先に拾う。
+  container.addEventListener('click', (event) => {
+    if (event.target?.closest?.('a')) saveTwitterScrollPosition();
+  }, true);
+
+  window.addEventListener('pagehide', () => saveTwitterScrollPosition(), { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveTwitterScrollPosition();
+  });
+}
+
 async function initTwitter() {
+  installTwitterScrollPersistence();
+
   const addBtn = document.getElementById('add-twitter-btn');
   const editBtn = document.getElementById('del-twitter-btn');
 
@@ -2280,6 +2500,7 @@ function renderTwitterTabs() {
     }
     btn.textContent = feed.name;
     btn.onclick = () => {
+      saveTwitterScrollPosition();
       currentTwitterIdx = idx;
       renderTwitterTabs();
       loadTwitterContent();
@@ -2502,6 +2723,9 @@ async function loadTwitterContent() {
   const container = document.getElementById('twitter-content');
   if (!container) return;
 
+  const restoreFeedUrl = twitterFeeds[currentTwitterIdx]?.url || '';
+  const restoreScrollTop = getTwitterSavedScrollPosition(restoreFeedUrl);
+
   container.innerHTML = '<div class="loading">ツイートを読み込み中...</div>';
 
   if (twitterFeeds.length === 0) {
@@ -2674,6 +2898,7 @@ async function loadTwitterContent() {
           videoLinkBox.rel = 'noopener noreferrer';
           
           videoLinkBox.onclick = (e) => {
+            saveTwitterScrollPosition(currentFeed.url);
             e.stopPropagation();
             window.open(targetVideoUrl, '_blank', 'noopener,noreferrer');
             e.preventDefault();
@@ -2722,6 +2947,12 @@ async function loadTwitterContent() {
       container.appendChild(tweetCard);
     });
 
+    // 外部動画/リンクから戻った場合や再描画後も元のタイムライン位置へ戻す。
+    if (restoreFeedUrl === currentFeed.url) {
+      twitterScrollPositions[currentFeed.url] = restoreScrollTop;
+      restoreTwitterScrollPosition(currentFeed.url);
+    }
+
   } catch (err) {
     console.error(err);
     container.innerHTML = '<div class="loading" style="color: red;">ツイートの取得に失敗しました</div>';
@@ -2735,13 +2966,16 @@ function initYoutube() {
 
 async function loadAllYoutubeContent() {
   const container = document.getElementById('youtube-content');
+  const controlsHost = document.getElementById('youtube-controls-host');
   if (!container) return;
 
   if (youtubeFeeds.length === 0) {
+    if (controlsHost) controlsHost.innerHTML = '';
     container.innerHTML = '<div class="loading">配信先を追加してください。</div>';
     return;
   }
 
+  if (controlsHost) controlsHost.innerHTML = '<div class="youtube-controls-loading">チャンネル情報を読み込み中...</div>';
   container.innerHTML = '<div class="loading">動画を読み込み中...</div>';
 
   try {
@@ -2787,27 +3021,25 @@ async function loadAllYoutubeContent() {
       channelOptionsHtml += `<option value="${ch}">${ch}</option>`;
     });
 
-    container.innerHTML = `
-      <div style="position: sticky; top: 0; z-index: 100; background: #ffffff; padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
-        <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-          <select id="yt-channel-select" onchange="filterYtByChannel(this.value)" style="width: 75%; padding: 6px 8px; border-radius: 6px; background: #ffffff; color: #333333; border: 1px solid #ccc; font-size: 13px; box-sizing: border-box;">
+    if (controlsHost) {
+      controlsHost.innerHTML = `
+        <div class="yt-filter-container">
+          <select id="yt-channel-select" class="yt-select" onchange="filterYtByChannel(this.value)">
             ${channelOptionsHtml}
           </select>
-
-          <div id="yt-channel-badge" style="width: 25%; display: none; justify-content: center; align-items: center; box-sizing: border-box;">
-            <button onclick="resetYtChannelFilter()" title="フィルター解除" style="width: 100%; padding: 6px 0; background: #f0f0f0; border: 1px solid #ccc; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1;">✕</button>
+          <div id="yt-channel-badge" class="yt-badge" style="display:none;">
+            <button class="yt-reset-filter-btn" onclick="resetYtChannelFilter()" title="フィルター解除">✕</button>
           </div>
         </div>
-
-        <div style="display: flex; gap: 4px;">
-          <button id="yt-tab-long" class="tab-btn active" style="flex: 1; padding: 8px 6px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-weight: bold; font-size: 12px;" onclick="switchYtTab('long')">動画</button>
-          <button id="yt-tab-shorts" class="tab-btn" style="flex: 1; padding: 8px 6px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-size: 12px;" onclick="switchYtTab('short')">Shorts</button>
-          <button id="yt-tab-live" class="tab-btn" style="flex: 1; padding: 8px 6px; cursor: pointer; background: #ffffff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-size: 12px;" onclick="switchYtTab('live')">LIVE</button>
+        <div class="yt-type-tabs">
+          <button id="yt-tab-long" class="tab-btn active yt-type-tab" onclick="switchYtTab('long')">動画</button>
+          <button id="yt-tab-shorts" class="tab-btn yt-type-tab" onclick="switchYtTab('short')">Shorts</button>
+          <button id="yt-tab-live" class="tab-btn yt-type-tab" onclick="switchYtTab('live')">LIVE</button>
         </div>
-      </div>
+      `;
+    }
 
-      <div id="yt-table-container"></div>
-    `;
+    container.innerHTML = '<div id="yt-table-container"></div>';
 
     window.currentType = 'long';
 
@@ -3321,12 +3553,23 @@ function initModals() {
     cleanupExtraButtons();
     modalBody.innerHTML = '';
     submitBtn.textContent = '保存';
+    submitBtn.onclick = null;
     modal.classList.add('hidden');
+  };
+
+  const resetFeedUiAfterMutation = (kind, initFunc) => {
+    if (kind === 'news' || kind === 'knowledge') {
+      feedItemsCache[kind].clear();
+      feedLoadPromises[kind].clear();
+      const feeds = getFeedsByType(kind);
+      setCurrentFeedIndex(kind, Math.max(0, Math.min(getCurrentFeedIndex(kind), feeds.length - 1)));
+    }
+    initFunc();
   };
 
   cancelBtn.onclick = closeModal;
 
-  const setupAddModal = (btnId, titleText, feedsArray, storageKey, initFunc) => {
+  const setupAddModal = (btnId, titleText, feedsArray, storageKey, initFunc, kind = '') => {
     const btn = document.getElementById(btnId);
     if (!btn) return;
 
@@ -3334,41 +3577,142 @@ function initModals() {
       cleanupExtraButtons();
       modalTitle.textContent = titleText;
       modalBody.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="feed-modal-form">
           <div>
-            <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">サイト名 / チャンネル名</label>
-            <input type="text" id="add-feed-name" placeholder="例: NHKニュース" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
-           </div>
+            <label>サイト名 / チャンネル名</label>
+            <input type="text" id="add-feed-name" placeholder="例: NHKニュース" autocomplete="off">
+          </div>
           <div>
-            <label style="font-size: 12px; color: var(--text-sub); display: block; margin-bottom: 4px;">RSS URL または YouTubeチャンネルID</label>
-            <input type="text" id="add-feed-url" placeholder="例: https://..." style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color, #ccc); box-sizing: border-box;" autocomplete="off">
+            <label>${kind === 'youtube' ? 'YouTubeチャンネルID / @ハンドル' : 'RSS URL'}</label>
+            <input type="text" id="add-feed-url" placeholder="${kind === 'youtube' ? '例: @channel または UC...' : '例: https://.../rss.xml'}" autocomplete="off">
           </div>
         </div>
       `;
 
       submitBtn.textContent = '追加';
       submitBtn.onclick = () => {
-        const nameInput = document.getElementById('add-feed-name');
-        const urlInput = document.getElementById('add-feed-url');
-        const name = nameInput ? nameInput.value.trim() : '';
-        const url = urlInput ? urlInput.value.trim() : '';
+        const name = document.getElementById('add-feed-name')?.value.trim() || '';
+        const url = document.getElementById('add-feed-url')?.value.trim() || '';
 
         if (!name || !url) {
-          alert("すべての項目を入力してください");
+          alert('すべての項目を入力してください');
           return;
         }
 
         feedsArray.push({ name, url });
         saveStoredFeeds(storageKey, feedsArray);
+
+        if (kind === 'news' || kind === 'knowledge') {
+          setCurrentFeedIndex(kind, feedsArray.length - 1);
+        }
+
         closeModal();
-        initFunc();
+        resetFeedUiAfterMutation(kind, initFunc);
       };
 
-      modal.classList.add('hidden');
+      // 旧コードはここが add('hidden') になっており、押してもモーダルが表示されなかった。
+      modal.classList.remove('hidden');
+      requestAnimationFrame(() => document.getElementById('add-feed-name')?.focus());
     };
   };
 
-  setupAddModal('add-news-btn', 'ニュース配信先の追加', newsFeeds, 'newsFeeds', initNews);
-  setupAddModal('add-knowledge-btn', '知識配信先の追加', knowledgeFeeds, 'knowledgeFeeds', initKnowledge);
-  setupAddModal('add-youtube-btn', 'YouTubeチャンネルの追加', youtubeFeeds, 'youtubeFeeds', initYoutube);
+  const setupEditModal = (btnId, titleText, feedsArray, storageKey, initFunc, kind = '') => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+
+    btn.onclick = () => {
+      cleanupExtraButtons();
+      modalTitle.textContent = titleText;
+
+      let draft = feedsArray.map(feed => ({ ...feed }));
+
+      const renderEditor = () => {
+        if (!draft.length) {
+          modalBody.innerHTML = '<div class="loading">登録されている配信先がありません</div>';
+          return;
+        }
+
+        modalBody.innerHTML = '';
+
+        draft.forEach((feed, idx) => {
+          const row = document.createElement('div');
+          row.className = 'feed-edit-row';
+          row.innerHTML = `
+            <div class="feed-edit-fields">
+              <input class="feed-edit-name" type="text" value="${escapeHtmlAttribute(feed.name || '')}" aria-label="配信先名">
+              <input class="feed-edit-url" type="text" value="${escapeHtmlAttribute(feed.url || '')}" aria-label="RSS URLまたはチャンネルID">
+            </div>
+            <div class="feed-edit-actions">
+              <button type="button" class="btn feed-move-up" ${idx === 0 ? 'disabled' : ''}>↑</button>
+              <button type="button" class="btn feed-move-down" ${idx === draft.length - 1 ? 'disabled' : ''}>↓</button>
+              <button type="button" class="btn danger feed-delete">削除</button>
+            </div>
+          `;
+
+          row.querySelector('.feed-edit-name').addEventListener('input', (e) => {
+            draft[idx].name = e.target.value;
+          });
+          row.querySelector('.feed-edit-url').addEventListener('input', (e) => {
+            draft[idx].url = e.target.value;
+          });
+          row.querySelector('.feed-move-up').addEventListener('click', () => {
+            if (idx <= 0) return;
+            [draft[idx - 1], draft[idx]] = [draft[idx], draft[idx - 1]];
+            renderEditor();
+          });
+          row.querySelector('.feed-move-down').addEventListener('click', () => {
+            if (idx >= draft.length - 1) return;
+            [draft[idx + 1], draft[idx]] = [draft[idx], draft[idx + 1]];
+            renderEditor();
+          });
+          row.querySelector('.feed-delete').addEventListener('click', () => {
+            draft.splice(idx, 1);
+            renderEditor();
+          });
+
+          modalBody.appendChild(row);
+        });
+      };
+
+      submitBtn.textContent = '保存';
+      submitBtn.onclick = () => {
+        const normalized = draft.map(feed => ({
+          name: String(feed.name || '').trim(),
+          url: String(feed.url || '').trim()
+        }));
+
+        if (normalized.some(feed => !feed.name || !feed.url)) {
+          alert('サイト名とURL/チャンネルIDをすべて入力してください');
+          return;
+        }
+
+        feedsArray.splice(0, feedsArray.length, ...normalized);
+        saveStoredFeeds(storageKey, feedsArray);
+        closeModal();
+        resetFeedUiAfterMutation(kind, initFunc);
+      };
+
+      renderEditor();
+      modal.classList.remove('hidden');
+    };
+  };
+
+  setupAddModal('add-news-btn', 'ニュース配信先の追加', newsFeeds, 'newsFeeds', initNews, 'news');
+  setupEditModal('del-news-btn', 'ニュース配信先の編集', newsFeeds, 'newsFeeds', initNews, 'news');
+
+  setupAddModal('add-knowledge-btn', '知識配信先の追加', knowledgeFeeds, 'knowledgeFeeds', initKnowledge, 'knowledge');
+  setupEditModal('del-knowledge-btn', '知識配信先の編集', knowledgeFeeds, 'knowledgeFeeds', initKnowledge, 'knowledge');
+
+  // 既存YouTubeの追加/編集も壊さないよう同じモーダル基盤へ接続する。
+  setupAddModal('add-youtube-btn', 'YouTubeチャンネルの追加', youtubeFeeds, 'youtubeFeeds', initYoutube, 'youtube');
+  setupEditModal('del-youtube-btn', 'YouTubeチャンネルの編集', youtubeFeeds, 'youtubeFeeds', initYoutube, 'youtube');
 }
+
+function escapeHtmlAttribute(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
