@@ -3406,6 +3406,11 @@ async function loadTwitterContent(options = {}) {
 
 // --- YouTube 領域 ---
 function initYoutube() {
+  // YouTube IFrame Player APIを先に読み込んでおく。
+  // 一覧タップ時にすでにAPIが使える状態に近づけ、iPhoneでの即時再生成功率を上げる。
+  ensureYoutubeIframeApi().catch((err) => {
+    console.info('[YouTube] IFrame API preload notice:', err);
+  });
   loadAllYoutubeContent();
 }
 
@@ -3716,6 +3721,300 @@ async function loadFutocyanContent() {
 }
 
 // ==========================================
+// v13: YouTube IFrame Player API / 自動再生・連続再生
+// ==========================================
+const YOUTUBE_AUTO_NEXT_STORAGE_KEY = 'youtubeAutoNextEnabledV1';
+let youtubeIframeApiPromise = null;
+let youtubePlayerController = null;
+let youtubePlayerAttachSerial = 0;
+let youtubeAutoAdvanceTimer = null;
+
+function isYoutubeAutoNextEnabled() {
+  try {
+    const stored = localStorage.getItem(YOUTUBE_AUTO_NEXT_STORAGE_KEY);
+    // 初回はON。ユーザーがOFFにした状態は端末内へ保存する。
+    return stored === null ? true : stored === '1';
+  } catch (_) {
+    return true;
+  }
+}
+
+function setYoutubeAutoNextEnabled(enabled) {
+  try {
+    localStorage.setItem(YOUTUBE_AUTO_NEXT_STORAGE_KEY, enabled ? '1' : '0');
+  } catch (_) {}
+}
+
+function updateYoutubeAutoNextUi() {
+  const button = document.getElementById('yt-auto-next-btn');
+  const status = document.getElementById('yt-auto-next-status');
+  const enabled = isYoutubeAutoNextEnabled();
+
+  if (button) {
+    button.classList.toggle('is-on', enabled);
+    button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    button.title = enabled
+      ? '動画終了後に次の動画を自動再生します'
+      : '動画終了後の自動送りは停止中です';
+  }
+
+  if (status) status.textContent = enabled ? 'ON' : 'OFF';
+}
+
+window.toggleYoutubeAutoNext = function(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+
+  const next = !isYoutubeAutoNextEnabled();
+  setYoutubeAutoNextEnabled(next);
+
+  if (!next && youtubeAutoAdvanceTimer) {
+    clearTimeout(youtubeAutoAdvanceTimer);
+    youtubeAutoAdvanceTimer = null;
+  }
+
+  updateYoutubeAutoNextUi();
+};
+
+function ensureYoutubeIframeApi() {
+  if (window.YT?.Player) {
+    return Promise.resolve(window.YT);
+  }
+
+  if (youtubeIframeApiPromise) {
+    return youtubeIframeApiPromise;
+  }
+
+  youtubeIframeApiPromise = new Promise((resolve, reject) => {
+    const previousReady = window.onYouTubeIframeAPIReady;
+    let settled = false;
+
+    const finish = () => {
+      if (settled || !window.YT?.Player) return;
+      settled = true;
+      clearInterval(pollTimer);
+      clearTimeout(timeoutTimer);
+      resolve(window.YT);
+    };
+
+    window.onYouTubeIframeAPIReady = function() {
+      try {
+        if (typeof previousReady === 'function') previousReady();
+      } catch (err) {
+        console.info('[YouTube] previous API ready callback notice:', err);
+      }
+      finish();
+    };
+
+    if (!document.querySelector('script[data-youtube-iframe-api="1"]')) {
+      const script = document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api';
+      script.async = true;
+      script.dataset.youtubeIframeApi = '1';
+      script.onerror = () => {
+        if (settled) return;
+        settled = true;
+        clearInterval(pollTimer);
+        clearTimeout(timeoutTimer);
+        youtubeIframeApiPromise = null;
+        reject(new Error('YouTube IFrame APIを読み込めませんでした'));
+      };
+      document.head.appendChild(script);
+    }
+
+    const pollTimer = setInterval(finish, 100);
+    const timeoutTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      clearInterval(pollTimer);
+      youtubeIframeApiPromise = null;
+      reject(new Error('YouTube IFrame APIの読み込みがタイムアウトしました'));
+    }, 15000);
+  });
+
+  return youtubeIframeApiPromise;
+}
+
+function destroyYoutubePlayerController() {
+  youtubePlayerAttachSerial += 1;
+
+  if (youtubeAutoAdvanceTimer) {
+    clearTimeout(youtubeAutoAdvanceTimer);
+    youtubeAutoAdvanceTimer = null;
+  }
+
+  if (youtubePlayerController?.destroy) {
+    try {
+      youtubePlayerController.destroy();
+    } catch (err) {
+      console.info('[YouTube] player destroy notice:', err);
+    }
+  }
+
+  youtubePlayerController = null;
+}
+
+function updateYoutubeMediaSession(item) {
+  if (!item || !('mediaSession' in navigator)) return;
+
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: item.title || '',
+      artist: item.displayName || 'YouTube',
+      artwork: item.videoId
+        ? [{
+            src: `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
+            sizes: '480x360',
+            type: 'image/jpg'
+          }]
+        : []
+    });
+  } catch (err) {
+    console.info('[YouTube] Media Session metadata notice:', err);
+  }
+}
+
+function updateYoutubeModalForIndex(index) {
+  const list = window.currentVideoList;
+  const modal = document.getElementById('youtube-video-modal');
+  if (!modal || !list || index < 0 || index >= list.length) return null;
+
+  const item = list[index];
+  modal.dataset.youtubeIndex = String(index);
+
+  const titleNode = modal.querySelector('.yt-modal-title');
+  if (titleNode) titleNode.textContent = `⠿ ${item.title || ''}`;
+
+  const prev = modal.querySelector('.yt-prev-btn');
+  const next = modal.querySelector('.yt-next-btn');
+
+  if (prev) {
+    const enabled = index > 0;
+    prev.disabled = !enabled;
+    prev.style.opacity = enabled ? '1' : '0.3';
+    prev.style.cursor = enabled ? 'pointer' : 'default';
+    prev.onclick = enabled ? () => window.switchYoutubeModalVideo(index - 1) : null;
+  }
+
+  if (next) {
+    const enabled = index < list.length - 1;
+    next.disabled = !enabled;
+    next.style.opacity = enabled ? '1' : '0.3';
+    next.style.cursor = enabled ? 'pointer' : 'default';
+    next.onclick = enabled ? () => window.switchYoutubeModalVideo(index + 1) : null;
+  }
+
+  const official = modal.querySelector('.yt-open-official');
+  if (official && item.videoId) {
+    official.href = `https://www.youtube.com/watch?v=${item.videoId}`;
+  }
+
+  const iframe = document.getElementById('yt-active-iframe');
+  if (iframe) iframe.title = item.title || 'YouTube';
+
+  updateYoutubeMediaSession(item);
+  return item;
+}
+
+window.switchYoutubeModalVideo = function(index) {
+  const list = window.currentVideoList;
+  if (!list || index < 0 || index >= list.length) return;
+
+  const item = updateYoutubeModalForIndex(index);
+  if (!item?.videoId) return;
+
+  if (youtubePlayerController?.loadVideoById) {
+    try {
+      // YouTube公式仕様: loadVideoById() は動画を読み込み、そのまま再生する。
+      youtubePlayerController.loadVideoById({
+        videoId: item.videoId,
+        startSeconds: 0
+      });
+      return;
+    } catch (err) {
+      console.info('[YouTube] loadVideoById fallback:', err);
+    }
+  }
+
+  // APIがまだ準備できていない場合だけ従来方式でモーダルを再生成する。
+  window.openYoutubeModalByIndex(index);
+};
+
+function handleYoutubePlayerStateChange(event) {
+  const YT = window.YT;
+  if (!YT?.PlayerState) return;
+
+  if (event.data === YT.PlayerState.PLAYING) {
+    if (youtubeAutoAdvanceTimer) {
+      clearTimeout(youtubeAutoAdvanceTimer);
+      youtubeAutoAdvanceTimer = null;
+    }
+    return;
+  }
+
+  if (event.data !== YT.PlayerState.ENDED || !isYoutubeAutoNextEnabled()) {
+    return;
+  }
+
+  const modal = document.getElementById('youtube-video-modal');
+  const list = window.currentVideoList;
+  if (!modal || !list?.length) return;
+
+  const currentIndex = Number(modal.dataset.youtubeIndex || 0);
+  const nextIndex = currentIndex + 1;
+  if (nextIndex >= list.length) return;
+
+  if (youtubeAutoAdvanceTimer) clearTimeout(youtubeAutoAdvanceTimer);
+
+  youtubeAutoAdvanceTimer = setTimeout(() => {
+    youtubeAutoAdvanceTimer = null;
+
+    // モーダルを作り直さず同じYT.Playerへ次動画を読み込むため、
+    // 横画面/縦画面の状態もそのまま維持される。
+    window.switchYoutubeModalVideo(nextIndex);
+  }, 250);
+}
+
+function attachYoutubePlayerController(index) {
+  const iframe = document.getElementById('yt-active-iframe');
+  if (!iframe) return;
+
+  const attachSerial = ++youtubePlayerAttachSerial;
+
+  ensureYoutubeIframeApi()
+    .then((YT) => {
+      if (attachSerial !== youtubePlayerAttachSerial) return;
+      if (document.getElementById('yt-active-iframe') !== iframe) return;
+
+      youtubePlayerController = new YT.Player(iframe, {
+        events: {
+          onReady(event) {
+            if (attachSerial !== youtubePlayerAttachSerial) return;
+            youtubePlayerController = event.target;
+            updateYoutubeModalForIndex(index);
+
+            // 一覧タップ時はiframe側の autoplay=1 に加えて、
+            // Player APIからもplayVideo()を実行して即再生を試みる。
+            try {
+              event.target.playVideo();
+            } catch (err) {
+              console.info('[YouTube] initial play notice:', err);
+            }
+          },
+          onStateChange: handleYoutubePlayerStateChange,
+          onError(event) {
+            console.warn('[YouTube] player error:', event?.data);
+          }
+        }
+      });
+    })
+    .catch((err) => {
+      console.info('[YouTube] IFrame API attach notice:', err);
+      // APIが読み込めなくても従来iframeはautoplay=1のままなので再生UIは残る。
+    });
+}
+
+// ==========================================
 // A & B 対応: YouTubeモーダルとメディア・画面回転制御
 // ==========================================
 window.openYoutubeModalByIndex = function(index) {
@@ -3743,6 +4042,9 @@ window.openYoutubeModalByIndex = function(index) {
 
   const hasPrev = index > 0;
   const hasNext = index < list.length - 1;
+
+  // 一覧から別動画を開き直す場合は旧iframeへのPlayer参照だけ破棄する。
+  destroyYoutubePlayerController();
 
   modal.style.cssText = `
     position: fixed !important;
@@ -3773,8 +4075,8 @@ window.openYoutubeModalByIndex = function(index) {
     <div class="yt-modal-layout" style="width: 100%; background: #000; position: relative;">
       <div id="yt-modal-drag-handle" class="yt-modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #1c1c1e; color: #fff; font-size: 12px; cursor: move; user-select: none; -webkit-user-select: none;">
         <div class="yt-nav-buttons" style="display: flex; align-items: center; gap: 4px;">
-          <button class="yt-prev-btn" onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'}; font-size: 11px;">▲ 前</button>
-          <button class="yt-next-btn" onclick="openYoutubeModalByIndex(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'}; font-size: 11px;">▼ 次</button>
+          <button class="yt-prev-btn" onclick="switchYoutubeModalVideo(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'}; font-size: 11px;">▲ 前</button>
+          <button class="yt-next-btn" onclick="switchYoutubeModalVideo(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'}; font-size: 11px;">▼ 次</button>
         </div>
         <div class="yt-modal-title" style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">⠿ ${title}</div>
         <button class="yt-close-btn" onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
@@ -3800,31 +4102,39 @@ window.openYoutubeModalByIndex = function(index) {
           <span class="yt-landscape-icon-fallback" style="display:none;">⤢</span>
           <span id="yt-orientation-button-label">横画面</span>
         </button>
+        <button id="yt-auto-next-btn" class="yt-auto-next-btn" type="button" onclick="toggleYoutubeAutoNext(event)" aria-pressed="true">
+          <span>連続再生</span>
+          <span id="yt-auto-next-status" class="yt-auto-next-status">ON</span>
+        </button>
         <div class="yt-orientation-swipe-hint">↑ 横画面　／　↓ 縦画面</div>
         <a class="yt-open-official" href="https://www.youtube.com/watch?v=${videoId}" target="_blank" rel="noopener">YouTubeで開く ↗</a>
       </div>
     </div>
   `;
 
+  modal.dataset.youtubeIndex = String(index);
+  updateYoutubeAutoNextUi();
+  attachYoutubePlayerController(index);
+
   setupModalDrag(modal);
 
-  // Media Session API: 再生中動画のメタデータ/対応環境のメディア操作連携（バックグラウンド再生を保証するものではない）
+  // Media Session API: 再生中動画のメタデータ/対応環境のメディア操作連携
+  updateYoutubeMediaSession(item);
   if ('mediaSession' in navigator) {
     try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: title,
-        artist: channelName || 'YouTube',
-        artwork: [
-          { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpg' }
-        ]
-      });
-
-      // 対応ブラウザでは前面再生中のメディア操作を連携する。
       navigator.mediaSession.setActionHandler('play', () => {
+        if (youtubePlayerController?.playVideo) {
+          youtubePlayerController.playVideo();
+          return;
+        }
         const iframe = document.getElementById('yt-active-iframe');
         if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
       });
       navigator.mediaSession.setActionHandler('pause', () => {
+        if (youtubePlayerController?.pauseVideo) {
+          youtubePlayerController.pauseVideo();
+          return;
+        }
         const iframe = document.getElementById('yt-active-iframe');
         if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
       });
@@ -4134,6 +4444,7 @@ function setupModalDrag(modal) {
 }
 
 window.closeYoutubeModal = async function() {
+  destroyYoutubePlayerController();
   const modal = document.getElementById('youtube-video-modal');
   if (modal) {
     await exitYoutubeLandscapeMode();
