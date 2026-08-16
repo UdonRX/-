@@ -49,7 +49,6 @@ export default async function handler(req, res) {
   const rssDescription = clampText(article.description, 12000);
   const source = clampText(article.source, 200);
   const url = clampText(article.url || article.link, 3000);
-  const catchcopy = clampText(summary.catchcopy, 500);
   const points = Array.isArray(summary.points)
     ? summary.points.slice(0, 4).map(point => clampText(point, 800)).filter(Boolean)
     : [];
@@ -80,7 +79,6 @@ export default async function handler(req, res) {
     articleText
       ? `${contentSource === 'article' ? 'リンク先から抽出した記事本文' : 'RSS本文'}:\n${articleText}`
       : '',
-    catchcopy ? `要約キャッチコピー: ${catchcopy}` : '',
     points.length ? `要約ポイント:\n- ${points.join('\n- ')}` : '',
     historyText ? `\n【これまでの会話】\n${historyText}` : '',
     `\n【今回の質問】\n${question}`
