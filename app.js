@@ -3920,7 +3920,17 @@ function updateYoutubeModalForIndex(index) {
   if (!modal || !list || index < 0 || index >= list.length) return null;
 
   const item = list[index];
+  const isShortsMode = Boolean(item?.isShort);
+
   modal.dataset.youtubeIndex = String(index);
+  modal.dataset.youtubeShortsMode = isShortsMode ? '1' : '0';
+  modal.classList.toggle('yt-shorts-mode', isShortsMode);
+
+  // Shortsは縦長専用。横画面モードを持ち越さない。
+  if (isShortsMode) {
+    modal.dataset.landscapeRequested = '0';
+    modal.classList.remove('yt-css-landscape-mode', 'yt-css-landscape-fill');
+  }
 
   const titleNode = modal.querySelector('.yt-modal-title');
   if (titleNode) titleNode.textContent = `⠿ ${item.title || ''}`;
@@ -4083,9 +4093,11 @@ window.openYoutubeModalByIndex = function(index) {
     reusableModal.style.setProperty('visibility', 'visible', 'important');
     reusableModal.dataset.landscapeRequested = '0';
     reusableModal.classList.remove('yt-css-landscape-mode', 'yt-css-landscape-fill');
-    applyYoutubeWindowedModalStyle(reusableModal);
 
+    // updateYoutubeModalForIndex() で Shorts/通常モードを先に確定してから
+    // それぞれに合うウィンドウサイズを適用する。
     updateYoutubeModalForIndex(index);
+    applyYoutubeWindowedModalStyle(reusableModal);
     updateYoutubeAutoNextUi();
 
     try {
@@ -4193,6 +4205,8 @@ window.openYoutubeModalByIndex = function(index) {
   `;
 
   modal.dataset.youtubeIndex = String(index);
+  updateYoutubeModalForIndex(index);
+  applyYoutubeWindowedModalStyle(modal);
   updateYoutubeAutoNextUi();
   attachYoutubePlayerController(index);
 
@@ -4241,12 +4255,88 @@ function setupBackgroundAudioKeepAlive() {
 
 function applyYoutubeWindowedModalStyle(modal) {
   if (!modal) return;
+
+  const isShortsMode = modal.dataset.youtubeShortsMode === '1';
+
+  if (isShortsMode) {
+    // Shortsは9:16のプレーヤー＋上下UIがiPhone画面内に収まる幅にする。
+    // 動画/Liveとは完全に独立した縦長ウィンドウ。
+    const viewport = getYoutubeVisualViewportBox();
+    const reservedUiHeight = 118; // 上部操作 + 下部操作 + 余白
+    const widthFromHeight = Math.max(
+      180,
+      (viewport.height - reservedUiHeight - 20) * 9 / 16
+    );
+    const shortsWidth = Math.floor(Math.max(
+      180,
+      Math.min(
+        330,
+        viewport.width - 20,
+        viewport.width * 0.88,
+        widthFromHeight
+      )
+    ));
+
+    modal.style.setProperty('width', `${shortsWidth}px`, 'important');
+    modal.style.setProperty('height', 'auto', 'important');
+    modal.style.setProperty('max-width', 'calc(100vw - 20px)', 'important');
+    modal.style.setProperty('max-height', 'calc(100dvh - 20px)', 'important');
+    modal.style.setProperty('transform', 'none', 'important');
+    modal.style.setProperty('border-radius', '12px', 'important');
+    modal.style.setProperty('overflow', 'hidden', 'important');
+
+    // 通常動画で保存したドラッグ位置がある場合はできるだけ維持しつつ、
+    // Shortsの縦長化で画面外へはみ出さない範囲へクランプする。
+    if (window.modalPos?.x !== null && window.modalPos?.y !== null) {
+      const estimatedHeight = shortsWidth * 16 / 9 + reservedUiHeight;
+      const safeLeft = Math.max(
+        viewport.offsetLeft + 8,
+        Math.min(
+          window.modalPos.x,
+          viewport.offsetLeft + viewport.width - shortsWidth - 8
+        )
+      );
+      const safeTop = Math.max(
+        viewport.offsetTop + 8,
+        Math.min(
+          window.modalPos.y,
+          viewport.offsetTop + viewport.height - estimatedHeight - 8
+        )
+      );
+
+      modal.style.setProperty('left', `${safeLeft}px`, 'important');
+      modal.style.setProperty('top', `${safeTop}px`, 'important');
+      modal.style.setProperty('right', 'auto', 'important');
+      modal.style.setProperty('bottom', 'auto', 'important');
+    } else {
+      modal.style.setProperty('left', 'auto', 'important');
+      modal.style.setProperty('top', 'auto', 'important');
+      modal.style.setProperty('right', '10px', 'important');
+      modal.style.setProperty('bottom', '10px', 'important');
+    }
+    return;
+  }
+
   modal.style.setProperty('width', 'min(320px, 85vw)', 'important');
   modal.style.setProperty('height', 'auto', 'important');
   modal.style.setProperty('max-width', 'none', 'important');
+  modal.style.setProperty('max-height', 'none', 'important');
   modal.style.setProperty('transform', 'none', 'important');
   modal.style.setProperty('border-radius', '8px', 'important');
   modal.style.setProperty('overflow', 'hidden', 'important');
+
+  // Shortsから通常動画/LIVEへ戻ったときも、元のドラッグ位置を復元する。
+  if (window.modalPos?.x !== null && window.modalPos?.y !== null) {
+    modal.style.setProperty('left', `${window.modalPos.x}px`, 'important');
+    modal.style.setProperty('top', `${window.modalPos.y}px`, 'important');
+    modal.style.setProperty('right', 'auto', 'important');
+    modal.style.setProperty('bottom', 'auto', 'important');
+  } else {
+    modal.style.setProperty('left', 'auto', 'important');
+    modal.style.setProperty('top', 'auto', 'important');
+    modal.style.setProperty('right', '16px', 'important');
+    modal.style.setProperty('bottom', '16px', 'important');
+  }
 }
 
 function getYoutubeVisualViewportBox() {
@@ -4324,6 +4414,9 @@ async function enterYoutubeLandscapeMode() {
   const modal = document.getElementById('youtube-video-modal');
   const wrapper = document.getElementById('yt-player-wrapper');
   if (!modal || !wrapper) return;
+
+  // Shortsタブから開いた動画は縦長専用。横画面化は行わない。
+  if (modal.dataset.youtubeShortsMode === '1') return;
 
   let nativeFullscreen = false;
   let orientationLocked = false;
@@ -4403,6 +4496,9 @@ async function exitYoutubeLandscapeMode() {
 }
 
 window.toggleLandscapeFullscreen = async function() {
+  const modal = document.getElementById('youtube-video-modal');
+  if (modal?.dataset.youtubeShortsMode === '1') return;
+
   if (isYoutubeLandscapeMode()) {
     await exitYoutubeLandscapeMode();
   } else {
@@ -4420,6 +4516,7 @@ function installYoutubeOrientationGestures(modal) {
   let tracking = false;
 
   zone.addEventListener('touchstart', (event) => {
+    if (modal.dataset.youtubeShortsMode === '1') return;
     if (event.touches?.length !== 1) return;
     const point = event.touches[0];
     startX = point.clientX;
@@ -4428,6 +4525,10 @@ function installYoutubeOrientationGestures(modal) {
   }, { passive: true });
 
   zone.addEventListener('touchend', (event) => {
+    if (modal.dataset.youtubeShortsMode === '1') {
+      tracking = false;
+      return;
+    }
     if (!tracking) return;
     tracking = false;
 
