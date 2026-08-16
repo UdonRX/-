@@ -79,14 +79,17 @@
 
     <!-- 5. YouTube -->
     <section class="card" id="youtube-section">
-      <div class="section-header">
-        <h2>YouTube</h2>
-        <div class="action-buttons">
-          <button id="add-youtube-btn" class="btn primary">追加</button>
-          <button id="del-youtube-btn" class="btn warning">編集</button>
+      <div class="section-header youtube-section-header">
+        <div class="youtube-header-top">
+          <h2>YouTube</h2>
+          <div class="action-buttons">
+            <button id="add-youtube-btn" class="btn primary">追加</button>
+            <button id="del-youtube-btn" class="btn warning">編集</button>
+          </div>
         </div>
+        <div id="youtube-controls-host" class="youtube-controls-host"></div>
       </div>
-      <div id="youtube-content" class="vertical-scroll">
+      <div id="youtube-content" class="vertical-scroll youtube-scroll-area">
         <div class="loading">配信先を追加してください。</div>
       </div>
     </section>
