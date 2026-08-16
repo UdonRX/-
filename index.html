@@ -13,6 +13,7 @@
   <meta name="apple-mobile-web-app-title" content="ダッシュボード">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
 
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -91,6 +92,33 @@
     </section>
   </main>
 
+
+  <!-- AIニュース要約：全画面オーバーレイ -->
+  <div id="summary-overlay" class="summary-overlay hidden" aria-hidden="true">
+    <div class="summary-topbar">
+      <button id="summary-close-btn" class="summary-close-btn summary-no-swipe" type="button" aria-label="要約を閉じる">✕</button>
+      <div class="summary-topbar-title">AI要約</div>
+      <div id="summary-position" class="summary-position" aria-live="polite"></div>
+    </div>
+
+    <div id="summary-swiper" class="swiper summary-swiper">
+      <div id="summary-swiper-wrapper" class="swiper-wrapper"></div>
+    </div>
+
+    <form id="summary-chat-form" class="summary-chat-form summary-no-swipe">
+      <input
+        id="summary-chat-input"
+        class="summary-chat-input"
+        type="text"
+        placeholder="この記事についてAIに質問"
+        autocomplete="off"
+        enterkeyhint="send"
+        aria-label="AIへの質問"
+      >
+      <button id="summary-chat-send" class="summary-chat-send" type="submit">送信</button>
+    </form>
+  </div>
+
   <!-- 汎用モーダルダイアログ -->
   <div id="modal" class="modal hidden">
     <div class="modal-content">
@@ -105,6 +133,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
