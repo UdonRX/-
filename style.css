@@ -307,6 +307,39 @@ h2 {
   display: block;
 }
 
+
+/* Twitter: 外部遷移せずカード内で動画再生し、スクロール位置を保持 */
+.tweet-inline-video-box {
+  width: 100%;
+  margin-top: 8px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+
+.tweet-inline-video {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  background: #000;
+  border-radius: 12px;
+}
+
+.tweet-video-fallback {
+  display: block;
+  padding: 10px 12px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1da1f2;
+  background: #15202b;
+  text-decoration: none;
+}
+
+.tweet-video-fallback[hidden] {
+  display: none;
+}
+
 /* --- YouTubeリスト --- */
 .youtube-item {
   display: flex;
@@ -777,6 +810,8 @@ body.summary-open {
   flex: 0 0 auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
 }
 
 .summary-section-label {
@@ -1175,4 +1210,143 @@ body.summary-open {
 #youtube-content #yt-table-container {
   min-height: 100%;
   background: var(--card-bg);
+}
+
+/* ===== v9: YouTube 横画面コントロール ===== */
+.yt-orientation-control-bar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  background: #1c1c1e;
+  color: #fff;
+  border-top: 1px solid rgba(255,255,255,0.14);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.yt-orientation-btn {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.10);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.yt-landscape-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.yt-landscape-icon-fallback {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.yt-orientation-swipe-hint {
+  min-width: 0;
+  text-align: center;
+  font-size: 10px;
+  opacity: 0.72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yt-open-official {
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* iPhoneなど Screen Orientation lock 非対応時の擬似横画面。 */
+#youtube-video-modal.yt-css-landscape-mode {
+  top: 50% !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100vh !important;
+  height: 100vw !important;
+  max-width: none !important;
+  border-radius: 0 !important;
+  transform: translate(-50%, -50%) rotate(90deg) !important;
+  transform-origin: center center !important;
+  z-index: 9999999 !important;
+}
+
+#youtube-video-modal.yt-css-landscape-mode > div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#youtube-video-modal.yt-css-landscape-mode #yt-modal-drag-handle,
+#youtube-video-modal.yt-css-landscape-mode .yt-orientation-control-bar {
+  flex: 0 0 auto;
+}
+
+#youtube-video-modal.yt-css-landscape-mode #yt-player-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  padding-top: 0 !important;
+}
+
+#youtube-video-modal:fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  border-radius: 0 !important;
+}
+
+#youtube-video-modal:fullscreen > div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#youtube-video-modal:fullscreen #yt-player-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  padding-top: 0 !important;
+}
+
+/* 端末自体がすでに横向きの場合は回転せず全画面化だけ行う。 */
+#youtube-video-modal.yt-css-landscape-fill {
+  top: 0 !important;
+  left: 0 !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  border-radius: 0 !important;
+  transform: none !important;
+  z-index: 9999999 !important;
+}
+
+#youtube-video-modal.yt-css-landscape-fill > div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#youtube-video-modal.yt-css-landscape-fill #yt-player-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  padding-top: 0 !important;
 }
