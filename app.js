@@ -253,8 +253,51 @@ let twitterExternalReturnState = (() => {
   }
 })();
 let twitterExternalRestoreTimers = [];
+let twitterScrollRestoreTimers = [];
 let twitterScrollSaveSuspended = false;
 let twitterScrollResumeTimer = null;
+let twitterExternalRestoreSucceeded = false;
+
+function clearTwitterExternalReturnState() {
+  twitterExternalReturnState = null;
+  twitterExternalRestoreSucceeded = false;
+  try {
+    sessionStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
+    localStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
+  } catch (_) {}
+}
+
+function cancelTwitterRestoreTimers({ clearExternal = false } = {}) {
+  twitterExternalRestoreTimers.forEach(timer => clearTimeout(timer));
+  twitterExternalRestoreTimers = [];
+
+  twitterScrollRestoreTimers.forEach(timer => clearTimeout(timer));
+  twitterScrollRestoreTimers = [];
+
+  if (twitterScrollResumeTimer) {
+    clearTimeout(twitterScrollResumeTimer);
+    twitterScrollResumeTimer = null;
+  }
+
+  setTwitterScrollSaveSuspended(false);
+
+  if (clearExternal) {
+    clearTwitterExternalReturnState();
+  }
+}
+
+// v12: 動画から戻った位置の復元は「戻った直後だけ」。
+// ユーザーがタイムラインに触れた瞬間、それ以降の復元予約をすべて破棄する。
+function cancelTwitterRestoreOnUserInteraction() {
+  const hasPendingRestore =
+    twitterExternalRestoreTimers.length > 0 ||
+    twitterScrollRestoreTimers.length > 0 ||
+    Boolean(twitterScrollResumeTimer) ||
+    Boolean(twitterExternalReturnState?.feedUrl);
+
+  if (!hasPendingRestore) return;
+  cancelTwitterRestoreTimers({ clearExternal: true });
+}
 
 function persistTwitterScrollState() {
   try {
@@ -278,6 +321,9 @@ function setTwitterScrollSaveSuspended(value) {
 }
 
 function rememberTwitterExternalReturn(feedUrl, tweetKey = '') {
+  // 前回の復元予約が残っていたら必ず破棄してから、新しい1回分だけ記録する。
+  cancelTwitterRestoreTimers({ clearExternal: true });
+  twitterExternalRestoreSucceeded = false;
   saveTwitterScrollPosition(feedUrl, true);
   const container = document.getElementById('twitter-content');
   const card = tweetKey
@@ -309,11 +355,7 @@ function restoreTwitterExternalReturnPosition() {
   if (!state?.feedUrl) return false;
 
   if (Date.now() - Number(state.openedAt || 0) > 30 * 60 * 1000) {
-    twitterExternalReturnState = null;
-    try {
-      sessionStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
-      localStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
-    } catch (_) {}
+    clearTwitterExternalReturnState();
     return false;
   }
 
@@ -347,30 +389,41 @@ function restoreTwitterExternalReturnPosition() {
 function scheduleTwitterExternalReturnRestore() {
   twitterExternalRestoreTimers.forEach(timer => clearTimeout(timer));
   twitterExternalRestoreTimers = [];
+  twitterExternalRestoreSucceeded = false;
 
-  [0, 50, 120, 250, 450, 750, 1100, 1600, 2300, 3200, 4500].forEach(delay => {
+  // v12: 数秒間ずっと固定し続けない。
+  // 戻った直後のDOM/画像レイアウト安定待ちとして最大0.8秒だけ再確認する。
+  [0, 60, 140, 280, 480, 720].forEach(delay => {
     twitterExternalRestoreTimers.push(window.setTimeout(() => {
-      restoreTwitterExternalReturnPosition();
+      const restored = restoreTwitterExternalReturnPosition();
+      if (restored) twitterExternalRestoreSucceeded = true;
     }, delay));
   });
 
-  // 最後に復元できた場合だけ「外部動画から戻る待ち」を解除する。
   twitterExternalRestoreTimers.push(window.setTimeout(() => {
-    const restored = restoreTwitterExternalReturnPosition();
-    if (!restored && twitterExternalReturnState?.feedUrl) {
-      // ツイート自体が更新で消えた場合は、最後の保険としてscrollTopへ戻す。
+    // 対象ツイートが更新で消えていても、ツイート一覧自体が描画済みならscrollTopを最後の保険にする。
+    if (!twitterExternalRestoreSucceeded && twitterExternalReturnState?.feedUrl) {
       const container = document.getElementById('twitter-content');
-      if (container && twitterFeeds[currentTwitterIdx]?.url === twitterExternalReturnState.feedUrl) {
+      const hasRenderedTweets = Boolean(container?.querySelector('.tweet-card[data-tweet-key]'));
+      if (
+        hasRenderedTweets &&
+        twitterFeeds[currentTwitterIdx]?.url === twitterExternalReturnState.feedUrl
+      ) {
         container.scrollTop = Math.max(0, Number(twitterExternalReturnState.scrollTop) || 0);
+        twitterExternalRestoreSucceeded = true;
       }
     }
-    twitterExternalReturnState = null;
-    setTwitterScrollSaveSuspended(false);
-    try {
-      sessionStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
-      localStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
-    } catch (_) {}
-  }, 5600));
+
+    // 1回でも復元できたら、この時点で復元処理を完全終了する。
+    // 以降ユーザーがスクロールしても元の動画位置へ戻さない。
+    if (twitterExternalRestoreSucceeded) {
+      clearTwitterExternalReturnState();
+      setTwitterScrollSaveSuspended(false);
+      saveTwitterScrollPosition(twitterFeeds[currentTwitterIdx]?.url, true);
+    }
+
+    twitterExternalRestoreTimers = [];
+  }, 820));
 }
 
 function openTwitterVideoExternally(videoUrl, feedUrl, tweetKey) {
@@ -2050,8 +2103,9 @@ async function switchSummaryFeed(step) {
       throw new Error('切替先の記事を取得できませんでした');
     }
 
-    // できるだけ同じ記事番号を維持する。
-    const nextArticleIndex = Math.min(currentArticleIndex, nextItems.length - 1);
+    // v12: 左右スワイプでカテゴリを切り替えた場合は、必ず一番上の記事から表示する。
+    // 前カテゴリで何番目の記事を見ていたかは引き継がない。
+    const nextArticleIndex = 0;
     await openSummaryOverlay(type, targetFeedIndex, nextArticleIndex);
   } catch (err) {
     console.error('[summary] feed switch failed:', err);
@@ -2641,12 +2695,13 @@ function restoreTwitterScrollPosition(feedUrl, { releaseSaveGuard = false } = {}
     return;
   }
 
+  // 同じフィードの古い復元予約を残さない。
+  twitterScrollRestoreTimers.forEach(timer => clearTimeout(timer));
+  twitterScrollRestoreTimers = [];
+
   const restore = () => {
     if (twitterFeeds[currentTwitterIdx]?.url === feedUrl) {
       applyTwitterSavedPosition(feedUrl);
-      if (twitterExternalReturnState?.feedUrl === feedUrl) {
-        restoreTwitterExternalReturnPosition();
-      }
     }
   };
 
@@ -2654,15 +2709,20 @@ function restoreTwitterScrollPosition(feedUrl, { releaseSaveGuard = false } = {}
     restore();
     requestAnimationFrame(restore);
   });
-  [160, 450, 850, 1500, 2600].forEach(delay => window.setTimeout(restore, delay));
+
+  // 通常のRSS再描画時も短時間だけ補正。ユーザーが触れば即キャンセルされる。
+  [120, 320, 650].forEach(delay => {
+    twitterScrollRestoreTimers.push(window.setTimeout(restore, delay));
+  });
 
   if (releaseSaveGuard) {
     if (twitterScrollResumeTimer) clearTimeout(twitterScrollResumeTimer);
     twitterScrollResumeTimer = window.setTimeout(() => {
-      restore();
+      twitterScrollResumeTimer = null;
       setTwitterScrollSaveSuspended(false);
       saveTwitterScrollPosition(feedUrl, true);
-    }, 2900);
+      twitterScrollRestoreTimers = [];
+    }, 720);
   }
 }
 
@@ -2672,6 +2732,22 @@ function installTwitterScrollPersistence() {
   container.dataset.scrollPersistenceInstalled = '1';
 
   let timer = null;
+
+  // iPhoneではtouchstartが「ユーザーが自分でタイムラインを動かし始めた」最も確実な合図。
+  // ここで動画復帰用の遅延restoreを全部止める。
+  container.addEventListener('touchstart', cancelTwitterRestoreOnUserInteraction, {
+    passive: true,
+    capture: true
+  });
+  container.addEventListener('pointerdown', cancelTwitterRestoreOnUserInteraction, {
+    passive: true,
+    capture: true
+  });
+  container.addEventListener('wheel', cancelTwitterRestoreOnUserInteraction, {
+    passive: true,
+    capture: true
+  });
+
   container.addEventListener('scroll', () => {
     window.clearTimeout(timer);
     timer = window.setTimeout(() => saveTwitterScrollPosition(), 80);
@@ -2683,11 +2759,10 @@ function installTwitterScrollPersistence() {
 
   window.addEventListener('pagehide', () => saveTwitterScrollPosition(undefined, true), { passive: true });
 
+  // 外部動画を開いたときだけ復元する。通常のfocus/pageshowでは勝手にスクロール位置を戻さない。
   const restoreAfterExternal = () => {
     if (twitterExternalReturnState?.feedUrl) {
       scheduleTwitterExternalReturnRestore();
-    } else {
-      restoreTwitterScrollPosition(twitterFeeds[currentTwitterIdx]?.url);
     }
   };
 
@@ -3297,14 +3372,16 @@ async function loadTwitterContent(options = {}) {
       container.appendChild(tweetCard);
     });
 
-    // 外部動画/リンクから戻った場合や再描画後も元のタイムライン位置へ戻す。
-    if (restoreFeedUrl === currentFeed.url || twitterExternalReturnState?.feedUrl === currentFeed.url) {
+    // v12: 外部動画から戻った場合は専用の「短時間・1回限り」復元だけを使う。
+    // 通常の再描画は従来どおり保存位置へ戻すが、ユーザー操作が始まれば即キャンセルされる。
+    if (twitterExternalReturnState?.feedUrl === currentFeed.url) {
+      twitterScrollPositions[currentFeed.url] = restoreScrollTop;
+      scrollGuardReleaseScheduled = true;
+      scheduleTwitterExternalReturnRestore();
+    } else if (restoreFeedUrl === currentFeed.url) {
       twitterScrollPositions[currentFeed.url] = restoreScrollTop;
       scrollGuardReleaseScheduled = true;
       restoreTwitterScrollPosition(currentFeed.url, { releaseSaveGuard: true });
-      if (twitterExternalReturnState?.feedUrl === currentFeed.url) {
-        scheduleTwitterExternalReturnRestore();
-      }
     }
 
   } catch (err) {
@@ -3782,31 +3859,55 @@ function applyYoutubeWindowedModalStyle(modal) {
   modal.style.setProperty('overflow', 'hidden', 'important');
 }
 
+function getYoutubeVisualViewportBox() {
+  const vv = window.visualViewport;
+  return {
+    width: Math.max(1, vv?.width || window.innerWidth || document.documentElement.clientWidth || 1),
+    height: Math.max(1, vv?.height || window.innerHeight || document.documentElement.clientHeight || 1),
+    offsetLeft: Number(vv?.offsetLeft || 0),
+    offsetTop: Number(vv?.offsetTop || 0)
+  };
+}
+
 function applyYoutubeCssLandscapeMode(modal) {
   if (!modal) return;
-  const viewportIsLandscape = window.innerWidth > window.innerHeight;
+
+  const viewport = getYoutubeVisualViewportBox();
+  const viewportIsLandscape = viewport.width > viewport.height;
+  const edgeGap = 2;
+
   modal.classList.toggle('yt-css-landscape-fill', viewportIsLandscape);
   modal.classList.toggle('yt-css-landscape-mode', !viewportIsLandscape);
+  modal.style.setProperty('box-sizing', 'border-box', 'important');
 
   if (viewportIsLandscape) {
-    modal.style.setProperty('top', '0', 'important');
-    modal.style.setProperty('left', '0', 'important');
+    // 実際に端末が横向きなら回転不要。visualViewportぴったりに収める。
+    modal.style.setProperty('top', `${viewport.offsetTop + edgeGap}px`, 'important');
+    modal.style.setProperty('left', `${viewport.offsetLeft + edgeGap}px`, 'important');
     modal.style.setProperty('right', 'auto', 'important');
     modal.style.setProperty('bottom', 'auto', 'important');
-    modal.style.setProperty('width', '100vw', 'important');
-    modal.style.setProperty('height', '100vh', 'important');
+    modal.style.setProperty('width', `${Math.max(1, viewport.width - edgeGap * 2)}px`, 'important');
+    modal.style.setProperty('height', `${Math.max(1, viewport.height - edgeGap * 2)}px`, 'important');
     modal.style.setProperty('transform', 'none', 'important');
   } else {
-    // portraitのiPhoneで擬似横画面にする場合は、回転前の箱を横長にする。
-    // 100vh x 100vw を-90deg回転すると、操作列を含む横画面全体がviewport内へ収まる。
-    modal.style.setProperty('top', '50%', 'important');
-    modal.style.setProperty('left', '50%', 'important');
+    // iPhoneを縦向きのまま擬似横画面にする場合。
+    // 90度回転後の外接矩形がvisualViewport内へ正確に収まるサイズをpxで指定する。
+    const centerX = viewport.offsetLeft + viewport.width / 2;
+    const centerY = viewport.offsetTop + viewport.height / 2;
+    const modalWidthBeforeRotate = Math.max(1, viewport.height - edgeGap * 2);
+    const modalHeightBeforeRotate = Math.max(1, viewport.width - edgeGap * 2);
+
+    modal.style.setProperty('top', `${centerY}px`, 'important');
+    modal.style.setProperty('left', `${centerX}px`, 'important');
     modal.style.setProperty('right', 'auto', 'important');
     modal.style.setProperty('bottom', 'auto', 'important');
-    modal.style.setProperty('width', '100vh', 'important');
-    modal.style.setProperty('height', '100vw', 'important');
+    modal.style.setProperty('width', `${modalWidthBeforeRotate}px`, 'important');
+    modal.style.setProperty('height', `${modalHeightBeforeRotate}px`, 'important');
     modal.style.setProperty('transform', 'translate(-50%, -50%) rotate(-90deg)', 'important');
   }
+
+  modal.style.setProperty('max-width', 'none', 'important');
+  modal.style.setProperty('max-height', 'none', 'important');
   modal.style.setProperty('border-radius', '0', 'important');
   modal.style.setProperty('overflow', 'hidden', 'important');
 }
