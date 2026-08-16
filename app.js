@@ -1161,6 +1161,7 @@ const summaryChatHistories = new Map();
 let summarySwiper = null;
 let summaryContext = null;
 let summaryBodyScrollY = 0;
+let summaryFeedSwitching = false;
 
 function getFeedsByType(type) {
   return type === 'news' ? newsFeeds : knowledgeFeeds;
@@ -1526,11 +1527,167 @@ function initSummaryUI() {
   closeBtn.addEventListener('click', closeSummaryOverlay);
   form.addEventListener('submit', handleSummaryChatSubmit);
 
+  // 要約画面では上下=記事移動、左右=RSSタブ移動として役割を分離する。
+  installSummaryFeedSwipe();
+
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !overlay.classList.contains('hidden')) {
       closeSummaryOverlay();
     }
   });
+}
+
+function installSummaryFeedSwipe() {
+  const surface = document.getElementById('summary-swiper');
+  if (!surface || surface.dataset.feedSwipeInstalled === '1') return;
+
+  surface.dataset.feedSwipeInstalled = '1';
+
+  let startX = 0;
+  let startY = 0;
+  let lastX = 0;
+  let lastY = 0;
+  let startTime = 0;
+  let tracking = false;
+  let direction = '';
+
+  const isInteractiveTarget = (target) => Boolean(
+    target?.closest?.('a, button, input, textarea, select, label')
+  );
+
+  const onStart = (event) => {
+    if (event.touches?.length > 1 || isInteractiveTarget(event.target)) {
+      tracking = false;
+      return;
+    }
+
+    const point = event.touches?.[0];
+    if (!point) return;
+
+    startX = lastX = point.clientX;
+    startY = lastY = point.clientY;
+    startTime = Date.now();
+    tracking = true;
+    direction = '';
+  };
+
+  const onMove = (event) => {
+    if (!tracking) return;
+
+    const point = event.touches?.[0];
+    if (!point) return;
+
+    lastX = point.clientX;
+    lastY = point.clientY;
+
+    const dx = lastX - startX;
+    const dy = lastY - startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+
+    if (!direction && Math.max(absX, absY) >= 10) {
+      if (absX > absY * 1.3) {
+        direction = 'horizontal';
+      } else if (absY > absX * 1.15) {
+        direction = 'vertical';
+      }
+    }
+
+    // 横タブ切替と判定した後だけSafariの横ページジェスチャーを抑える。
+    // 上下方向はpreventDefaultしないので、記事の上下Swiperやチャット履歴スクロールを邪魔しない。
+    if (direction === 'horizontal' && event.cancelable) {
+      event.preventDefault();
+    }
+  };
+
+  const finish = (event) => {
+    if (!tracking) return;
+    tracking = false;
+
+    const point = event.changedTouches?.[0];
+    if (point) {
+      lastX = point.clientX;
+      lastY = point.clientY;
+    }
+
+    const dx = lastX - startX;
+    const dy = lastY - startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    const elapsed = Math.max(1, Date.now() - startTime);
+    const velocityX = absX / elapsed;
+
+    if (direction !== 'horizontal') return;
+    if (absX <= absY * 1.3) return;
+    if (absX < 58 && velocityX < 0.32) return;
+
+    surface.dataset.suppressClickUntil = String(Date.now() + 350);
+
+    // 左スワイプ=次タブ、右スワイプ=前タブ
+    switchSummaryFeed(dx < 0 ? 1 : -1);
+  };
+
+  const cancel = () => {
+    tracking = false;
+    direction = '';
+  };
+
+  const suppressClick = (event) => {
+    const until = Number(surface.dataset.suppressClickUntil || 0);
+    if (Date.now() < until) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
+  surface.addEventListener('touchstart', onStart, { passive: true });
+  surface.addEventListener('touchmove', onMove, { passive: false });
+  surface.addEventListener('touchend', finish, { passive: true });
+  surface.addEventListener('touchcancel', cancel, { passive: true });
+  surface.addEventListener('click', suppressClick, true);
+}
+
+async function switchSummaryFeed(step) {
+  if (!summaryContext || summaryFeedSwitching) return;
+
+  const type = summaryContext.type;
+  const feeds = getFeedsByType(type);
+  const targetFeedIndex = summaryContext.feedIndex + step;
+
+  // 端のタブではそれ以上進めない。
+  if (targetFeedIndex < 0 || targetFeedIndex >= feeds.length) return;
+
+  const currentArticleIndex = getCurrentSummaryIndex();
+  const targetFeed = feeds[targetFeedIndex];
+  const title = document.querySelector('.summary-topbar-title');
+  const counter = document.getElementById('summary-position');
+
+  summaryFeedSwitching = true;
+  if (title) title.textContent = 'タブを読み込み中…';
+  if (counter) counter.textContent = `${targetFeedIndex + 1}/${feeds.length}`;
+
+  try {
+    // メイン画面のタブ状態も同期する。
+    activateFeedIndex(type, targetFeedIndex);
+
+    if (!feedItemsCache[type].has(targetFeed.url)) {
+      await loadFeedContent(type, targetFeedIndex);
+    }
+
+    const nextItems = feedItemsCache[type].get(targetFeed.url) || [];
+    if (!nextItems.length) {
+      throw new Error('切替先の記事を取得できませんでした');
+    }
+
+    // できるだけ同じ記事番号を維持する。
+    const nextArticleIndex = Math.min(currentArticleIndex, nextItems.length - 1);
+    await openSummaryOverlay(type, targetFeedIndex, nextArticleIndex);
+  } catch (err) {
+    console.error('[summary] feed switch failed:', err);
+    updateSummaryPosition(currentArticleIndex);
+  } finally {
+    summaryFeedSwitching = false;
+  }
 }
 
 async function openSummaryOverlay(type, feedIndex, itemIndex) {
@@ -1549,6 +1706,13 @@ async function openSummaryOverlay(type, feedIndex, itemIndex) {
   const wrapper = document.getElementById('summary-swiper-wrapper');
   if (!overlay || !wrapper) return;
 
+  // 既存Swiperは、新しいスライドDOMを作る前に破棄する。
+  // タブ切替時に旧Swiperが新しいDOMのstyleを掃除してしまうのを防ぐ。
+  if (summarySwiper) {
+    summarySwiper.destroy(true, true);
+    summarySwiper = null;
+  }
+
   summaryContext = { type, feedIndex, feed, items };
 
   wrapper.innerHTML = '';
@@ -1556,16 +1720,15 @@ async function openSummaryOverlay(type, feedIndex, itemIndex) {
     wrapper.appendChild(createSummarySlide(item, feed, index));
   });
 
+  const wasHidden = overlay.classList.contains('hidden');
   overlay.classList.remove('hidden');
   overlay.setAttribute('aria-hidden', 'false');
 
-  summaryBodyScrollY = window.scrollY;
-  document.body.style.top = `-${summaryBodyScrollY}px`;
-  document.body.classList.add('summary-open');
-
-  if (summarySwiper) {
-    summarySwiper.destroy(true, true);
-    summarySwiper = null;
+  // タブ切替で要約画面を再構築するときは元ページのスクロール位置を上書きしない。
+  if (wasHidden) {
+    summaryBodyScrollY = window.scrollY;
+    document.body.style.top = `-${summaryBodyScrollY}px`;
+    document.body.classList.add('summary-open');
   }
 
   if (typeof Swiper !== 'function') {
@@ -1580,10 +1743,12 @@ async function openSummaryOverlay(type, feedIndex, itemIndex) {
     direction: 'vertical',
     initialSlide: itemIndex,
     speed: 260,
-    threshold: 16,
-    touchAngle: 38,
+    threshold: 12,
+    touchAngle: 45,
     resistanceRatio: 0.68,
     touchStartPreventDefault: false,
+    touchMoveStopPropagation: false,
+    passiveListeners: false,
     noSwiping: true,
     noSwipingSelector: '.summary-no-swipe',
     on: {
@@ -1674,8 +1839,21 @@ function createSummarySlide(item, feed, index) {
 
 function updateSummaryPosition(index) {
   const counter = document.getElementById('summary-position');
-  if (!counter || !summaryContext) return;
-  counter.textContent = `${index + 1} / ${summaryContext.items.length}`;
+  const title = document.querySelector('.summary-topbar-title');
+  if (!summaryContext) return;
+
+  const feeds = getFeedsByType(summaryContext.type);
+  if (title) {
+    title.textContent = summaryContext.feed?.name || 'AI要約';
+  }
+
+  if (counter) {
+    const feedNo = summaryContext.feedIndex + 1;
+    const feedTotal = feeds.length;
+    const articleNo = Math.min(index + 1, summaryContext.items.length);
+    const articleTotal = summaryContext.items.length;
+    counter.textContent = `${feedNo}/${feedTotal} · ${articleNo}/${articleTotal}`;
+  }
 }
 
 function getSummaryArticleKey(item, feed) {
@@ -1736,7 +1914,6 @@ async function ensureSummaryLoaded(index) {
     }
 
     const result = {
-      catchcopy: data.catchcopy || '要点をまとめました',
       points: Array.isArray(data.points) ? data.points : [],
       contentSource: data.contentSource || 'rss',
       extractedLength: Number(data.extractedLength) || 0,
@@ -1778,16 +1955,8 @@ function renderSummaryResult(container, result) {
     ? `リンク先の記事本文から要約${result.extractedLength ? `（${result.extractedLength.toLocaleString()}文字取得）` : ''}`
     : 'リンク先本文を取得できなかったためRSS本文から要約';
 
-  const label = document.createElement('div');
-  label.className = 'summary-section-label';
-  label.textContent = 'キャッチコピー';
-
-  const catchcopy = document.createElement('div');
-  catchcopy.className = 'summary-catchcopy';
-  catchcopy.textContent = result.catchcopy || '';
-
   const pointLabel = document.createElement('div');
-  pointLabel.className = 'summary-section-label';
+  pointLabel.className = 'summary-section-label summary-points-label';
   pointLabel.textContent = '重要ポイント';
 
   const list = document.createElement('ul');
@@ -1800,8 +1969,6 @@ function renderSummaryResult(container, result) {
   });
 
   container.appendChild(sourceNote);
-  container.appendChild(label);
-  container.appendChild(catchcopy);
   container.appendChild(pointLabel);
   container.appendChild(list);
 }
