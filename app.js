@@ -220,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initWeatherUI();
   initNews();
   initKnowledge();
+  initSummaryUI();
   initTwitter();
   initYoutube();
   initFutocyan();
@@ -1138,97 +1139,670 @@ function openEditWeatherModal() {
   modal.classList.remove('hidden');
 }
 
-// --- ニュース機能 ---
-function initNews() {
-  renderTabs('news-tabs', newsFeeds, loadNewsContent);
-  if (newsFeeds.length > 0) {
-    loadNewsContent(newsFeeds[0].url);
+// --- ニュース / 知識：Swiper対応 + AI要約 ---
+let newsFeedSwiper = null;
+let knowledgeFeedSwiper = null;
+let currentNewsFeedIdx = 0;
+let currentKnowledgeFeedIdx = 0;
+
+const feedItemsCache = {
+  news: new Map(),
+  knowledge: new Map()
+};
+
+const feedLoadPromises = {
+  news: new Map(),
+  knowledge: new Map()
+};
+
+const summaryCache = new Map();
+const summaryChatHistories = new Map();
+
+let summarySwiper = null;
+let summaryContext = null;
+let summaryBodyScrollY = 0;
+
+function getFeedsByType(type) {
+  return type === 'news' ? newsFeeds : knowledgeFeeds;
+}
+
+function getFeedContentId(type) {
+  return type === 'news' ? 'news-content' : 'knowledge-content';
+}
+
+function getFeedTabsId(type) {
+  return type === 'news' ? 'news-tabs' : 'knowledge-tabs';
+}
+
+function getFeedSwiper(type) {
+  return type === 'news' ? newsFeedSwiper : knowledgeFeedSwiper;
+}
+
+function setFeedSwiper(type, swiper) {
+  if (type === 'news') {
+    newsFeedSwiper = swiper;
   } else {
-    const content = document.getElementById('news-content');
-    if (content) content.innerHTML = '<div class="loading">配信先を追加してください</div>';
+    knowledgeFeedSwiper = swiper;
   }
+}
+
+function getCurrentFeedIndex(type) {
+  return type === 'news' ? currentNewsFeedIdx : currentKnowledgeFeedIdx;
+}
+
+function setCurrentFeedIndex(type, index) {
+  if (type === 'news') {
+    currentNewsFeedIdx = index;
+  } else {
+    currentKnowledgeFeedIdx = index;
+  }
+}
+
+function setCurrentFeedUrl(type, url) {
+  if (type === 'news') {
+    currentNewsUrl = url;
+  } else {
+    currentKnowledgeUrl = url;
+  }
+}
+
+function getFeedLoadingText(type) {
+  return type === 'news' ? 'ニュースを読み込み中...' : '知識を読み込み中...';
+}
+
+function getFeedFailureText(type) {
+  return type === 'news' ? 'ニュースの取得に失敗しました' : '知識の取得に失敗しました';
+}
+
+function initNews() {
+  initSwipeFeedSection('news');
+}
+
+function initKnowledge() {
+  initSwipeFeedSection('knowledge');
+}
+
+function initSwipeFeedSection(type) {
+  const feeds = getFeedsByType(type);
+  const container = document.getElementById(getFeedContentId(type));
+  if (!container) return;
+
+  const oldSwiper = getFeedSwiper(type);
+  if (oldSwiper) {
+    oldSwiper.destroy(true, true);
+    setFeedSwiper(type, null);
+  }
+
+  container.classList.add('feed-swiper', 'swiper');
+
+  if (feeds.length === 0) {
+    container.classList.remove('feed-swiper', 'swiper');
+    container.innerHTML = '<div class="loading">配信先を追加してください</div>';
+    renderTabs(getFeedTabsId(type), feeds, () => {});
+    return;
+  }
+
+  const safeIndex = Math.min(getCurrentFeedIndex(type), feeds.length - 1);
+  setCurrentFeedIndex(type, Math.max(0, safeIndex));
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'swiper-wrapper';
+
+  feeds.forEach((feed, index) => {
+    const slide = document.createElement('div');
+    slide.className = 'swiper-slide feed-swiper-slide';
+    slide.dataset.feedIndex = String(index);
+
+    const scrollArea = document.createElement('div');
+    scrollArea.className = 'feed-slide-scroll';
+    scrollArea.dataset.feedIndex = String(index);
+    scrollArea.innerHTML = `<div class="loading">${getFeedLoadingText(type)}</div>`;
+
+    slide.appendChild(scrollArea);
+    wrapper.appendChild(slide);
+  });
+
+  container.innerHTML = '';
+  container.appendChild(wrapper);
+
+  renderTabs(getFeedTabsId(type), feeds, (_url, index) => {
+    activateFeedIndex(type, index);
+  });
+
+  if (typeof Swiper !== 'function') {
+    console.error('Swiper.js が読み込まれていません');
+    loadFeedContent(type, getCurrentFeedIndex(type));
+    return;
+  }
+
+  const swiper = new Swiper(`#${getFeedContentId(type)}`, {
+    direction: 'horizontal',
+    initialSlide: getCurrentFeedIndex(type),
+    speed: 240,
+    threshold: 12,
+    touchAngle: 32,
+    resistanceRatio: 0.72,
+    edgeSwipeDetection: true,
+    edgeSwipeThreshold: 24,
+    touchStartPreventDefault: false,
+    touchMoveStopPropagation: false,
+    on: {
+      slideChange() {
+        activateFeedIndex(type, this.activeIndex, true);
+      }
+    }
+  });
+
+  setFeedSwiper(type, swiper);
+  activateFeedIndex(type, getCurrentFeedIndex(type), true);
+}
+
+function activateFeedIndex(type, index, fromSwiper = false) {
+  const feeds = getFeedsByType(type);
+  if (!feeds.length) return;
+
+  const safeIndex = Math.max(0, Math.min(index, feeds.length - 1));
+  setCurrentFeedIndex(type, safeIndex);
+  setCurrentFeedUrl(type, feeds[safeIndex].url);
+
+  const tabs = document.getElementById(getFeedTabsId(type));
+  if (tabs) {
+    const buttons = Array.from(tabs.querySelectorAll('.tab-btn'));
+    buttons.forEach((btn, idx) => btn.classList.toggle('active', idx === safeIndex));
+    const activeBtn = buttons[safeIndex];
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }
+
+  const swiper = getFeedSwiper(type);
+  if (!fromSwiper && swiper && swiper.activeIndex !== safeIndex) {
+    swiper.slideTo(safeIndex);
+  }
+
+  loadFeedContent(type, safeIndex);
 }
 
 async function loadNewsContent(url) {
-  currentNewsUrl = url;
-  const container = document.getElementById('news-content');
-  if (!container) return;
-  container.innerHTML = '<div class="loading">ニュースを読み込み中...</div>';
-
-  try {
-    const items = await fetchNewsRSS(url);
-    if (currentNewsUrl !== url) return;
-
-    if (items.length === 0) {
-      container.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
-      return;
-    }
-
-    container.innerHTML = '';
-
-    items.forEach(item => {
-      const newsDiv = document.createElement('div');
-      newsDiv.className = 'news-item';
-      
-      const dateStr = formatCustomDate(item.pubDate);
-
-      newsDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${dateStr}</div>
-      `;
-      container.appendChild(newsDiv);
-    });
-  } catch (err) {
-    if (currentNewsUrl !== url) return;
-    console.error(err);
-    container.innerHTML = '<div class="loading">ニュースの取得に失敗しました</div>';
-  }
-}
-
-// --- 知識機能 ---
-function initKnowledge() {
-  renderTabs('knowledge-tabs', knowledgeFeeds, loadKnowledgeContent);
-  if (knowledgeFeeds.length > 0) {
-    loadKnowledgeContent(knowledgeFeeds[0].url);
-  } else {
-    const content = document.getElementById('knowledge-content');
-    if (content) content.innerHTML = '<div class="loading">配信先を追加してください</div>';
-  }
+  const foundIndex = newsFeeds.findIndex(feed => feed.url === url);
+  activateFeedIndex('news', foundIndex >= 0 ? foundIndex : 0);
 }
 
 async function loadKnowledgeContent(url) {
-  currentKnowledgeUrl = url;
-  const container = document.getElementById('knowledge-content');
-  if (!container) return;
-  container.innerHTML = '<div class="loading">知識を読み込み中...</div>';
+  const foundIndex = knowledgeFeeds.findIndex(feed => feed.url === url);
+  activateFeedIndex('knowledge', foundIndex >= 0 ? foundIndex : 0);
+}
+
+async function loadFeedContent(type, index) {
+  const feeds = getFeedsByType(type);
+  const feed = feeds[index];
+  if (!feed) return;
+
+  const container = document.getElementById(getFeedContentId(type));
+  const target = container?.querySelector(`.feed-slide-scroll[data-feed-index="${index}"]`);
+  if (!target) return;
+
+  setCurrentFeedUrl(type, feed.url);
+
+  const cachedItems = feedItemsCache[type].get(feed.url);
+  if (cachedItems) {
+    renderFeedItems(type, index, cachedItems);
+    return;
+  }
+
+  const existingPromise = feedLoadPromises[type].get(feed.url);
+  if (existingPromise) {
+    try {
+      const items = await existingPromise;
+      renderFeedItems(type, index, items);
+    } catch (_) {}
+    return;
+  }
+
+  target.innerHTML = `<div class="loading">${getFeedLoadingText(type)}</div>`;
+
+  const loadPromise = fetchNewsRSS(feed.url);
+  feedLoadPromises[type].set(feed.url, loadPromise);
 
   try {
-    const items = await fetchNewsRSS(url);
-    if (currentKnowledgeUrl !== url) return;
+    const items = await loadPromise;
+    feedItemsCache[type].set(feed.url, items);
 
     if (items.length === 0) {
-      container.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
+      target.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
       return;
     }
 
-    container.innerHTML = '';
-
-    items.forEach(item => {
-      const newsDiv = document.createElement('div');
-      newsDiv.className = 'news-item';
-      
-      const dateStr = formatCustomDate(item.pubDate);
-
-      newsDiv.innerHTML = `
-        <a href="${item.link}" target="_blank" rel="noopener" class="news-link">${item.title}</a>
-        <div class="news-time">${dateStr}</div>
-      `;
-      container.appendChild(newsDiv);
-    });
+    renderFeedItems(type, index, items);
   } catch (err) {
-    if (currentKnowledgeUrl !== url) return;
     console.error(err);
-    container.innerHTML = '<div class="loading">知識の取得に失敗しました</div>';
+    target.innerHTML = `<div class="loading">${getFeedFailureText(type)}</div>`;
+  } finally {
+    feedLoadPromises[type].delete(feed.url);
+  }
+}
+
+function renderFeedItems(type, feedIndex, items) {
+  const container = document.getElementById(getFeedContentId(type));
+  const target = container?.querySelector(`.feed-slide-scroll[data-feed-index="${feedIndex}"]`);
+  if (!target) return;
+
+  target.innerHTML = '';
+
+  items.forEach((item, itemIndex) => {
+    const newsDiv = document.createElement('div');
+    newsDiv.className = 'news-item';
+
+    const link = document.createElement('a');
+    link.href = item.link || '#';
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.className = 'news-link';
+    link.textContent = item.title || '無題';
+
+    const right = document.createElement('div');
+    right.className = 'news-item-actions';
+
+    const summaryBtn = document.createElement('button');
+    summaryBtn.type = 'button';
+    summaryBtn.className = 'summary-icon-btn';
+    summaryBtn.setAttribute('aria-label', `${item.title || '記事'}をAIで要約`);
+    summaryBtn.innerHTML = '<img src="icons/summary.png" alt="" class="summary-icon-img">';
+    summaryBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openSummaryOverlay(type, feedIndex, itemIndex);
+    });
+
+    const time = document.createElement('div');
+    time.className = 'news-time';
+    time.textContent = formatCustomDate(item.pubDate);
+
+    right.appendChild(summaryBtn);
+    right.appendChild(time);
+
+    newsDiv.appendChild(link);
+    newsDiv.appendChild(right);
+    target.appendChild(newsDiv);
+  });
+}
+
+function initSummaryUI() {
+  const overlay = document.getElementById('summary-overlay');
+  const closeBtn = document.getElementById('summary-close-btn');
+  const form = document.getElementById('summary-chat-form');
+
+  if (!overlay || !closeBtn || !form) return;
+
+  closeBtn.addEventListener('click', closeSummaryOverlay);
+  form.addEventListener('submit', handleSummaryChatSubmit);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !overlay.classList.contains('hidden')) {
+      closeSummaryOverlay();
+    }
+  });
+}
+
+async function openSummaryOverlay(type, feedIndex, itemIndex) {
+  const feeds = getFeedsByType(type);
+  const feed = feeds[feedIndex];
+  if (!feed) return;
+
+  if (!feedItemsCache[type].has(feed.url)) {
+    await loadFeedContent(type, feedIndex);
+  }
+
+  const items = feedItemsCache[type].get(feed.url) || [];
+  if (!items[itemIndex]) return;
+
+  const overlay = document.getElementById('summary-overlay');
+  const wrapper = document.getElementById('summary-swiper-wrapper');
+  if (!overlay || !wrapper) return;
+
+  summaryContext = { type, feedIndex, feed, items };
+
+  wrapper.innerHTML = '';
+  items.forEach((item, index) => {
+    wrapper.appendChild(createSummarySlide(item, feed, index));
+  });
+
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+
+  summaryBodyScrollY = window.scrollY;
+  document.body.style.top = `-${summaryBodyScrollY}px`;
+  document.body.classList.add('summary-open');
+
+  if (summarySwiper) {
+    summarySwiper.destroy(true, true);
+    summarySwiper = null;
+  }
+
+  if (typeof Swiper !== 'function') {
+    console.error('Swiper.js が読み込まれていません');
+    updateSummaryPosition(itemIndex);
+    ensureSummaryLoaded(itemIndex);
+    renderCurrentChatHistory(itemIndex);
+    return;
+  }
+
+  summarySwiper = new Swiper('#summary-swiper', {
+    direction: 'vertical',
+    initialSlide: itemIndex,
+    speed: 260,
+    threshold: 16,
+    touchAngle: 38,
+    resistanceRatio: 0.68,
+    touchStartPreventDefault: false,
+    noSwiping: true,
+    noSwipingSelector: '.summary-no-swipe',
+    on: {
+      slideChange() {
+        const activeIndex = this.activeIndex;
+        ensureSummaryLoaded(activeIndex);
+        renderCurrentChatHistory(activeIndex);
+        updateSummaryPosition(activeIndex);
+      }
+    }
+  });
+
+  updateSummaryPosition(itemIndex);
+  renderCurrentChatHistory(itemIndex);
+  ensureSummaryLoaded(itemIndex);
+}
+
+function closeSummaryOverlay() {
+  const overlay = document.getElementById('summary-overlay');
+  if (!overlay || overlay.classList.contains('hidden')) return;
+
+  overlay.classList.add('hidden');
+  overlay.setAttribute('aria-hidden', 'true');
+
+  if (summarySwiper) {
+    summarySwiper.destroy(true, true);
+    summarySwiper = null;
+  }
+
+  summaryContext = null;
+
+  document.body.classList.remove('summary-open');
+  document.body.style.top = '';
+  window.scrollTo(0, summaryBodyScrollY);
+}
+
+function createSummarySlide(item, feed, index) {
+  const slide = document.createElement('div');
+  slide.className = 'swiper-slide summary-slide';
+  slide.dataset.articleIndex = String(index);
+
+  const article = document.createElement('article');
+  article.className = 'summary-card';
+
+  const meta = document.createElement('div');
+  meta.className = 'summary-card-meta';
+
+  const source = document.createElement('span');
+  source.className = 'summary-source';
+  source.textContent = feed.name || 'RSS';
+
+  const date = document.createElement('span');
+  date.textContent = formatCustomDate(item.pubDate);
+
+  meta.appendChild(source);
+  meta.appendChild(date);
+
+  const originalTitle = document.createElement('h2');
+  originalTitle.className = 'summary-original-title';
+  originalTitle.textContent = item.title || '無題';
+
+  const aiContent = document.createElement('div');
+  aiContent.className = 'summary-ai-content';
+  aiContent.dataset.summaryContent = String(index);
+  aiContent.innerHTML = '<div class="summary-loading"><span class="summary-spinner"></span>記事本文を取得してAIが要約中...</div>';
+
+  const originalLink = document.createElement('a');
+  originalLink.className = 'summary-original-link summary-no-swipe';
+  originalLink.href = item.link || '#';
+  originalLink.target = '_blank';
+  originalLink.rel = 'noopener';
+  originalLink.textContent = '元記事を開く ↗';
+
+  const chatLog = document.createElement('div');
+  chatLog.className = 'summary-chat-log summary-no-swipe';
+  chatLog.dataset.chatLog = String(index);
+  chatLog.setAttribute('aria-live', 'polite');
+
+  article.appendChild(meta);
+  article.appendChild(originalTitle);
+  article.appendChild(aiContent);
+  article.appendChild(originalLink);
+  article.appendChild(chatLog);
+
+  slide.appendChild(article);
+  return slide;
+}
+
+function updateSummaryPosition(index) {
+  const counter = document.getElementById('summary-position');
+  if (!counter || !summaryContext) return;
+  counter.textContent = `${index + 1} / ${summaryContext.items.length}`;
+}
+
+function getSummaryArticleKey(item, feed) {
+  return `${feed.url}::${item.link || ''}::${item.title || ''}`;
+}
+
+function cleanRssText(value) {
+  const raw = String(value || '');
+  const first = new DOMParser().parseFromString(`<body>${raw}</body>`, 'text/html').body.textContent || '';
+  const second = new DOMParser().parseFromString(`<body>${first}</body>`, 'text/html').body.textContent || first;
+  return second.replace(/\s+/g, ' ').trim();
+}
+
+async function ensureSummaryLoaded(index) {
+  if (!summaryContext) return;
+
+  const item = summaryContext.items[index];
+  if (!item) return;
+
+  const content = document.querySelector(`.summary-ai-content[data-summary-content="${index}"]`);
+  if (!content) return;
+
+  const key = getSummaryArticleKey(item, summaryContext.feed);
+  const cached = summaryCache.get(key);
+
+  if (cached) {
+    renderSummaryResult(content, cached);
+    return;
+  }
+
+  if (content.dataset.loading === '1') return;
+  content.dataset.loading = '1';
+  content.innerHTML = '<div class="summary-loading"><span class="summary-spinner"></span>記事本文を取得してAIが要約中...</div>';
+
+  try {
+    const response = await fetch('/api/summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: item.title || '',
+        description: cleanRssText(item.description).slice(0, 12000),
+        source: summaryContext.feed.name || '',
+        url: item.link || ''
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || '要約APIエラー');
+    }
+
+    const result = {
+      catchcopy: data.catchcopy || '要点をまとめました',
+      points: Array.isArray(data.points) ? data.points : [],
+      contentSource: data.contentSource || 'rss',
+      extractedLength: Number(data.extractedLength) || 0,
+      fallbackReason: data.fallbackReason || ''
+    };
+
+    summaryCache.set(key, result);
+    renderSummaryResult(content, result);
+  } catch (err) {
+    console.error(err);
+    content.innerHTML = '';
+
+    const errorText = document.createElement('div');
+    errorText.className = 'summary-error';
+    errorText.textContent = '要約の取得に失敗しました。';
+
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'summary-retry-btn summary-no-swipe';
+    retry.textContent = '再試行';
+    retry.addEventListener('click', () => {
+      content.dataset.loading = '0';
+      ensureSummaryLoaded(index);
+    });
+
+    content.appendChild(errorText);
+    content.appendChild(retry);
+  } finally {
+    content.dataset.loading = '0';
+  }
+}
+
+function renderSummaryResult(container, result) {
+  container.innerHTML = '';
+
+  const sourceNote = document.createElement('div');
+  sourceNote.className = `summary-content-source ${result.contentSource === 'article' ? 'article' : 'rss'}`;
+  sourceNote.textContent = result.contentSource === 'article'
+    ? `リンク先の記事本文から要約${result.extractedLength ? `（${result.extractedLength.toLocaleString()}文字取得）` : ''}`
+    : 'リンク先本文を取得できなかったためRSS本文から要約';
+
+  const label = document.createElement('div');
+  label.className = 'summary-section-label';
+  label.textContent = 'キャッチコピー';
+
+  const catchcopy = document.createElement('div');
+  catchcopy.className = 'summary-catchcopy';
+  catchcopy.textContent = result.catchcopy || '';
+
+  const pointLabel = document.createElement('div');
+  pointLabel.className = 'summary-section-label';
+  pointLabel.textContent = '重要ポイント';
+
+  const list = document.createElement('ul');
+  list.className = 'summary-points';
+
+  (result.points || []).forEach(point => {
+    const li = document.createElement('li');
+    li.textContent = point;
+    list.appendChild(li);
+  });
+
+  container.appendChild(sourceNote);
+  container.appendChild(label);
+  container.appendChild(catchcopy);
+  container.appendChild(pointLabel);
+  container.appendChild(list);
+}
+
+function getCurrentSummaryIndex() {
+  return summarySwiper ? summarySwiper.activeIndex : 0;
+}
+
+function renderCurrentChatHistory(index = getCurrentSummaryIndex()) {
+  if (!summaryContext) return;
+
+  const item = summaryContext.items[index];
+  const log = document.querySelector(`.summary-chat-log[data-chat-log="${index}"]`);
+  if (!item || !log) return;
+
+  const key = getSummaryArticleKey(item, summaryContext.feed);
+  const history = summaryChatHistories.get(key) || [];
+
+  log.innerHTML = '';
+
+  history.forEach(message => {
+    const bubble = document.createElement('div');
+    bubble.className = `summary-chat-bubble ${message.role === 'user' ? 'user' : 'assistant'}`;
+    bubble.textContent = message.content;
+    log.appendChild(bubble);
+  });
+
+  log.scrollTop = log.scrollHeight;
+}
+
+async function handleSummaryChatSubmit(event) {
+  event.preventDefault();
+  if (!summaryContext) return;
+
+  const input = document.getElementById('summary-chat-input');
+  const sendBtn = document.getElementById('summary-chat-send');
+  if (!input || !sendBtn) return;
+
+  const question = input.value.trim();
+  if (!question) return;
+
+  const index = getCurrentSummaryIndex();
+  const item = summaryContext.items[index];
+  if (!item) return;
+
+  const key = getSummaryArticleKey(item, summaryContext.feed);
+  const previousHistory = (summaryChatHistories.get(key) || []).filter(message => !message.pending);
+
+  summaryChatHistories.set(key, [
+    ...previousHistory,
+    { role: 'user', content: question },
+    { role: 'assistant', content: '回答を作成中…', pending: true }
+  ]);
+  renderCurrentChatHistory(index);
+
+  input.value = '';
+  input.blur();
+  sendBtn.disabled = true;
+
+  try {
+    const cachedSummary = summaryCache.get(key);
+
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        article: {
+          title: item.title || '',
+          description: cleanRssText(item.description).slice(0, 12000),
+          source: summaryContext.feed.name || '',
+          url: item.link || ''
+        },
+        summary: cachedSummary || null,
+        history: previousHistory.slice(-8)
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'チャットAPIエラー');
+    }
+
+    summaryChatHistories.set(key, [
+      ...previousHistory,
+      { role: 'user', content: question },
+      { role: 'assistant', content: data.answer || '回答を取得できませんでした。' }
+    ]);
+  } catch (err) {
+    console.error(err);
+    summaryChatHistories.set(key, [
+      ...previousHistory,
+      { role: 'user', content: question },
+      { role: 'assistant', content: '回答の取得に失敗しました。もう一度試してください。' }
+    ]);
+  } finally {
+    sendBtn.disabled = false;
+    renderCurrentChatHistory(index);
   }
 }
 
@@ -2448,7 +3022,7 @@ function renderTabs(containerId, feeds, onClickCallback) {
     btn.onclick = () => {
       container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      onClickCallback(feed.url);
+      onClickCallback(feed.url, idx);
     };
     container.appendChild(btn);
   });
