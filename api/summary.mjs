@@ -83,7 +83,6 @@ export default async function handler(req, res) {
     '提供された記事本文だけを根拠に要約してください。',
     '本文にない事実を追加・推測しないでください。',
     '広告、ナビゲーション、関連記事、定型フッターらしき内容は重要ポイントに含めないでください。',
-    'catchcopyは内容を一瞬で理解できる自然な日本語で、原則40文字以内。',
     'pointsは重要度の高い順に3〜4項目。各項目は簡潔な1文にしてください。'
   ].join('\n');
 
@@ -91,10 +90,6 @@ export default async function handler(req, res) {
     type: 'object',
     additionalProperties: false,
     properties: {
-      catchcopy: {
-        type: 'string',
-        description: '記事内容を一瞬で理解できる40文字程度までの日本語キャッチコピー'
-      },
       points: {
         type: 'array',
         minItems: 3,
@@ -103,14 +98,14 @@ export default async function handler(req, res) {
         description: '重要度の高い順の重要ポイント'
       }
     },
-    required: ['catchcopy', 'points']
+    required: ['points']
   };
 
   try {
     const result = await generateGemini({
       prompt,
       systemInstruction,
-      maxOutputTokens: 700,
+      maxOutputTokens: 520,
       responseSchema
     });
 
@@ -126,7 +121,6 @@ export default async function handler(req, res) {
     }
 
     return res.status(200).json({
-      catchcopy: clampText(summary.catchcopy, 300),
       points: Array.isArray(summary.points)
         ? summary.points.slice(0, 4).map(point => clampText(point, 500)).filter(Boolean)
         : [],
