@@ -1,17 +1,12 @@
 import { extractArticleFromUrl } from '../lib/article-reader.mjs';
+import { generateGemini } from '../lib/gemini.mjs';
 
-const OPENAI_URL = 'https://api.openai.com/v1/responses';
-const MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini';
 const MAX_ARTICLE_TEXT = 60000;
 
 function getBody(req) {
   if (!req.body) return {};
   if (typeof req.body === 'string') {
-    try {
-      return JSON.parse(req.body);
-    } catch (_) {
-      return {};
-    }
+    try { return JSON.parse(req.body); } catch (_) { return {}; }
   }
   return req.body;
 }
@@ -20,20 +15,8 @@ function clampText(value, maxLength) {
   return String(value || '').trim().slice(0, maxLength);
 }
 
-function extractOutputText(data) {
-  if (!data || !Array.isArray(data.output)) return '';
-
-  return data.output
-    .flatMap(item => Array.isArray(item.content) ? item.content : [])
-    .filter(part => part && part.type === 'output_text' && typeof part.text === 'string')
-    .map(part => part.text)
-    .join('\n')
-    .trim();
-}
-
 function formatHistory(history) {
   if (!Array.isArray(history)) return '';
-
   return history
     .slice(-8)
     .map(message => {
@@ -53,10 +36,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: 'OPENAI_API_KEY が設定されていません' });
-  }
-
   const body = getBody(req);
   const question = clampText(body.question, 2000);
   const article = body.article || {};
@@ -69,7 +48,7 @@ export default async function handler(req, res) {
   const rssTitle = clampText(article.title, 500);
   const rssDescription = clampText(article.description, 12000);
   const source = clampText(article.source, 200);
-  const url = clampText(article.url, 3000);
+  const url = clampText(article.url || article.link, 3000);
   const catchcopy = clampText(summary.catchcopy, 500);
   const points = Array.isArray(summary.points)
     ? summary.points.slice(0, 4).map(point => clampText(point, 800)).filter(Boolean)
@@ -93,8 +72,7 @@ export default async function handler(req, res) {
   }
 
   const historyText = formatHistory(body.history);
-
-  const input = [
+  const prompt = [
     '【対象記事】',
     source ? `配信元: ${source}` : '',
     url ? `元記事URL: ${url}` : '',
@@ -108,44 +86,34 @@ export default async function handler(req, res) {
     `\n【今回の質問】\n${question}`
   ].filter(Boolean).join('\n\n');
 
+  const systemInstruction = [
+    'あなたはニュース記事について質問に答える日本語アシスタントです。',
+    '提供された対象記事本文と会話履歴を根拠に答えてください。',
+    '記事本文だけでは断定できない場合は、そのことを明示してください。',
+    '本文にない事実を、記事に書かれている事実であるかのように追加しないでください。',
+    'ユーザーが求めない限り、回答は短く読みやすくしてください。',
+    '箇条書きが適切な場合は2〜5項目程度にまとめてください。'
+  ].join('\n');
+
   try {
-    const openaiResponse = await fetch(OPENAI_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        store: false,
-        instructions: [
-          'あなたはニュース記事について質問に答える日本語アシスタントです。',
-          '提供された対象記事本文と会話履歴を根拠に答えてください。',
-          '記事本文だけでは断定できない場合は、そのことを明示してください。',
-          '本文にない事実を、記事に書かれている事実であるかのように追加しないでください。',
-          'ユーザーが求めない限り、回答は短く読みやすくしてください。',
-          '箇条書きが適切な場合は2〜5項目程度にまとめてください。'
-        ].join('\n'),
-        input,
-        max_output_tokens: 900
-      })
+    const result = await generateGemini({
+      prompt,
+      systemInstruction,
+      maxOutputTokens: 1100
     });
 
-    const data = await openaiResponse.json().catch(() => ({}));
-
-    if (!openaiResponse.ok) {
-      console.error('[chat] OpenAI API error:', data?.error?.message || openaiResponse.status);
-      return res.status(502).json({ error: 'AI回答の生成に失敗しました' });
-    }
-
-    const answer = extractOutputText(data);
-    if (!answer) {
-      return res.status(502).json({ error: 'AI回答が空でした' });
-    }
-
-    return res.status(200).json({ answer, contentSource });
+    return res.status(200).json({
+      answer: result.text,
+      provider: 'gemini',
+      model: result.model,
+      contentSource
+    });
   } catch (err) {
-    console.error('[chat] request failed:', err);
-    return res.status(500).json({ error: 'AIチャットAPIとの通信に失敗しました' });
+    console.error('[chat] Gemini request failed:', err);
+    const payload = err?.publicError || {
+      error: 'GeminiチャットAPIとの通信に失敗しました',
+      detail: err?.message || 'VercelのFunctionsログを確認してください。'
+    };
+    return res.status(err?.statusCode || 500).json(payload);
   }
 }
