@@ -1014,3 +1014,165 @@ body.summary-open {
 .summary-points-label {
   margin-top: 2px;
 }
+
+
+/* =========================================================
+   v8: モーダル復旧 / iPhone戻るジェスチャー / Twitter位置保持 / YouTubeレイアウト
+   ========================================================= */
+
+/* ニュース・知識・YouTubeの追加/編集モーダル */
+.feed-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feed-modal-form label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.feed-modal-form input,
+.feed-edit-fields input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text-color);
+  font-size: 16px;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+}
+
+.feed-edit-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.feed-edit-fields {
+  display: grid;
+  gap: 7px;
+}
+
+.feed-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.feed-edit-actions .btn {
+  min-width: 42px;
+  min-height: 34px;
+}
+
+.feed-edit-actions .btn:disabled {
+  opacity: 0.35;
+}
+
+/* iPhone: 左端スワイプでAI要約を閉じる。背景の元画面が見えるようオーバーレイ自身を移動 */
+.summary-overlay.summary-edge-dragging,
+.summary-overlay.summary-edge-finishing {
+  will-change: transform;
+}
+
+.summary-overlay.summary-edge-dragging {
+  transition: none !important;
+}
+
+/* YouTube: タイトル領域の中にフィルターUIを統合 */
+#youtube-section {
+  overflow: hidden;
+}
+
+.youtube-section-header {
+  display: block;
+  margin-bottom: 0;
+  padding-bottom: 8px;
+  background: var(--card-bg);
+  position: relative;
+  z-index: 120;
+}
+
+.youtube-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.youtube-controls-host {
+  margin-top: 8px;
+  background: var(--card-bg);
+}
+
+.youtube-controls-host:empty {
+  display: none;
+}
+
+.youtube-controls-loading {
+  padding: 6px 0 2px;
+  color: var(--text-sub);
+  font-size: 12px;
+  text-align: center;
+}
+
+.youtube-controls-host .yt-filter-container {
+  margin-bottom: 7px;
+}
+
+.youtube-controls-host .yt-select {
+  min-height: 34px;
+  background: var(--bg-color);
+}
+
+.yt-reset-filter-btn {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #e5e5ea;
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.yt-type-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.yt-type-tab {
+  flex: 1;
+  min-height: 34px;
+  padding: 6px;
+  font-size: 12px;
+  background: var(--bg-color);
+}
+
+.yt-type-tab.active {
+  background: var(--primary-color);
+  color: #fff;
+  border-color: var(--primary-color);
+  font-weight: 700;
+}
+
+/* 旧400pxから約2動画分拡張 */
+#youtube-content.youtube-scroll-area {
+  height: 520px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-top: 0;
+  border-top: 1px solid var(--border-color);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+#youtube-content #yt-table-container {
+  min-height: 100%;
+  background: var(--card-bg);
+}
