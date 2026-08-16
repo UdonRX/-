@@ -1594,3 +1594,75 @@ body.summary-open {
       clamp(70px, 14%, 90px) !important;
   }
 }
+
+/* =========================================================
+ * v13: YouTube 連続再生 ON/OFF
+ * ========================================================= */
+.yt-orientation-control-bar {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+}
+
+.yt-auto-next-btn {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: manipulation;
+}
+
+.yt-auto-next-btn.is-on {
+  background: rgba(52,199,89,0.24);
+  border-color: rgba(52,199,89,0.65);
+}
+
+.yt-auto-next-status {
+  min-width: 24px;
+  padding: 2px 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.14);
+  text-align: center;
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.yt-auto-next-btn.is-on .yt-auto-next-status {
+  background: rgba(52,199,89,0.40);
+}
+
+/* 横画面では右カラム内に 縦画面 → 連続再生 → YouTubeで開く の順で配置 */
+#youtube-video-modal.yt-css-landscape-mode .yt-auto-next-btn,
+#youtube-video-modal.yt-css-landscape-fill .yt-auto-next-btn,
+#youtube-video-modal:fullscreen .yt-auto-next-btn {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 40px !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 6px 2px !important;
+  flex: 0 0 auto !important;
+  white-space: normal !important;
+  line-height: 1.15 !important;
+}
+
+@media (max-width: 430px) {
+  .yt-orientation-control-bar:not(#youtube-video-modal .yt-orientation-control-bar) {
+    gap: 5px;
+  }
+
+  .yt-auto-next-btn {
+    padding-inline: 6px;
+    font-size: 9px;
+  }
+}
