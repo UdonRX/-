@@ -204,7 +204,11 @@ let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
 let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
 let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 let twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
-let currentTwitterIdx = 0;
+const TWITTER_ACTIVE_INDEX_KEY = 'twitterActiveIndexV2';
+let currentTwitterIdx = (() => {
+  const n = Number(sessionStorage.getItem(TWITTER_ACTIVE_INDEX_KEY) || localStorage.getItem(TWITTER_ACTIVE_INDEX_KEY));
+  return Number.isInteger(n) && n >= 0 ? n : 0;
+})();
 
 // Twitter: Render Free のコールドスタート復帰待ちを自動再試行する。
 // 1秒ごと・重複リクエストなし。90回を超えたら5秒間隔へ落として通信を抑える。
@@ -221,7 +225,7 @@ let twitterLoadSerial = 0;
 const TWITTER_SCROLL_STORAGE_KEY = 'twitterScrollPositionsV1';
 let twitterScrollPositions = (() => {
   try {
-    return JSON.parse(sessionStorage.getItem(TWITTER_SCROLL_STORAGE_KEY) || '{}');
+    return JSON.parse(sessionStorage.getItem(TWITTER_SCROLL_STORAGE_KEY) || localStorage.getItem(TWITTER_SCROLL_STORAGE_KEY) || '{}');
   } catch (_) {
     return {};
   }
@@ -232,21 +236,156 @@ let twitterScrollPositions = (() => {
 const TWITTER_ANCHOR_STORAGE_KEY = 'twitterScrollAnchorsV1';
 let twitterScrollAnchors = (() => {
   try {
-    return JSON.parse(sessionStorage.getItem(TWITTER_ANCHOR_STORAGE_KEY) || '{}');
+    return JSON.parse(sessionStorage.getItem(TWITTER_ANCHOR_STORAGE_KEY) || localStorage.getItem(TWITTER_ANCHOR_STORAGE_KEY) || '{}');
   } catch (_) {
     return {};
   }
 })();
 
-function getTwitterVideoProxyUrl(rawUrl) {
+
+// v11: Twitter外部動画から戻ったときの復帰位置を永続化する。
+const TWITTER_EXTERNAL_RETURN_KEY = 'twitterExternalReturnV3';
+let twitterExternalReturnState = (() => {
   try {
-    const url = new URL(rawUrl, location.href);
-    if (url.hostname !== 'video.twimg.com') return rawUrl;
-    // vercel.json の external rewrite で同一オリジンから video.twimg.com へ転送する。
-    return `/twitter-video${url.pathname}${url.search}`;
+    return JSON.parse(sessionStorage.getItem(TWITTER_EXTERNAL_RETURN_KEY) || localStorage.getItem(TWITTER_EXTERNAL_RETURN_KEY) || 'null');
   } catch (_) {
-    return rawUrl;
+    return null;
   }
+})();
+let twitterExternalRestoreTimers = [];
+let twitterScrollSaveSuspended = false;
+let twitterScrollResumeTimer = null;
+
+function persistTwitterScrollState() {
+  try {
+    const positionsJson = JSON.stringify(twitterScrollPositions);
+    const anchorsJson = JSON.stringify(twitterScrollAnchors);
+    sessionStorage.setItem(TWITTER_SCROLL_STORAGE_KEY, positionsJson);
+    sessionStorage.setItem(TWITTER_ANCHOR_STORAGE_KEY, anchorsJson);
+    localStorage.setItem(TWITTER_SCROLL_STORAGE_KEY, positionsJson);
+    localStorage.setItem(TWITTER_ANCHOR_STORAGE_KEY, anchorsJson);
+    sessionStorage.setItem(TWITTER_ACTIVE_INDEX_KEY, String(currentTwitterIdx));
+    localStorage.setItem(TWITTER_ACTIVE_INDEX_KEY, String(currentTwitterIdx));
+  } catch (_) {}
+}
+
+function setTwitterScrollSaveSuspended(value) {
+  twitterScrollSaveSuspended = Boolean(value);
+  if (!value && twitterScrollResumeTimer) {
+    clearTimeout(twitterScrollResumeTimer);
+    twitterScrollResumeTimer = null;
+  }
+}
+
+function rememberTwitterExternalReturn(feedUrl, tweetKey = '') {
+  saveTwitterScrollPosition(feedUrl, true);
+  const container = document.getElementById('twitter-content');
+  const card = tweetKey
+    ? Array.from(container?.querySelectorAll?.('.tweet-card[data-tweet-key]') || [])
+        .find(el => el.dataset.tweetKey === tweetKey)
+    : null;
+  const containerRect = container?.getBoundingClientRect?.();
+
+  twitterExternalReturnState = {
+    feedUrl,
+    feedIndex: currentTwitterIdx,
+    tweetKey,
+    scrollTop: getTwitterSavedScrollPosition(feedUrl),
+    cardOffset: card && containerRect
+      ? Math.round(card.getBoundingClientRect().top - containerRect.top)
+      : null,
+    openedAt: Date.now()
+  };
+
+  try {
+    const json = JSON.stringify(twitterExternalReturnState);
+    sessionStorage.setItem(TWITTER_EXTERNAL_RETURN_KEY, json);
+    localStorage.setItem(TWITTER_EXTERNAL_RETURN_KEY, json);
+  } catch (_) {}
+}
+
+function restoreTwitterExternalReturnPosition() {
+  const state = twitterExternalReturnState;
+  if (!state?.feedUrl) return false;
+
+  if (Date.now() - Number(state.openedAt || 0) > 30 * 60 * 1000) {
+    twitterExternalReturnState = null;
+    try {
+      sessionStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
+      localStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
+    } catch (_) {}
+    return false;
+  }
+
+  const targetIndex = twitterFeeds.findIndex(feed => feed.url === state.feedUrl);
+  if (targetIndex >= 0 && currentTwitterIdx !== targetIndex) {
+    currentTwitterIdx = targetIndex;
+    renderTwitterTabs();
+  }
+
+  const container = document.getElementById('twitter-content');
+  if (!container || twitterFeeds[currentTwitterIdx]?.url !== state.feedUrl) return false;
+
+  if (state.tweetKey) {
+    const card = Array.from(container.querySelectorAll('.tweet-card[data-tweet-key]'))
+      .find(el => el.dataset.tweetKey === state.tweetKey);
+    if (!card) return false;
+
+    const containerRect = container.getBoundingClientRect();
+    const currentOffset = card.getBoundingClientRect().top - containerRect.top;
+    const wantedOffset = Number.isFinite(Number(state.cardOffset)) ? Number(state.cardOffset) : 0;
+    container.scrollTop += currentOffset - wantedOffset;
+    twitterScrollPositions[state.feedUrl] = Math.max(0, Math.round(container.scrollTop || 0));
+    persistTwitterScrollState();
+    return true;
+  }
+
+  container.scrollTop = Math.max(0, Number(state.scrollTop) || 0);
+  return true;
+}
+
+function scheduleTwitterExternalReturnRestore() {
+  twitterExternalRestoreTimers.forEach(timer => clearTimeout(timer));
+  twitterExternalRestoreTimers = [];
+
+  [0, 50, 120, 250, 450, 750, 1100, 1600, 2300, 3200, 4500].forEach(delay => {
+    twitterExternalRestoreTimers.push(window.setTimeout(() => {
+      restoreTwitterExternalReturnPosition();
+    }, delay));
+  });
+
+  // 最後に復元できた場合だけ「外部動画から戻る待ち」を解除する。
+  twitterExternalRestoreTimers.push(window.setTimeout(() => {
+    const restored = restoreTwitterExternalReturnPosition();
+    if (!restored && twitterExternalReturnState?.feedUrl) {
+      // ツイート自体が更新で消えた場合は、最後の保険としてscrollTopへ戻す。
+      const container = document.getElementById('twitter-content');
+      if (container && twitterFeeds[currentTwitterIdx]?.url === twitterExternalReturnState.feedUrl) {
+        container.scrollTop = Math.max(0, Number(twitterExternalReturnState.scrollTop) || 0);
+      }
+    }
+    twitterExternalReturnState = null;
+    setTwitterScrollSaveSuspended(false);
+    try {
+      sessionStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
+      localStorage.removeItem(TWITTER_EXTERNAL_RETURN_KEY);
+    } catch (_) {}
+  }, 5600));
+}
+
+function openTwitterVideoExternally(videoUrl, feedUrl, tweetKey) {
+  rememberTwitterExternalReturn(feedUrl, tweetKey);
+
+  // iPhoneで安定して再生できる外部MP4ビューアだけを使う。
+  // ユーザー操作中の<a target="_blank">として開くことで、PWA本体はその場に残す。
+  const anchor = document.createElement('a');
+  anchor.href = videoUrl;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 let currentNewsUrl = '';
@@ -2451,13 +2590,13 @@ function openImagePreviewModal(src) {
 }
 
 // --- Twitter 領域 ---
-function saveTwitterScrollPosition(feedUrl = twitterFeeds[currentTwitterIdx]?.url) {
+function saveTwitterScrollPosition(feedUrl = twitterFeeds[currentTwitterIdx]?.url, force = false) {
   const container = document.getElementById('twitter-content');
   if (!container || !feedUrl) return;
+  if (twitterScrollSaveSuspended && !force) return;
 
   twitterScrollPositions[feedUrl] = Math.max(0, Math.round(container.scrollTop || 0));
 
-  // 先頭に最も近いツイートと、そのツイート上端からのズレも保存する。
   const containerRect = container.getBoundingClientRect();
   const cards = Array.from(container.querySelectorAll('.tweet-card[data-tweet-key]'));
   const anchor = cards.find(card => card.getBoundingClientRect().bottom > containerRect.top + 2);
@@ -2468,10 +2607,7 @@ function saveTwitterScrollPosition(feedUrl = twitterFeeds[currentTwitterIdx]?.ur
     };
   }
 
-  try {
-    sessionStorage.setItem(TWITTER_SCROLL_STORAGE_KEY, JSON.stringify(twitterScrollPositions));
-    sessionStorage.setItem(TWITTER_ANCHOR_STORAGE_KEY, JSON.stringify(twitterScrollAnchors));
-  } catch (_) {}
+  persistTwitterScrollState();
 }
 
 function getTwitterSavedScrollPosition(feedUrl) {
@@ -2498,23 +2634,36 @@ function applyTwitterSavedPosition(feedUrl) {
   container.scrollTop = getTwitterSavedScrollPosition(feedUrl);
 }
 
-function restoreTwitterScrollPosition(feedUrl) {
+function restoreTwitterScrollPosition(feedUrl, { releaseSaveGuard = false } = {}) {
   const container = document.getElementById('twitter-content');
-  if (!container || !feedUrl) return;
+  if (!container || !feedUrl) {
+    if (releaseSaveGuard) setTwitterScrollSaveSuspended(false);
+    return;
+  }
 
-  // DOM直後・画像メタデータ確定後の複数タイミングで復元する。
-  // tweet key + offset を優先するので、行高が変わっても同じツイート位置へ戻りやすい。
   const restore = () => {
     if (twitterFeeds[currentTwitterIdx]?.url === feedUrl) {
       applyTwitterSavedPosition(feedUrl);
+      if (twitterExternalReturnState?.feedUrl === feedUrl) {
+        restoreTwitterExternalReturnPosition();
+      }
     }
   };
+
   requestAnimationFrame(() => {
     restore();
     requestAnimationFrame(restore);
   });
-  window.setTimeout(restore, 180);
-  window.setTimeout(restore, 700);
+  [160, 450, 850, 1500, 2600].forEach(delay => window.setTimeout(restore, delay));
+
+  if (releaseSaveGuard) {
+    if (twitterScrollResumeTimer) clearTimeout(twitterScrollResumeTimer);
+    twitterScrollResumeTimer = window.setTimeout(() => {
+      restore();
+      setTwitterScrollSaveSuspended(false);
+      saveTwitterScrollPosition(feedUrl, true);
+    }, 2900);
+  }
 }
 
 function installTwitterScrollPersistence() {
@@ -2528,19 +2677,29 @@ function installTwitterScrollPersistence() {
     timer = window.setTimeout(() => saveTwitterScrollPosition(), 80);
   }, { passive: true });
 
-  // 外部リンク/動画を開く直前に現在位置を保存する。captureでstopPropagationより先に拾う。
   container.addEventListener('click', (event) => {
-    if (event.target?.closest?.('a')) saveTwitterScrollPosition();
+    if (event.target?.closest?.('a')) saveTwitterScrollPosition(undefined, true);
   }, true);
 
-  window.addEventListener('pagehide', () => saveTwitterScrollPosition(), { passive: true });
+  window.addEventListener('pagehide', () => saveTwitterScrollPosition(undefined, true), { passive: true });
+
+  const restoreAfterExternal = () => {
+    if (twitterExternalReturnState?.feedUrl) {
+      scheduleTwitterExternalReturnRestore();
+    } else {
+      restoreTwitterScrollPosition(twitterFeeds[currentTwitterIdx]?.url);
+    }
+  };
+
+  window.addEventListener('focus', restoreAfterExternal, { passive: true });
+  window.addEventListener('pageshow', restoreAfterExternal, { passive: true });
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      saveTwitterScrollPosition();
+      saveTwitterScrollPosition(undefined, true);
       return;
     }
 
-    // Render 起動待ちの途中でアプリへ戻った場合は、待たずにすぐ再試行する。
     if (twitterRetryFeedUrl && twitterFeeds[currentTwitterIdx]?.url === twitterRetryFeedUrl) {
       if (twitterRetryTimer) {
         clearTimeout(twitterRetryTimer);
@@ -2548,7 +2707,7 @@ function installTwitterScrollPersistence() {
       }
       loadTwitterContent({ autoRetry: true });
     } else {
-      restoreTwitterScrollPosition(twitterFeeds[currentTwitterIdx]?.url);
+      restoreAfterExternal();
     }
   });
 }
@@ -2595,6 +2754,14 @@ async function initTwitter() {
     twitterContent.parentNode.insertBefore(tabsContainer, twitterContent);
   }
 
+  if (twitterExternalReturnState?.feedUrl) {
+    const pendingIndex = twitterFeeds.findIndex(feed => feed.url === twitterExternalReturnState.feedUrl);
+    if (pendingIndex >= 0) currentTwitterIdx = pendingIndex;
+  } else if (currentTwitterIdx >= twitterFeeds.length) {
+    currentTwitterIdx = 0;
+  }
+  persistTwitterScrollState();
+
   renderTwitterTabs();
   loadTwitterContent();
 }
@@ -2624,8 +2791,9 @@ function renderTwitterTabs() {
     }
     btn.textContent = feed.name;
     btn.onclick = () => {
-      saveTwitterScrollPosition();
+      saveTwitterScrollPosition(undefined, true);
       currentTwitterIdx = idx;
+      persistTwitterScrollState();
       renderTwitterTabs();
       loadTwitterContent();
     };
@@ -2895,8 +3063,13 @@ async function loadTwitterContent(options = {}) {
   const container = document.getElementById('twitter-content');
   if (!container) return;
 
+  // 読み込み表示へ差し替えた瞬間のscrollTop=0で保存値を上書きしない。
+  setTwitterScrollSaveSuspended(true);
+
   const restoreFeedUrl = twitterFeeds[currentTwitterIdx]?.url || '';
-  const restoreScrollTop = getTwitterSavedScrollPosition(restoreFeedUrl);
+  const restoreScrollTop = twitterExternalReturnState?.feedUrl === twitterFeeds[currentTwitterIdx]?.url
+    ? Math.max(0, Number(twitterExternalReturnState.scrollTop) || getTwitterSavedScrollPosition(twitterFeeds[currentTwitterIdx]?.url))
+    : getTwitterSavedScrollPosition(restoreFeedUrl);
 
   if (!autoRetry) {
     clearTwitterAutoRetry(true);
@@ -2908,6 +3081,7 @@ async function loadTwitterContent(options = {}) {
   }
   twitterFetchController = new AbortController();
   const requestSerial = ++twitterLoadSerial;
+  let scrollGuardReleaseScheduled = false;
 
   container.innerHTML = autoRetry
     ? `<div class="loading">Twitterを再取得中…（${twitterRetryCount}回目）</div>`
@@ -2915,6 +3089,7 @@ async function loadTwitterContent(options = {}) {
 
   if (twitterFeeds.length === 0) {
     container.innerHTML = '<div class="loading">リストを追加してください。</div>';
+    setTwitterScrollSaveSuspended(false);
     return;
   }
 
@@ -3086,58 +3261,21 @@ async function loadTwitterContent(options = {}) {
         }
 
         if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com') || targetVideoUrl.endsWith('.mp4'))) {
-          // v10: video.twimg.com を直接参照せず、Vercel external rewrite 経由で同一オリジン配信する。
-          // iPhone SafariのRange/参照元/CORS差異を避けつつ、Functionの動画サイズ制限も踏まない。
-          const videoBox = document.createElement('div');
-          videoBox.className = 'tweet-inline-video-box';
-
-          const video = document.createElement('video');
-          video.className = 'tweet-inline-video';
-          const proxiedVideoUrl = getTwitterVideoProxyUrl(targetVideoUrl);
-          video.src = proxiedVideoUrl;
-          video.controls = true;
-          video.preload = 'metadata';
-          video.playsInline = true;
-          video.setAttribute('playsinline', '');
-          video.setAttribute('webkit-playsinline', '');
-          video.setAttribute('controlsList', 'nodownload');
-
-          const fallback = document.createElement('a');
-          fallback.className = 'tweet-video-fallback';
-          fallback.href = targetVideoUrl;
-          fallback.target = '_blank';
-          fallback.rel = 'noopener noreferrer';
-          fallback.textContent = '動画を外部で開く';
-          fallback.hidden = true;
-
-          const keepPosition = () => saveTwitterScrollPosition(currentFeed.url);
-          const restorePosition = () => {
-            const saved = getTwitterSavedScrollPosition(currentFeed.url);
-            window.setTimeout(() => {
-              if (twitterFeeds[currentTwitterIdx]?.url === currentFeed.url) {
-                const activeContainer = document.getElementById('twitter-content');
-                if (activeContainer) activeContainer.scrollTop = saved;
-              }
-            }, 80);
+          // v11: Twitter動画は外部再生だけに戻す。
+          const videoButton = document.createElement('button');
+          videoButton.type = 'button';
+          videoButton.className = 'tweet-video-external-btn';
+          videoButton.textContent = '▶ 動画を再生';
+          videoButton.onclick = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openTwitterVideoExternally(
+              targetVideoUrl,
+              currentFeed.url,
+              tweetCard.dataset.tweetKey || ''
+            );
           };
-
-          video.addEventListener('play', keepPosition, { passive: true });
-          video.addEventListener('webkitbeginfullscreen', keepPosition, { passive: true });
-          video.addEventListener('webkitendfullscreen', restorePosition, { passive: true });
-          video.addEventListener('fullscreenchange', restorePosition, { passive: true });
-          video.addEventListener('loadedmetadata', () => {
-            fallback.hidden = true;
-          }, { once: true });
-          video.addEventListener('error', () => {
-            fallback.hidden = false;
-          }, { once: true });
-
-          // 外部フォールバックを使う場合も、tweet anchor + offset を保存して復帰を安定させる。
-          fallback.addEventListener('click', keepPosition, { passive: true });
-
-          videoBox.appendChild(video);
-          videoBox.appendChild(fallback);
-          mediaContainer.appendChild(videoBox);
+          mediaContainer.appendChild(videoButton);
         } else if (tagName === 'img') {
           media.style.maxWidth = '100%';
           media.style.height = 'auto';
@@ -3160,9 +3298,13 @@ async function loadTwitterContent(options = {}) {
     });
 
     // 外部動画/リンクから戻った場合や再描画後も元のタイムライン位置へ戻す。
-    if (restoreFeedUrl === currentFeed.url) {
+    if (restoreFeedUrl === currentFeed.url || twitterExternalReturnState?.feedUrl === currentFeed.url) {
       twitterScrollPositions[currentFeed.url] = restoreScrollTop;
-      restoreTwitterScrollPosition(currentFeed.url);
+      scrollGuardReleaseScheduled = true;
+      restoreTwitterScrollPosition(currentFeed.url, { releaseSaveGuard: true });
+      if (twitterExternalReturnState?.feedUrl === currentFeed.url) {
+        scheduleTwitterExternalReturnRestore();
+      }
     }
 
   } catch (err) {
@@ -3175,6 +3317,12 @@ async function loadTwitterContent(options = {}) {
   } finally {
     if (requestSerial === twitterLoadSerial) {
       twitterFetchController = null;
+      if (!scrollGuardReleaseScheduled) {
+        // 外部動画からの復帰待ち中は、Renderの起動待ち表示でscrollTop=0を保存しない。
+        if (twitterExternalReturnState?.feedUrl !== currentFeed?.url) {
+          setTwitterScrollSaveSuspended(false);
+        }
+      }
     }
   }
 }
@@ -3509,6 +3657,13 @@ window.openYoutubeModalByIndex = function(index) {
     document.body.appendChild(modal);
   }
 
+  // 横画面中に「前/次」を押しても横画面レイアウトを維持する。
+  const keepLandscapeMode =
+    modal.dataset.landscapeRequested === '1' ||
+    modal.classList.contains('yt-css-landscape-mode') ||
+    modal.classList.contains('yt-css-landscape-fill') ||
+    Boolean(document.fullscreenElement);
+
   const hasPrev = index > 0;
   const hasNext = index < list.length - 1;
 
@@ -3540,12 +3695,12 @@ window.openYoutubeModalByIndex = function(index) {
   modal.innerHTML = `
     <div class="yt-modal-layout" style="width: 100%; background: #000; position: relative;">
       <div id="yt-modal-drag-handle" class="yt-modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #1c1c1e; color: #fff; font-size: 12px; cursor: move; user-select: none; -webkit-user-select: none;">
-        <div style="display: flex; align-items: center; gap: 4px;">
-          <button onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'}; font-size: 11px;">▲ 前</button>
-          <button onclick="openYoutubeModalByIndex(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'}; font-size: 11px;">▼ 次</button>
+        <div class="yt-nav-buttons" style="display: flex; align-items: center; gap: 4px;">
+          <button class="yt-prev-btn" onclick="openYoutubeModalByIndex(${index - 1})" ${!hasPrev ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasPrev ? 'pointer' : 'default'}; opacity: ${hasPrev ? '1' : '0.3'}; font-size: 11px;">▲ 前</button>
+          <button class="yt-next-btn" onclick="openYoutubeModalByIndex(${index + 1})" ${!hasNext ? 'disabled' : ''} style="background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 2px 6px; border-radius: 4px; cursor: ${hasNext ? 'pointer' : 'default'}; opacity: ${hasNext ? '1' : '0.3'}; font-size: 11px;">▼ 次</button>
         </div>
-        <div style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">⠿ ${title}</div>
-        <button onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
+        <div class="yt-modal-title" style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 6px; flex: 1; text-align: center; font-size: 11px;">⠿ ${title}</div>
+        <button class="yt-close-btn" onclick="closeYoutubeModal()" style="background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;">✕</button>
       </div>
 
       <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; overflow: hidden;" id="yt-player-wrapper">
@@ -3555,7 +3710,7 @@ window.openYoutubeModalByIndex = function(index) {
             src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" 
             title="${title}"
             style="width: 100%; height: 100%; border: none;"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; web-share" 
             referrerpolicy="strict-origin-when-cross-origin"
             allowfullscreen>
           </iframe>
@@ -3569,9 +3724,7 @@ window.openYoutubeModalByIndex = function(index) {
           <span id="yt-orientation-button-label">横画面</span>
         </button>
         <div class="yt-orientation-swipe-hint">↑ 横画面　／　↓ 縦画面</div>
-        <button id="yt-pip-btn" class="yt-pip-btn" type="button" onclick="requestYoutubeNativePiP()" title="利用可能な場合はOS標準のPiPへ切り替え">PiP</button>
         <a class="yt-open-official" href="https://www.youtube.com/watch?v=${videoId}" target="_blank" rel="noopener">YouTubeで開く ↗</a>
-        <div id="yt-pip-message" class="yt-pip-message" hidden></div>
       </div>
     </div>
   `;
@@ -3605,6 +3758,12 @@ window.openYoutubeModalByIndex = function(index) {
 
   // 横画面ボタン + 上/下スワイプ操作を設定。
   installYoutubeOrientationGestures(modal);
+
+  if (keepLandscapeMode) {
+    modal.dataset.landscapeRequested = '1';
+    applyYoutubeCssLandscapeMode(modal);
+    updateYoutubeOrientationButton();
+  }
 };
 
 // 互換性のため関数名は残すが、YouTube埋め込みプレーヤーのバックグラウンド再生を
@@ -3638,14 +3797,14 @@ function applyYoutubeCssLandscapeMode(modal) {
     modal.style.setProperty('height', '100vh', 'important');
     modal.style.setProperty('transform', 'none', 'important');
   } else {
-    // 回転前はportrait viewportと同じ大きさにする。
-    // -90deg回転後に物理的な横長画面へぴったり収まる。
+    // portraitのiPhoneで擬似横画面にする場合は、回転前の箱を横長にする。
+    // 100vh x 100vw を-90deg回転すると、操作列を含む横画面全体がviewport内へ収まる。
     modal.style.setProperty('top', '50%', 'important');
     modal.style.setProperty('left', '50%', 'important');
     modal.style.setProperty('right', 'auto', 'important');
     modal.style.setProperty('bottom', 'auto', 'important');
-    modal.style.setProperty('width', '100vw', 'important');
-    modal.style.setProperty('height', '100vh', 'important');
+    modal.style.setProperty('width', '100vh', 'important');
+    modal.style.setProperty('height', '100vw', 'important');
     modal.style.setProperty('transform', 'translate(-50%, -50%) rotate(-90deg)', 'important');
   }
   modal.style.setProperty('border-radius', '0', 'important');
@@ -3658,38 +3817,7 @@ function syncYoutubeLandscapeForViewport() {
   applyYoutubeCssLandscapeMode(modal);
 }
 
-window.requestYoutubeNativePiP = async function() {
-  const modal = document.getElementById('youtube-video-modal');
-  const message = document.getElementById('yt-pip-message');
-  if (!modal) return;
 
-  // 標準PiP API / Safari Presentation Mode はHTMLVideoElementに対するAPI。
-  // 将来同一オリジンvideoが使われる構成にも対応できるよう、アクセス可能なvideoがあれば利用する。
-  const video = modal.querySelector('video');
-  try {
-    if (video) {
-      if (video.webkitSupportsPresentationMode?.('picture-in-picture') && typeof video.webkitSetPresentationMode === 'function') {
-        video.webkitSetPresentationMode(video.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture');
-        return;
-      }
-      if (document.pictureInPictureEnabled && typeof video.requestPictureInPicture === 'function') {
-        if (document.pictureInPictureElement) await document.exitPictureInPicture();
-        else await video.requestPictureInPicture();
-        return;
-      }
-    }
-  } catch (err) {
-    console.info('[YouTube] native PiP request failed:', err);
-  }
-
-  // YouTubeはcross-origin iframeなので内部の<video>へ親ページからアクセスできない。
-  // iframe側が提供するOS/YouTube標準PiPだけが利用可能。allow="picture-in-picture" は維持している。
-  if (message) {
-    message.hidden = false;
-    message.textContent = 'このiPhoneでは親ページからYouTube埋め込み動画のPiPを直接起動できません。YouTubeプレーヤー内の全画面/システムPiP操作を使ってください。';
-    window.setTimeout(() => { if (message) message.hidden = true; }, 5000);
-  }
-};
 
 function isYoutubeLandscapeMode() {
   const modal = document.getElementById('youtube-video-modal');
