@@ -1,5 +1,5 @@
 // アプリ更新時はバージョン（v1, v2, v3...）を更新してください
-const CACHE_NAME = 'pwa-dashboard-v2';
+const CACHE_NAME = 'pwa-dashboard-v4';
 
 // キャッシュ対象の静的ファイル
 const STATIC_ASSETS = [
@@ -9,7 +9,8 @@ const STATIC_ASSETS = [
   './app.js',
   './manifest.json',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './icons/summary.png'
 ];
 
 // インストール処理：ファイルをキャッシュ
