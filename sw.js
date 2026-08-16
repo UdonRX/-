@@ -1,5 +1,5 @@
 // アプリ更新時はバージョン（v1, v2, v3...）を更新してください
-const CACHE_NAME = 'pwa-dashboard-v9';
+const CACHE_NAME = 'pwa-dashboard-v10';
 
 // キャッシュ対象の静的ファイル
 const STATIC_ASSETS = [
@@ -53,6 +53,7 @@ self.addEventListener('fetch', (event) => {
   if (
     url.origin !== location.origin ||
     url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/twitter-video/') ||
     url.hostname.includes('open-meteo.com') ||
     url.hostname.includes('corsproxy.io') ||
     url.hostname.includes('allorigins.win') ||
