@@ -622,6 +622,10 @@ h2 {
   overflow: hidden;
   padding-top: 0;
   border-top: 1px solid var(--border-color);
+
+  /* 縦はSafariでスクロール、横はSwiperへ。iPhoneで重要。 */
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
 }
 
 .feed-swiper .swiper-wrapper,
@@ -639,6 +643,8 @@ h2 {
   padding-top: 8px;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
 }
 
 /* =========================================================
@@ -921,6 +927,7 @@ body.summary-open {
 }
 
 .summary-error {
+  white-space: pre-line;
   color: var(--danger-color);
   font-size: 13px;
   margin-bottom: 8px;
