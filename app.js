@@ -206,7 +206,18 @@ let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 let twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
 let currentTwitterIdx = 0;
 
-// Twitter: 外部動画/リンクから戻ったときにフィードごとのスクロール位置を復元する
+// Twitter: Render Free のコールドスタート復帰待ちを自動再試行する。
+// 1秒ごと・重複リクエストなし。90回を超えたら5秒間隔へ落として通信を抑える。
+const TWITTER_WAKE_RETRY_FAST_MS = 1000;
+const TWITTER_WAKE_RETRY_SLOW_MS = 5000;
+const TWITTER_WAKE_RETRY_FAST_LIMIT = 90;
+let twitterRetryTimer = null;
+let twitterRetryCount = 0;
+let twitterRetryFeedUrl = '';
+let twitterFetchController = null;
+let twitterLoadSerial = 0;
+
+// Twitter: 外部リンク等から戻ったときにフィードごとのスクロール位置を復元する
 const TWITTER_SCROLL_STORAGE_KEY = 'twitterScrollPositionsV1';
 let twitterScrollPositions = (() => {
   try {
@@ -1542,6 +1553,8 @@ function initSummaryUI() {
 
   // 要約画面では上下=記事移動、左右=RSSタブ移動として役割を分離する。
   installSummaryFeedSwipe();
+  // 重要ポイント/チャット履歴の内部スクロール中は、親の縦Swiperを停止する。
+  installSummaryInnerScrollGuard();
   // iPhone: 左端から右へスワイプするとSafariの戻る操作のように要約画面を閉じる。
   installSummaryEdgeBackGesture();
 
@@ -1668,6 +1681,42 @@ function installSummaryFeedSwipe() {
   surface.addEventListener('click', suppressClick, true);
 }
 
+
+
+function installSummaryInnerScrollGuard() {
+  const surface = document.getElementById('summary-swiper');
+  if (!surface || surface.dataset.innerScrollGuardInstalled === '1') return;
+
+  surface.dataset.innerScrollGuardInstalled = '1';
+  let guarding = false;
+
+  const isInnerScrollable = (target) => Boolean(
+    target?.closest?.('.summary-ai-content, .summary-chat-log')
+  );
+
+  const onStart = (event) => {
+    if (!isInnerScrollable(event.target)) return;
+    guarding = true;
+    if (summarySwiper && !summarySwiper.destroyed) {
+      summarySwiper.allowTouchMove = false;
+    }
+  };
+
+  const release = () => {
+    if (!guarding) return;
+    guarding = false;
+    // touchend と同じターンで有効化するとSwiperが終端処理を拾うことがあるため次フレームで戻す。
+    requestAnimationFrame(() => {
+      if (summarySwiper && !summarySwiper.destroyed && document.getElementById('summary-overlay')?.dataset.edgeSwiping !== '1') {
+        summarySwiper.allowTouchMove = true;
+      }
+    });
+  };
+
+  surface.addEventListener('touchstart', onStart, { passive: true, capture: true });
+  surface.addEventListener('touchend', release, { passive: true, capture: true });
+  surface.addEventListener('touchcancel', release, { passive: true, capture: true });
+}
 
 function installSummaryEdgeBackGesture() {
   const overlay = document.getElementById('summary-overlay');
@@ -1978,7 +2027,8 @@ function createSummarySlide(item, feed, index) {
   originalTitle.textContent = item.title || '無題';
 
   const aiContent = document.createElement('div');
-  aiContent.className = 'summary-ai-content';
+  aiContent.className = 'summary-ai-content summary-no-swipe';
+  aiContent.setAttribute('data-swiper-no-swiping', 'true');
   aiContent.dataset.summaryContent = String(index);
   aiContent.innerHTML = '<div class="summary-loading"><span class="summary-spinner"></span>記事本文を取得してAIが要約中...</div>';
 
@@ -1991,6 +2041,7 @@ function createSummarySlide(item, feed, index) {
 
   const chatLog = document.createElement('div');
   chatLog.className = 'summary-chat-log summary-no-swipe';
+  chatLog.setAttribute('data-swiper-no-swiping', 'true');
   chatLog.dataset.chatLog = String(index);
   chatLog.setAttribute('aria-live', 'polite');
 
@@ -2425,7 +2476,21 @@ function installTwitterScrollPersistence() {
 
   window.addEventListener('pagehide', () => saveTwitterScrollPosition(), { passive: true });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') saveTwitterScrollPosition();
+    if (document.visibilityState === 'hidden') {
+      saveTwitterScrollPosition();
+      return;
+    }
+
+    // Render 起動待ちの途中でアプリへ戻った場合は、待たずにすぐ再試行する。
+    if (twitterRetryFeedUrl && twitterFeeds[currentTwitterIdx]?.url === twitterRetryFeedUrl) {
+      if (twitterRetryTimer) {
+        clearTimeout(twitterRetryTimer);
+        twitterRetryTimer = null;
+      }
+      loadTwitterContent({ autoRetry: true });
+    } else {
+      restoreTwitterScrollPosition(twitterFeeds[currentTwitterIdx]?.url);
+    }
   });
 }
 
@@ -2719,14 +2784,75 @@ function showTwitterSubEditModal(feed, idx, onSave, onCancel) {
   }
 }
 
-async function loadTwitterContent() {
+function clearTwitterAutoRetry(resetCount = true) {
+  if (twitterRetryTimer) {
+    clearTimeout(twitterRetryTimer);
+    twitterRetryTimer = null;
+  }
+  if (resetCount) {
+    twitterRetryCount = 0;
+    twitterRetryFeedUrl = '';
+  }
+}
+
+function scheduleTwitterAutoRetry(feedUrl, reason = '') {
+  if (!feedUrl) return;
+  if (twitterFeeds[currentTwitterIdx]?.url !== feedUrl) return;
+
+  if (twitterRetryTimer) clearTimeout(twitterRetryTimer);
+  twitterRetryFeedUrl = feedUrl;
+  twitterRetryCount += 1;
+
+  const delay = twitterRetryCount <= TWITTER_WAKE_RETRY_FAST_LIMIT
+    ? TWITTER_WAKE_RETRY_FAST_MS
+    : TWITTER_WAKE_RETRY_SLOW_MS;
+
+  const container = document.getElementById('twitter-content');
+  if (container) {
+    const intervalText = delay === 1000 ? '1秒' : '5秒';
+    container.innerHTML = `
+      <div class="loading twitter-wake-loading">
+        <div style="font-weight:700; margin-bottom:4px;">Twitterサーバーの起動を待っています…</div>
+        <div style="font-size:11px; opacity:.75;">${intervalText}ごとに自動更新します（${twitterRetryCount}回目）</div>
+        ${reason ? `<div style="font-size:10px; opacity:.55; margin-top:4px;">${reason}</div>` : ''}
+      </div>
+    `;
+  }
+
+  twitterRetryTimer = window.setTimeout(() => {
+    twitterRetryTimer = null;
+    if (twitterFeeds[currentTwitterIdx]?.url !== feedUrl) return;
+
+    // バックグラウンド中は通信もタイマー再生成もしない。
+    // visibilitychange で画面へ戻った瞬間に再開する。
+    if (document.visibilityState === 'hidden') return;
+
+    loadTwitterContent({ autoRetry: true });
+  }, delay);
+}
+
+async function loadTwitterContent(options = {}) {
+  const { autoRetry = false } = options;
   const container = document.getElementById('twitter-content');
   if (!container) return;
 
   const restoreFeedUrl = twitterFeeds[currentTwitterIdx]?.url || '';
   const restoreScrollTop = getTwitterSavedScrollPosition(restoreFeedUrl);
 
-  container.innerHTML = '<div class="loading">ツイートを読み込み中...</div>';
+  if (!autoRetry) {
+    clearTwitterAutoRetry(true);
+  }
+
+  // 手動更新やタブ切替では前の通信を止める。自動再試行も常に1本だけにする。
+  if (twitterFetchController) {
+    try { twitterFetchController.abort(); } catch (_) {}
+  }
+  twitterFetchController = new AbortController();
+  const requestSerial = ++twitterLoadSerial;
+
+  container.innerHTML = autoRetry
+    ? `<div class="loading">Twitterを再取得中…（${twitterRetryCount}回目）</div>`
+    : '<div class="loading">ツイートを読み込み中...</div>';
 
   if (twitterFeeds.length === 0) {
     container.innerHTML = '<div class="loading">リストを追加してください。</div>';
@@ -2742,8 +2868,13 @@ async function loadTwitterContent() {
   const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
 
   try {
-    const response = await fetch(apiUrl);
-    if (!response.ok) throw new Error('ツイートの取得に失敗しました');
+    const response = await fetch(apiUrl, {
+      cache: 'no-store',
+      signal: twitterFetchController.signal,
+      headers: { 'Cache-Control': 'no-cache' }
+    });
+    if (requestSerial !== twitterLoadSerial) return;
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const xmlText = await response.text();
 
     const parser = new DOMParser();
@@ -2755,10 +2886,12 @@ async function loadTwitterContent() {
 
     const items = Array.from(xmlDoc.querySelectorAll('item'));
     if (items.length === 0) {
-      container.innerHTML = '<div class="loading">ツイートが見つかりませんでした</div>';
+      scheduleTwitterAutoRetry(currentFeed.url, 'RSSがまだ空です');
       return;
     }
 
+    // 取得成功。自動再試行を即停止する。
+    clearTwitterAutoRetry(true);
     container.innerHTML = '';
 
     items.forEach(item => {
@@ -2892,40 +3025,53 @@ async function loadTwitterContent() {
         }
 
         if (targetVideoUrl && (targetVideoUrl.includes('video.twimg.com') || targetVideoUrl.endsWith('.mp4'))) {
-          const videoLinkBox = document.createElement('a');
-          videoLinkBox.href = targetVideoUrl;
-          videoLinkBox.target = '_blank';
-          videoLinkBox.rel = 'noopener noreferrer';
-          
-          videoLinkBox.onclick = (e) => {
-            saveTwitterScrollPosition(currentFeed.url);
-            e.stopPropagation();
-            window.open(targetVideoUrl, '_blank', 'noopener,noreferrer');
-            e.preventDefault();
+          // iPhoneで外部タブへ移動するとPWAが再描画され、タイムラインが先頭へ戻ることがある。
+          // そのためTwitter動画はカード内のHTML5 videoで直接再生する。
+          const videoBox = document.createElement('div');
+          videoBox.className = 'tweet-inline-video-box';
+
+          const video = document.createElement('video');
+          video.className = 'tweet-inline-video';
+          video.src = targetVideoUrl;
+          video.controls = true;
+          video.preload = 'metadata';
+          video.playsInline = true;
+          video.setAttribute('playsinline', '');
+          video.setAttribute('webkit-playsinline', '');
+          video.setAttribute('controlsList', 'nodownload');
+
+          const fallback = document.createElement('a');
+          fallback.className = 'tweet-video-fallback';
+          fallback.href = targetVideoUrl;
+          fallback.target = '_blank';
+          fallback.rel = 'noopener noreferrer';
+          fallback.textContent = '動画を外部で開く';
+          fallback.hidden = true;
+
+          const keepPosition = () => saveTwitterScrollPosition(currentFeed.url);
+          const restorePosition = () => {
+            const saved = getTwitterSavedScrollPosition(currentFeed.url);
+            window.setTimeout(() => {
+              if (twitterFeeds[currentTwitterIdx]?.url === currentFeed.url) {
+                const activeContainer = document.getElementById('twitter-content');
+                if (activeContainer) activeContainer.scrollTop = saved;
+              }
+            }, 80);
           };
 
-          videoLinkBox.style.cssText = `
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            width: 100%;
-            height: 140px;
-            background: #15202b;
-            color: #ffffff;
-            border-radius: 8px;
-            text-decoration: none;
-            box-sizing: border-box;
-            border: 1px solid #38444d;
-            cursor: pointer;
-          `;
-          videoLinkBox.innerHTML = `
-            <div style="width: 44px; height: 44px; border-radius: 50%; background: rgba(29, 161, 242, 0.9); display: flex; align-items: center; justify-content: center;">
-              <span style="color: #fff; font-size: 20px; margin-left: 3px;">▶</span>
-            </div>
-            <span style="font-size: 13px; font-weight: bold; color: #1da1f2;">動画をタップして再生（外部で開く）</span>
-          `;
-          mediaContainer.appendChild(videoLinkBox);
+          video.addEventListener('play', keepPosition, { passive: true });
+          video.addEventListener('webkitbeginfullscreen', keepPosition, { passive: true });
+          video.addEventListener('webkitendfullscreen', restorePosition, { passive: true });
+          video.addEventListener('fullscreenchange', restorePosition, { passive: true });
+          video.addEventListener('error', () => {
+            fallback.hidden = false;
+          }, { once: true });
+
+          fallback.addEventListener('click', keepPosition, { passive: true });
+
+          videoBox.appendChild(video);
+          videoBox.appendChild(fallback);
+          mediaContainer.appendChild(videoBox);
         } else if (tagName === 'img') {
           media.style.maxWidth = '100%';
           media.style.height = 'auto';
@@ -2954,8 +3100,16 @@ async function loadTwitterContent() {
     }
 
   } catch (err) {
-    console.error(err);
-    container.innerHTML = '<div class="loading" style="color: red;">ツイートの取得に失敗しました</div>';
+    if (err?.name === 'AbortError') return;
+    console.error('[twitter] fetch failed:', err);
+    const activeFeed = twitterFeeds[currentTwitterIdx];
+    if (activeFeed && activeFeed.url === currentFeed.url) {
+      scheduleTwitterAutoRetry(currentFeed.url, err?.message || '取得待ち');
+    }
+  } finally {
+    if (requestSerial === twitterLoadSerial) {
+      twitterFetchController = null;
+    }
   }
 }
 
@@ -3332,112 +3486,191 @@ window.openYoutubeModalByIndex = function(index) {
         <div style="position: absolute; top: 0; left: 0; width: 200%; height: 200%; transform: scale(0.5); transform-origin: 0 0;">
           <iframe 
             id="yt-active-iframe"
-            src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080" 
+            src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0&vq=hd1080&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" 
             title="${title}"
             style="width: 100%; height: 100%; border: none;"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+            referrerpolicy="strict-origin-when-cross-origin"
             allowfullscreen>
           </iframe>
         </div>
-        <!-- 要件B: 横画面切り替えボタン（プレイヤーUI上への重ね配置） -->
-        <button id="yt-landscape-btn" onclick="toggleLandscapeFullscreen()" title="横画面表示（全画面）" style="position: absolute; bottom: 8px; right: 8px; z-index: 10; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-          <span>⤢ 横画面</span>
+      </div>
+
+      <div id="yt-orientation-gesture-zone" class="yt-orientation-control-bar" aria-label="画面方向コントロール">
+        <button id="yt-landscape-btn" class="yt-orientation-btn" type="button" onclick="toggleLandscapeFullscreen()" title="横画面 / 縦画面を切り替え">
+          <img src="icons/landscape.png" alt="" class="yt-landscape-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+          <span class="yt-landscape-icon-fallback" style="display:none;">⤢</span>
+          <span id="yt-orientation-button-label">横画面</span>
         </button>
+        <div class="yt-orientation-swipe-hint">↑ 横画面　／　↓ 縦画面</div>
+        <a class="yt-open-official" href="https://www.youtube.com/watch?v=${videoId}" target="_blank" rel="noopener">YouTubeで開く ↗</a>
       </div>
     </div>
   `;
 
   setupModalDrag(modal);
 
-  // 要件A-1 & A-2: Media Session APIによるバックグラウンド再生・ロック画面コントロール連携
+  // Media Session API: 再生中動画のメタデータ/対応環境のメディア操作連携（バックグラウンド再生を保証するものではない）
   if ('mediaSession' in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: title,
-      artist: channelName || 'YouTube',
-      artwork: [
-        { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpg' }
-      ]
-    });
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title,
+        artist: channelName || 'YouTube',
+        artwork: [
+          { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpg' }
+        ]
+      });
 
-    // コントロールセンターやロック画面からの操作ハンドラ
-    navigator.mediaSession.setActionHandler('play', () => {
-      const iframe = document.getElementById('yt-active-iframe');
-      if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-    });
-    navigator.mediaSession.setActionHandler('pause', () => {
-      const iframe = document.getElementById('yt-active-iframe');
-      if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-    });
+      // 対応ブラウザでは前面再生中のメディア操作を連携する。
+      navigator.mediaSession.setActionHandler('play', () => {
+        const iframe = document.getElementById('yt-active-iframe');
+        if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        const iframe = document.getElementById('yt-active-iframe');
+        if (iframe) iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+      });
+    } catch (err) {
+      console.info('[YouTube] Media Session is partially unsupported:', err);
+    }
   }
 
-  // 要件A-3: iOSでバックグラウンド移行時にオーディオが一時停止されるのを防ぐための無音オーディオ継続ハック
-  setupBackgroundAudioKeepAlive();
+  // 横画面ボタン + 上/下スワイプ操作を設定。
+  installYoutubeOrientationGestures(modal);
 };
 
-// 要件A-3: iOS Safari/PWA向けバックグラウンドオーディオ継続用ダミーオーディオ維持処理
-let bgAudioElement = null;
+// 互換性のため関数名は残すが、YouTube埋め込みプレーヤーのバックグラウンド再生を
+// 無音音声などで回避する処理は行わない（YouTube APIポリシー上許可されていないため）。
 function setupBackgroundAudioKeepAlive() {
-  if (!bgAudioElement) {
-    bgAudioElement = document.createElement('audio');
-    bgAudioElement.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-    bgAudioElement.loop = true;
-    bgAudioElement.setAttribute('playsinline', '');
-    document.body.appendChild(bgAudioElement);
-  }
-  bgAudioElement.play().catch(() => {});
+  return false;
 }
 
-// 要件B: Screen Orientation API とフルスクリーン化の実装（フォールバック対応）
-window.toggleLandscapeFullscreen = async function() {
-  const wrapper = document.getElementById('yt-player-wrapper');
-  const iframe = document.getElementById('yt-active-iframe');
-  if (!wrapper && !iframe) return;
+function isYoutubeLandscapeMode() {
+  const modal = document.getElementById('youtube-video-modal');
+  return Boolean(modal?.classList.contains('yt-css-landscape-mode') || modal?.classList.contains('yt-css-landscape-fill') || document.fullscreenElement);
+}
 
-  const targetElem = iframe || wrapper;
+function updateYoutubeOrientationButton() {
+  const label = document.getElementById('yt-orientation-button-label');
+  if (label) label.textContent = isYoutubeLandscapeMode() ? '縦画面' : '横画面';
+}
+
+async function enterYoutubeLandscapeMode() {
+  const modal = document.getElementById('youtube-video-modal');
+  const wrapper = document.getElementById('yt-player-wrapper');
+  if (!modal || !wrapper) return;
+
+  let nativeFullscreen = false;
+  let orientationLocked = false;
+  const canLockOrientation = Boolean(screen.orientation?.lock);
+
+  // orientation.lock が使える環境では標準Fullscreen + 横向き固定を優先する。
+  // iPhone Safari/PWAのようにlockが使えない環境では、先にFullscreenへ入ると
+  // 親要素のCSS回転が効かなくなるため、最初からCSSフォールバックを使う。
+  if (canLockOrientation) {
+    try {
+      if (!document.fullscreenElement && modal.requestFullscreen) {
+        await modal.requestFullscreen();
+        nativeFullscreen = true;
+      }
+    } catch (err) {
+      console.info('[YouTube] Fullscreen API unavailable, using CSS fallback:', err);
+    }
+
+    try {
+      await screen.orientation.lock('landscape');
+      orientationLocked = true;
+    } catch (err) {
+      console.info('[YouTube] Orientation lock unavailable, using visual landscape fallback:', err);
+    }
+  }
+
+  // iPhone Safari/PWAではorientation.lockが使えないことがあるため、
+  // その場合はモーダル自体を90度回転してYouTubeアプリ風の横表示にする。
+  if (!orientationLocked) {
+    if (window.innerWidth > window.innerHeight) {
+      modal.classList.add('yt-css-landscape-fill');
+    } else {
+      modal.classList.add('yt-css-landscape-mode');
+    }
+  }
+
+  modal.dataset.nativeFullscreen = nativeFullscreen ? '1' : '0';
+  updateYoutubeOrientationButton();
+}
+
+async function exitYoutubeLandscapeMode() {
+  const modal = document.getElementById('youtube-video-modal');
+  if (!modal) return;
+
+  modal.classList.remove('yt-css-landscape-mode', 'yt-css-landscape-fill');
 
   try {
-    // 1. フルスクリーンリクエスト（標準およびwebkit系）
-    if (targetElem.requestFullscreen) {
-      await targetElem.requestFullscreen();
-    } else if (targetElem.webkitEnterFullscreen) {
-      targetElem.webkitEnterFullscreen(); // iOS Safari等のHTMLVideoElement用
-    } else if (wrapper.requestFullscreen) {
-      await wrapper.requestFullscreen();
+    if (screen.orientation?.unlock) {
+      screen.orientation.unlock();
     }
+  } catch (_) {}
 
-    // 2. Screen Orientation API による横画面固定（対応環境のみ）
-    if (screen.orientation && screen.orientation.lock) {
-      await screen.orientation.lock('landscape').catch(() => {
-        // ロックが拒否された場合や非対応ブラウザの場合はスルー（フォールバックへ）
-      });
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      await document.exitFullscreen();
     }
   } catch (err) {
-    console.log('Fullscreen/Orientation API notice:', err);
-    // 3. iOS SafariなどでScreenOrientationが使えない場合やフルスクリーンが制限される場合のフォールバック
-    toggleCssLandscapeFallback(wrapper);
+    console.info('[YouTube] exitFullscreen notice:', err);
+  }
+
+  modal.dataset.nativeFullscreen = '0';
+  updateYoutubeOrientationButton();
+}
+
+window.toggleLandscapeFullscreen = async function() {
+  if (isYoutubeLandscapeMode()) {
+    await exitYoutubeLandscapeMode();
+  } else {
+    await enterYoutubeLandscapeMode();
   }
 };
 
-// CSSによる横画面風トグルフォールバック（iOS用）
-function toggleCssLandscapeFallback(wrapper) {
-  if (!wrapper) return;
-  if (!wrapper.classList.contains('css-landscape-mode')) {
-    wrapper.classList.add('css-landscape-mode');
-    wrapper.style.position = 'fixed';
-    wrapper.style.top = '0';
-    wrapper.style.left = '0';
-    wrapper.style.width = '100vw';
-    wrapper.style.height = '100vh';
-    wrapper.style.zIndex = '9999999';
-    wrapper.style.paddingTop = '0';
-  } else {
-    wrapper.classList.remove('css-landscape-mode');
-    wrapper.style.position = 'relative';
-    wrapper.style.width = '100%';
-    wrapper.style.height = 'auto';
-    wrapper.style.zIndex = 'auto';
-    wrapper.style.paddingTop = '56.25%';
-  }
+function installYoutubeOrientationGestures(modal) {
+  const zone = modal?.querySelector('#yt-orientation-gesture-zone');
+  if (!zone || zone.dataset.orientationGestureInstalled === '1') return;
+  zone.dataset.orientationGestureInstalled = '1';
+
+  let startX = 0;
+  let startY = 0;
+  let tracking = false;
+
+  zone.addEventListener('touchstart', (event) => {
+    if (event.touches?.length !== 1) return;
+    const point = event.touches[0];
+    startX = point.clientX;
+    startY = point.clientY;
+    tracking = true;
+  }, { passive: true });
+
+  zone.addEventListener('touchend', (event) => {
+    if (!tracking) return;
+    tracking = false;
+
+    const point = event.changedTouches?.[0];
+    if (!point) return;
+
+    const dx = point.clientX - startX;
+    const dy = point.clientY - startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+
+    // 明確な縦スワイプだけ採用。上=横画面、下=縦画面。
+    if (absY < 46 || absY <= absX * 1.25) return;
+
+    if (dy < 0) {
+      enterYoutubeLandscapeMode();
+    } else {
+      exitYoutubeLandscapeMode();
+    }
+  }, { passive: true });
+
+  document.addEventListener('fullscreenchange', updateYoutubeOrientationButton);
 }
 
 function setupModalDrag(modal) {
@@ -3506,11 +3739,16 @@ function setupModalDrag(modal) {
   document.addEventListener('touchend', onEnd);
 }
 
-window.closeYoutubeModal = function() {
+window.closeYoutubeModal = async function() {
   const modal = document.getElementById('youtube-video-modal');
-  if (modal) modal.remove();
+  if (modal) {
+    await exitYoutubeLandscapeMode();
+    modal.remove();
+  }
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = null;
+    try { navigator.mediaSession.setActionHandler('play', null); } catch (_) {}
+    try { navigator.mediaSession.setActionHandler('pause', null); } catch (_) {}
   }
 };
 
