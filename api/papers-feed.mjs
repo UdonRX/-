@@ -142,6 +142,8 @@ const JSTAGE_PER_TERM = 35;
 const SEMANTIC_SCHOLAR_PER_QUERY = 100;
 const CROSSREF_ROWS_PER_COMPANY = 45;
 const MAX_ITEMS = 350;
+const FAST_PROVIDER_TIMEOUT = 9_000;
+const UPSTREAM_RETRY_DELAYS = [700, 1_600];
 
 const feedCaches = {
   fast: { at: 0, xml: '' },
@@ -278,12 +280,13 @@ async function searchJStage(term, timeoutMs = 12_000) {
   url.searchParams.set('text', term);
   url.searchParams.set('count', String(JSTAGE_PER_TERM));
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     headers: {
       'Accept': 'application/atom+xml, application/xml, text/xml, */*;q=0.5',
-      'User-Agent': 'PersonalDashboardPapers/3.0'
+      'User-Agent': 'PersonalDashboardPapers/7.0'
     },
-    signal: AbortSignal.timeout(timeoutMs)
+    timeoutMs,
+    retryStatuses: new Set([429, 500, 502, 503, 504])
   });
 
   if (!response.ok) {
@@ -480,6 +483,36 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function fetchWithRetry(url, {
+  headers = {},
+  timeoutMs = 10_000,
+  retryStatuses = new Set([429, 500, 502, 503, 504]),
+  delays = UPSTREAM_RETRY_DELAYS
+} = {}) {
+  let lastResponse = null;
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(timeoutMs),
+        redirect: 'follow'
+      });
+      lastResponse = response;
+      if (!retryStatuses.has(response.status) || attempt >= delays.length) return response;
+    } catch (err) {
+      lastError = err;
+      if (attempt >= delays.length) throw err;
+    }
+
+    await sleep(delays[attempt]);
+  }
+
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error('外部API通信に失敗しました');
+}
+
 async function searchSemanticScholar(queryDef, timeoutMs = 18_000) {
   const url = new URL(SEMANTIC_SCHOLAR_ENDPOINT);
   url.searchParams.set('query', queryDef.query);
@@ -496,9 +529,10 @@ async function searchSemanticScholar(queryDef, timeoutMs = 18_000) {
   };
   if (process.env.SEMANTIC_SCHOLAR_API_KEY) headers['x-api-key'] = process.env.SEMANTIC_SCHOLAR_API_KEY;
 
-  const response = await fetch(requestUrl, {
+  const response = await fetchWithRetry(requestUrl, {
     headers,
-    signal: AbortSignal.timeout(timeoutMs)
+    timeoutMs,
+    retryStatuses: new Set([429, 500, 502, 503, 504])
   });
 
   if (!response.ok) {
@@ -1112,24 +1146,82 @@ async function searchIeeeOpenAccess() {
 }
 
 async function collectFastSources({ forceRefresh = false } = {}) {
-  const [jstageSettled, semanticSettled, plosSettled] = await Promise.all([
-    runWithConcurrency(FAST_JSTAGE_TERMS, 4, term => searchJStage(term, 5_000)),
-    Promise.allSettled(FAST_SEMANTIC_QUERIES.map(query => searchSemanticScholar(query, 5_000))),
-    Promise.allSettled([cachedProvider('plos-fast', 20 * 60 * 1000, () => searchPlos(5_000), { forceRefresh })])
-  ]);
-
-  const jstageItems = jstageSettled.flatMap(result => result?.status === 'fulfilled' ? result.value : []);
-  const semanticItems = semanticSettled.flatMap(result => result?.status === 'fulfilled' ? result.value : []);
-  const plosItems = plosSettled[0]?.status === 'fulfilled' ? plosSettled[0].value : [];
-  const errors = [
-    ...jstageSettled.filter(r => r?.status === 'rejected').map(r => r.reason?.message || 'J-STAGE取得失敗'),
-    ...semanticSettled.filter(r => r?.status === 'rejected').map(r => r.reason?.message || 'Semantic Scholar取得失敗'),
-    ...(plosSettled[0]?.status === 'rejected' ? [plosSettled[0].reason?.message || 'PLOS取得失敗'] : [])
+  // v24: J-STAGEは短時間に4並列で叩かず、最大2並列に戻す。
+  // Semantic Scholarは未認証ユーザーが共有レート制限の影響を受けるためリトライ付き。
+  // PLOSは公式検索例がAPIキー付きのため、キー未設定時はfastの必須ソースにしない。
+  const tasks = [
+    runWithConcurrency(
+      FAST_JSTAGE_TERMS,
+      2,
+      term => searchJStage(term, FAST_PROVIDER_TIMEOUT)
+    ),
+    Promise.allSettled(
+      FAST_SEMANTIC_QUERIES.map(query => searchSemanticScholar(query, FAST_PROVIDER_TIMEOUT))
+    )
   ];
+
+  if (normalizeSpace(process.env.PLOS_API_KEY)) {
+    tasks.push(
+      Promise.allSettled([
+        cachedProvider(
+          'plos-fast',
+          20 * 60 * 1000,
+          () => searchPlos(FAST_PROVIDER_TIMEOUT),
+          { forceRefresh }
+        )
+      ])
+    );
+  }
+
+  const settled = await Promise.allSettled(tasks);
+  const errors = [];
+  let jstageItems = [];
+  let semanticItems = [];
+  let plosItems = [];
+
+  const jstageTask = settled[0];
+  if (jstageTask?.status === 'fulfilled') {
+    jstageItems = jstageTask.value.flatMap(result => {
+      if (result?.status === 'fulfilled') return result.value;
+      errors.push(result?.reason?.message || 'J-STAGE取得失敗');
+      return [];
+    });
+  } else {
+    errors.push(jstageTask?.reason?.message || 'J-STAGE取得失敗');
+  }
+
+  const semanticTask = settled[1];
+  if (semanticTask?.status === 'fulfilled') {
+    semanticItems = semanticTask.value.flatMap(result => {
+      if (result?.status === 'fulfilled') return result.value?.items || [];
+      errors.push(result?.reason?.message || 'Semantic Scholar取得失敗');
+      return [];
+    });
+  } else {
+    errors.push(semanticTask?.reason?.message || 'Semantic Scholar取得失敗');
+  }
+
+  if (tasks.length >= 3) {
+    const plosTask = settled[2];
+    if (plosTask?.status === 'fulfilled') {
+      const plosResult = plosTask.value?.[0];
+      if (plosResult?.status === 'fulfilled') plosItems = Array.isArray(plosResult.value) ? plosResult.value : [];
+      else errors.push(plosResult?.reason?.message || 'PLOS取得失敗');
+    } else {
+      errors.push(plosTask?.reason?.message || 'PLOS取得失敗');
+    }
+  } else {
+    errors.push('PLOS: PLOS_API_KEY未設定のためfast取得をスキップ');
+  }
+
   return {
     items: dedupePapers([...jstageItems, ...semanticItems, ...plosItems]),
     errors,
-    counts: { jstage: jstageItems.length, semantic: semanticItems.length, plos: plosItems.length }
+    counts: {
+      jstage: jstageItems.length,
+      semantic: semanticItems.length,
+      plos: plosItems.length
+    }
   };
 }
 
@@ -1280,7 +1372,29 @@ export default async function handler(req, res) {
     decorateCompanyTitles(finalItems);
 
     if (!finalItems.length) {
-      throw new Error(result.errors.length ? result.errors.join(' / ') : '該当論文が見つかりませんでした');
+      // v24: 外部論文APIが同時に一時失敗してもHTTP 502にしない。
+      // 古いRSSがあればそれを返し、なければ有効な空RSSを200で返す。
+      const staleXml = cache.xml || feedCaches.deep.xml || feedCaches.fast.xml;
+      if (staleXml) {
+        res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Papers-Mode', mode);
+        res.setHeader('X-Papers-Stale', '1');
+        res.setHeader('X-Papers-Partial-Errors', String(result.errors.length || 1));
+        return res.status(200).send(staleXml);
+      }
+
+      const emptyXml = rssXml(
+        '論文',
+        `論文取得先が一時的に応答していません。再読み込みで再試行します。${result.errors.length ? ` エラー数:${result.errors.length}` : ''}`,
+        []
+      );
+      res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Papers-Mode', mode);
+      res.setHeader('X-Papers-Empty', '1');
+      res.setHeader('X-Papers-Partial-Errors', String(result.errors.length || 1));
+      return res.status(200).send(emptyXml);
     }
 
     const countText = Object.entries(result.counts || {})
@@ -1314,7 +1428,25 @@ export default async function handler(req, res) {
 
     return res.status(200).send(xml);
   } catch (err) {
-    console.error('[papers-feed:v23]', err);
-    return res.status(502).send(`論文取得エラー: ${err?.message || 'unknown'}`);
+    console.error('[papers-feed:v24]', err);
+
+    const staleXml = feedCaches.fast.xml || feedCaches.deep.xml;
+    if (staleXml) {
+      res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Papers-Stale', '1');
+      res.setHeader('X-Papers-Fatal', '1');
+      return res.status(200).send(staleXml);
+    }
+
+    const emptyXml = rssXml(
+      '論文',
+      `論文取得処理で一時エラーが発生しました。再読み込みで再試行します: ${String(err?.message || 'unknown').slice(0, 240)}`,
+      []
+    );
+    res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Papers-Fatal', '1');
+    return res.status(200).send(emptyXml);
   }
 }
