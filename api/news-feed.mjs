@@ -6,7 +6,6 @@ const CATEGORIES = {
   national: {
     title: '全国ニュース',
     sources: [
-      { name: 'NHK主要', url: 'https://news.web.nhk/n-data/conf/na/rss/cat0.xml' },
       { name: 'Googleニュース全国', url: google('全国 OR 社会 OR 事件 OR 災害 -芸能') },
       { name: 'nippon.com', url: 'https://www.nippon.com/ja/feed/' }
     ]
@@ -14,7 +13,6 @@ const CATEGORIES = {
   politics: {
     title: '日本政治ニュース',
     sources: [
-      { name: 'NHK政治', url: 'https://news.web.nhk/n-data/conf/na/rss/cat4.xml' },
       { name: 'Googleニュース政治', url: google('国会 OR 政府 OR 首相 OR 内閣 OR 政党') },
       { name: '財経新聞 政治社会', url: 'https://www.zaikei.co.jp/rss/news/9.xml' }
     ]
@@ -40,7 +38,6 @@ const CATEGORIES = {
   world: {
     title: '海外ニュース',
     sources: [
-      { name: 'NHK国際', url: 'https://news.web.nhk/n-data/conf/na/rss/cat6.xml' },
       { name: 'BBC World', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
       { name: 'Googleニュース海外', url: google('国際 OR 海外 OR アメリカ OR 中国 OR 欧州 OR 中東') }
     ]
@@ -65,14 +62,12 @@ const CATEGORIES = {
   kagawa: {
     title: '香川のニュース',
     sources: [
-      { name: 'NHK香川', url: 'https://news.web.nhk/lnews/takamatsu/toplist.xml' },
       { name: 'Googleニュース香川', url: google('香川県 OR 高松市 OR 丸亀市') }
     ]
   },
   kyoto: {
     title: '京都のニュース',
     sources: [
-      { name: 'NHK京都', url: 'https://news.web.nhk/lnews/kyoto/toplist.xml' },
       { name: 'Googleニュース京都', url: google('京都府 OR 京都市') }
     ]
   }
@@ -80,6 +75,23 @@ const CATEGORIES = {
 
 const cache = new Map();
 const TTL = 5 * 60 * 1000;
+
+// v25: NHK ONE系のRSSは取得対象から除外する。
+// 現在の統合フィード定義からNHKソース自体を削除しているが、
+// 将来の編集で誤って戻っても取得しないよう二重で防御する。
+function isExcludedNewsSource(source) {
+  const name = String(source?.name || '').trim();
+  const rawUrl = String(source?.url || '').trim();
+
+  if (/^NHK(?:\s|$|主要|政治|国際|香川|京都)/i.test(name)) return true;
+
+  try {
+    const hostname = new URL(rawUrl).hostname.toLowerCase();
+    return hostname === 'news.web.nhk';
+  } catch {
+    return false;
+  }
+}
 
 export default async function handler(req, res) {
   const key = String(req.query?.category || '').trim();
@@ -96,7 +108,8 @@ export default async function handler(req, res) {
       return res.status(200).send(cached.xml);
     }
 
-    const { items, errors } = await mergeRssSources(config.sources, { limit: 100 });
+    const activeSources = config.sources.filter(source => !isExcludedNewsSource(source));
+    const { items, errors } = await mergeRssSources(activeSources, { limit: 100 });
     if (!items.length) throw new Error(errors.join(' / ') || '全RSSの取得に失敗しました');
 
     const xml = rssXml(config.title, `${config.title}を複数RSSから時系列統合`, items);
