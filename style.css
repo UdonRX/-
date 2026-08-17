@@ -1996,3 +1996,18 @@ body.summary-open {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* =========================================================
+   v23: 論文ソース表示 / 非同期タイトル翻訳
+   ========================================================= */
+.paper-sources-credit {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+  line-height: 1.45;
+}
+
+.paper-source-extra {
+  color: var(--text-sub);
+}
