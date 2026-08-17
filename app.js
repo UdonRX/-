@@ -163,10 +163,20 @@ const DEFAULT_WEATHER_LOCATIONS = [
   }
 ];
 
-const DEFAULT_NEWS = [
-  { name: "朝日新聞(政治)", url: "https://www.asahi.com/rss/asahi/politics.rdf" },
-  { name: "Yahoo!ニュース", url: "https://news.yahoo.co.jp/rss/media/aptsushinv/all.xml" }
+const CURATED_NEWS_FEEDS_V16 = [
+  { name: "全国ニュース", url: "/api/news-feed?category=national" },
+  { name: "日本政治ニュース", url: "/api/news-feed?category=politics" },
+  { name: "国内企業ニュース", url: "/api/news-feed?category=domestic-business" },
+  { name: "海外企業ニュース", url: "/api/news-feed?category=global-business" },
+  { name: "海外ニュース", url: "/api/news-feed?category=world" },
+  { name: "IT系", url: "/api/news-feed?category=it" },
+  { name: "家電", url: "/api/news-feed?category=appliances" },
+  { name: "香川のニュース", url: "/api/news-feed?category=kagawa" },
+  { name: "京都のニュース", url: "/api/news-feed?category=kyoto" },
+  { name: "論文", url: "/api/papers-feed" }
 ];
+
+const DEFAULT_NEWS = [...CURATED_NEWS_FEEDS_V16];
 
 const DEFAULT_KNOWLEDGE = [
   { name: "Qiita", url: "https://qiita.com/tags/javascript/feed.atom" },
@@ -174,6 +184,8 @@ const DEFAULT_KNOWLEDGE = [
 ];
 
 const DEFAULT_YOUTUBE = [];
+
+const DEFAULT_TWITCH = [];
 
 const DEFAULT_TWITTER = [
   { name: "デフォルトリスト", url: "2087706843519111304" }
@@ -195,6 +207,25 @@ function loadStoredFeeds(key, defaultValue) {
 
 function saveStoredFeeds(key, data) {
   localStorage.setItem(key, JSON.stringify(data));
+}
+
+function migrateCuratedNewsFeedsV16(feeds) {
+  const existing = Array.isArray(feeds) ? feeds : [];
+  const migrationKey = 'curatedNewsFeedsV16Installed';
+  if (localStorage.getItem(migrationKey) === '1') return existing;
+
+  // 新しい標準カテゴリを先頭へ追加し、既存のユーザー登録RSSは消さず後ろへ残す。
+  const merged = CURATED_NEWS_FEEDS_V16.map(feed => ({ ...feed }));
+  const known = new Set(merged.map(feed => feed.url));
+  existing.forEach(feed => {
+    if (!feed || !feed.url || known.has(feed.url)) return;
+    merged.push({ ...feed });
+    known.add(feed.url);
+  });
+
+  saveStoredFeeds('newsFeeds', merged);
+  localStorage.setItem(migrationKey, '1');
+  return merged;
 }
 
 // v14: v13以前で先頭の0が欠けた5桁コードが保存済みでも自動修復する。
@@ -229,10 +260,12 @@ let currentWeatherIdx = 0;
 let currentWeatherMode = '3day';
 let currentAreaSubIndex = 0;
 
-let newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
+let newsFeeds = migrateCuratedNewsFeedsV16(loadStoredFeeds('newsFeeds', DEFAULT_NEWS));
 let knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
 let youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
 let twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
+let twitchFeeds = loadStoredFeeds('twitchFeeds', DEFAULT_TWITCH);
+let currentTwitchIdx = 0;
 const TWITTER_ACTIVE_INDEX_KEY = 'twitterActiveIndexV2';
 let currentTwitterIdx = (() => {
   const n = Number(sessionStorage.getItem(TWITTER_ACTIVE_INDEX_KEY) || localStorage.getItem(TWITTER_ACTIVE_INDEX_KEY));
@@ -477,16 +510,18 @@ document.addEventListener('DOMContentLoaded', () => {
   weatherLocations = migrateStoredWeatherLocationCodes(
     loadStoredFeeds('weatherLocations', DEFAULT_WEATHER_LOCATIONS)
   );
-  newsFeeds = loadStoredFeeds('newsFeeds', DEFAULT_NEWS);
+  newsFeeds = migrateCuratedNewsFeedsV16(loadStoredFeeds('newsFeeds', DEFAULT_NEWS));
   knowledgeFeeds = loadStoredFeeds('knowledgeFeeds', DEFAULT_KNOWLEDGE);
   youtubeFeeds = loadStoredFeeds('youtubeFeeds', DEFAULT_YOUTUBE);
   twitterFeeds = loadStoredFeeds('twitterFeeds', DEFAULT_TWITTER);
+  twitchFeeds = loadStoredFeeds('twitchFeeds', DEFAULT_TWITCH);
 
   initWeatherUI();
   initNews();
   initKnowledge();
   initSummaryUI();
   initTwitter();
+  initTwitch();
   initYoutube();
   initFutocyan();
   initModals();
@@ -501,9 +536,21 @@ function registerSW() {
 }
 
 // --- 通信処理 ---
-async function fetchNewsRSS(feedUrl) {
-  const apiUrl = `/api/rss?url=${encodeURIComponent(feedUrl)}`;
-  const response = await fetch(apiUrl);
+async function fetchNewsRSS(feedUrl, { forceRefresh = false } = {}) {
+  const raw = String(feedUrl || '').trim();
+  let apiUrl;
+
+  // v16: Vercel内で生成する統合RSSは /api/rss を二重経由させず直接取得する。
+  if (raw.startsWith('/api/')) {
+    const url = new URL(raw, location.origin);
+    if (forceRefresh) url.searchParams.set('_fresh', String(Date.now()));
+    apiUrl = `${url.pathname}${url.search}`;
+  } else {
+    apiUrl = `/api/rss?url=${encodeURIComponent(raw)}`;
+    if (forceRefresh) apiUrl += `&_fresh=${Date.now()}`;
+  }
+
+  const response = await fetch(apiUrl, { cache: forceRefresh ? 'no-store' : 'default' });
   if (!response.ok) throw new Error('RSS取得エラー');
   const xmlText = await response.text();
 
@@ -568,7 +615,7 @@ async function fetchNewsRSS(feedUrl) {
 // --- YouTube API ---
 async function fetchYoutubeData(channelIdentifier) {
   let channelId = channelIdentifier;
-  
+
   if (channelIdentifier.startsWith('@') || !channelIdentifier.startsWith('UC')) {
     const searchPart = channelIdentifier.startsWith('@') ? channelIdentifier.substring(1) : channelIdentifier;
     const res = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=id,snippet&forHandle=${encodeURIComponent(searchPart)}&key=${YOUTUBE_API_KEY}`);
@@ -595,61 +642,64 @@ async function fetchYoutubeData(channelIdentifier) {
 
   const playlistRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50&key=${YOUTUBE_API_KEY}`);
   const playlistData = await playlistRes.json();
-  
   if (!playlistData.items) return [];
 
-  const videoIds = playlistData.items.map(item => item.contentDetails.videoId);
+  const videoIds = playlistData.items.map(item => item.contentDetails.videoId).filter(Boolean);
+  if (!videoIds.length) return [];
 
   const detailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,liveStreamingDetails,contentDetails&id=${videoIds.join(',')}&key=${YOUTUBE_API_KEY}`);
   const detailsData = await detailsRes.json();
-
   if (!detailsData.items) return [];
+
+  const durationSeconds = (iso) => {
+    const match = String(iso || '').match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!match) return 0;
+    return (Number(match[1] || 0) * 3600) + (Number(match[2] || 0) * 60) + Number(match[3] || 0);
+  };
 
   return detailsData.items.map(video => {
     const videoId = video.id;
-    const title = video.snippet.title;
-    const publishedAt = video.snippet.publishedAt;
-    const thumbnail = video.snippet.thumbnails?.high?.url || video.snippet.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-    
-    const liveDetails = video.liveStreamingDetails;
-    let liveStatus = 'none'; 
+    const snippet = video.snippet || {};
+    const title = snippet.title || '';
+    const description = snippet.description || '';
+    const tags = Array.isArray(snippet.tags) ? snippet.tags : [];
+    const publishedAt = snippet.publishedAt;
+    const thumbnail = snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    const liveDetails = video.liveStreamingDetails || null;
+    const liveBroadcastContent = snippet.liveBroadcastContent || 'none';
+    const durationISO = video.contentDetails?.duration || '';
+    const totalSeconds = durationSeconds(durationISO);
+
+    let liveStatus = 'none';
     let scheduledStartTime = null;
-    let wasEverLive = false; // 生配信（過去にライブ実施されたもの）かどうかの判定用フラグ
+    let wasEverLive = false;
 
     if (liveDetails) {
       if (liveDetails.actualEndTime) {
-        liveStatus = 'completed'; 
-        wasEverLive = true;
-      } else if (liveDetails.actualStartTime) {
-        liveStatus = 'live'; 
-        wasEverLive = true;
-      } else if (liveDetails.scheduledStartTime) {
-        liveStatus = 'upcoming'; 
-        scheduledStartTime = new Date(liveDetails.scheduledStartTime);
-      } else {
         liveStatus = 'completed';
         wasEverLive = true;
+      } else if (liveDetails.actualStartTime || liveBroadcastContent === 'live') {
+        liveStatus = 'live';
+        wasEverLive = true;
+      } else if (liveDetails.scheduledStartTime || liveBroadcastContent === 'upcoming') {
+        liveStatus = 'upcoming';
+        scheduledStartTime = new Date(liveDetails.scheduledStartTime || Date.now());
       }
     }
 
-    let isShort = false;
-    const durationISO = video.contentDetails?.duration || '';
-    if (durationISO) {
-      const match = durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-      if (match) {
-        const hours = parseInt(match[1] || 0, 10);
-        const mins = parseInt(match[2] || 0, 10);
-        const secs = parseInt(match[3] || 0, 10);
-        const totalSeconds = (hours * 3600) + (mins * 60) + secs;
-        
-        if (hours === 0 && mins === 0 && totalSeconds > 0 && totalSeconds <= 60) {
-          isShort = true;
-        }
-      }
-    }
-    if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('#short')) {
-      isShort = true;
-    }
+    const metaText = `${title}\n${description}\n${tags.join(' ')}`.toLowerCase();
+
+    // YouTube Data APIには公開動画の「これはShorts」という専用フラグや、
+    // 一般公開動画の縦横アスペクト比が返る保証がないため、durationだけでは判定しない。
+    // #shorts / Shorts / ショート の明示メタデータを優先して誤分類を減らす。
+    const shortMarker = /(^|[\s#\[【])shorts?([\s#\]】]|$)|ショート動画|youtube shorts/i.test(metaText);
+    const isShort = Boolean(shortMarker && totalSeconds > 0 && totalSeconds <= 180 && !liveDetails);
+
+    // Data APIのliveStreamingDetailsはライブとプレミア公開の双方で付くため、
+    // 公開APIだけでは両者を100%識別できない。タイトル/説明/タグの明示表現を使い、
+    // プレミア公開は「動画」側へ寄せる。
+    const isPremiere = /プレミア公開|プレミア配信|premiere\b|premiered\b/i.test(metaText);
+    const isLiveBroadcast = Boolean(liveDetails && !isPremiere);
 
     return {
       videoId,
@@ -659,9 +709,13 @@ async function fetchYoutubeData(channelIdentifier) {
       channelName,
       thumbnail,
       isShort,
+      isPremiere,
+      isLiveBroadcast,
+      liveBroadcastContent,
       liveStatus,
       scheduledStartTime,
       durationISO,
+      totalSeconds,
       liveDetails,
       wasEverLive
     };
@@ -680,6 +734,7 @@ function initWeatherUI() {
       <div class="action-buttons">
         <button id="add-weather-btn" class="btn primary">追加</button>
         <button id="edit-weather-btn" class="btn warning">編集</button>
+        <button id="refresh-weather-btn" class="btn refresh">更新</button>
       </div>
     </div>
     
@@ -698,6 +753,7 @@ function initWeatherUI() {
 
   document.getElementById('add-weather-btn').onclick = openAddWeatherModal;
   document.getElementById('edit-weather-btn').onclick = openEditWeatherModal;
+  document.getElementById('refresh-weather-btn').onclick = () => renderWeatherData();
 
   const btn3day = document.getElementById('weather-3day-btn');
   const btn1week = document.getElementById('weather-1week-btn');
@@ -1442,8 +1498,33 @@ let summaryEdgeClosing = false;
 
 const SUMMARY_EDGE_SWIPE_WIDTH = 30;
 
-function getFeedsByType(type) {
+const ALL_FEED_URL = '__ALL__';
+
+function getStoredFeedsByType(type) {
   return type === 'news' ? newsFeeds : knowledgeFeeds;
+}
+
+function getFeedsByType(type) {
+  const stored = getStoredFeedsByType(type);
+  if (!stored.length) return [];
+  return [
+    { name: 'All', url: ALL_FEED_URL, virtualAll: true },
+    ...stored
+  ];
+}
+
+function mergeFeedItemsChronologically(groups) {
+  const seen = new Set();
+  return groups.flat().filter(item => {
+    const key = String(item?.link || '').replace(/[?#].*$/, '') || String(item?.title || '').toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => {
+    const ad = a?.pubDate instanceof Date ? a.pubDate.getTime() : new Date(a?.pubDate || 0).getTime();
+    const bd = b?.pubDate instanceof Date ? b.pubDate.getTime() : new Date(b?.pubDate || 0).getTime();
+    return bd - ad;
+  });
 }
 
 function getFeedContentId(type) {
@@ -1693,16 +1774,16 @@ function activateFeedIndex(type, index, fromSwiper = false) {
 }
 
 async function loadNewsContent(url) {
-  const foundIndex = newsFeeds.findIndex(feed => feed.url === url);
+  const foundIndex = getFeedsByType('news').findIndex(feed => feed.url === url);
   activateFeedIndex('news', foundIndex >= 0 ? foundIndex : 0);
 }
 
 async function loadKnowledgeContent(url) {
-  const foundIndex = knowledgeFeeds.findIndex(feed => feed.url === url);
+  const foundIndex = getFeedsByType('knowledge').findIndex(feed => feed.url === url);
   activateFeedIndex('knowledge', foundIndex >= 0 ? foundIndex : 0);
 }
 
-async function loadFeedContent(type, index) {
+async function loadFeedContent(type, index, { forceRefresh = false } = {}) {
   const feeds = getFeedsByType(type);
   const feed = feeds[index];
   if (!feed) return;
@@ -1713,14 +1794,19 @@ async function loadFeedContent(type, index) {
 
   setCurrentFeedUrl(type, feed.url);
 
+  if (forceRefresh) {
+    feedItemsCache[type].delete(feed.url);
+    feedLoadPromises[type].delete(feed.url);
+  }
+
   const cachedItems = feedItemsCache[type].get(feed.url);
-  if (cachedItems) {
+  if (cachedItems && !forceRefresh) {
     renderFeedItems(type, index, cachedItems);
     return;
   }
 
   const existingPromise = feedLoadPromises[type].get(feed.url);
-  if (existingPromise) {
+  if (existingPromise && !forceRefresh) {
     try {
       const items = await existingPromise;
       renderFeedItems(type, index, items);
@@ -1730,7 +1816,32 @@ async function loadFeedContent(type, index) {
 
   target.innerHTML = `<div class="loading">${getFeedLoadingText(type)}</div>`;
 
-  const loadPromise = fetchNewsRSS(feed.url);
+  let loadPromise;
+  if (feed.virtualAll) {
+    // Allは保存された全タブを同時取得→重複除外→公開日時の新しい順に統合する。
+    const actualFeeds = getStoredFeedsByType(type);
+    loadPromise = Promise.all(
+      actualFeeds.map(async actualFeed => {
+        if (forceRefresh) {
+          feedItemsCache[type].delete(actualFeed.url);
+          feedLoadPromises[type].delete(actualFeed.url);
+        }
+        const cached = feedItemsCache[type].get(actualFeed.url);
+        if (cached && !forceRefresh) return cached;
+        try {
+          const items = await fetchNewsRSS(actualFeed.url, { forceRefresh });
+          feedItemsCache[type].set(actualFeed.url, items);
+          return items;
+        } catch (err) {
+          console.warn(`[${type}:All] ${actualFeed.name} failed`, err);
+          return [];
+        }
+      })
+    ).then(groups => mergeFeedItemsChronologically(groups).slice(0, 150));
+  } else {
+    loadPromise = fetchNewsRSS(feed.url, { forceRefresh });
+  }
+
   feedLoadPromises[type].set(feed.url, loadPromise);
 
   try {
@@ -1745,10 +1856,21 @@ async function loadFeedContent(type, index) {
     renderFeedItems(type, index, items);
   } catch (err) {
     console.error(err);
-    target.innerHTML = `<div class="loading">${getFeedFailureText(type)}</div>`;
+    target.innerHTML = `<div class="loading">${getFeedFailureText(type)}<br><small>${escapeHtmlAttribute(err?.message || '')}</small></div>`;
   } finally {
     feedLoadPromises[type].delete(feed.url);
   }
+}
+
+async function refreshFeedSection(type) {
+  const feeds = getFeedsByType(type);
+  if (!feeds.length) return;
+
+  feedItemsCache[type].clear();
+  feedLoadPromises[type].clear();
+
+  const index = Math.max(0, Math.min(getCurrentFeedIndex(type), feeds.length - 1));
+  await loadFeedContent(type, index, { forceRefresh: true });
 }
 
 function renderFeedItems(type, feedIndex, items) {
@@ -3442,6 +3564,200 @@ async function loadTwitterContent(options = {}) {
   }
 }
 
+
+// --- Twitch 領域 ---
+const twitchSnapshotCache = new Map();
+
+function normalizeTwitchChannelInput(value) {
+  let raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    if (/^https?:\/\//i.test(raw)) {
+      const url = new URL(raw);
+      if (!/(^|\.)twitch\.tv$/i.test(url.hostname)) return '';
+      raw = url.pathname.split('/').filter(Boolean)[0] || '';
+    } else {
+      raw = raw
+        .replace(/^@/, '')
+        .replace(/^www\.twitch\.tv\//i, '')
+        .replace(/^twitch\.tv\//i, '')
+        .split(/[/?#]/)[0];
+    }
+  } catch (_) {
+    return '';
+  }
+  raw = raw.toLowerCase();
+  return /^[a-z0-9_]{2,25}$/i.test(raw) ? raw : '';
+}
+
+function initTwitch() {
+  renderTwitchTabs();
+  loadTwitchContent(currentTwitchIdx);
+
+  const refreshBtn = document.getElementById('refresh-twitch-btn');
+  if (refreshBtn) {
+    refreshBtn.onclick = () => loadTwitchContent(currentTwitchIdx, { forceRefresh: true });
+  }
+}
+
+function renderTwitchTabs() {
+  const tabs = document.getElementById('twitch-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = '';
+
+  if (!twitchFeeds.length) return;
+  currentTwitchIdx = Math.max(0, Math.min(currentTwitchIdx, twitchFeeds.length - 1));
+
+  twitchFeeds.forEach((feed, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `tab-btn ${index === currentTwitchIdx ? 'active' : ''}`;
+    btn.textContent = feed.name || feed.url;
+    btn.onclick = () => {
+      currentTwitchIdx = index;
+      renderTwitchTabs();
+      loadTwitchContent(index);
+    };
+    tabs.appendChild(btn);
+  });
+}
+
+async function fetchTwitchSnapshot(feed, { forceRefresh = false } = {}) {
+  const login = normalizeTwitchChannelInput(feed?.url || feed?.name || '');
+  if (!login) throw new Error('Twitchチャンネル名/URLが正しくありません');
+
+  if (!forceRefresh && twitchSnapshotCache.has(login)) {
+    return twitchSnapshotCache.get(login);
+  }
+
+  const url = `/api/twitch-feed?channel=${encodeURIComponent(login)}&format=json${forceRefresh ? `&_fresh=${Date.now()}` : ''}`;
+  const response = await fetch(url, { cache: forceRefresh ? 'no-store' : 'default' });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data?.error || `Twitch取得エラー (HTTP ${response.status})`);
+  }
+
+  twitchSnapshotCache.set(login, data);
+  return data;
+}
+
+function openTwitchLink(url) {
+  if (!url) return;
+  // https://www.twitch.tv/... はiOSのUniversal Linkとして、Twitchアプリが利用可能ならアプリへ渡せる。
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function loadTwitchContent(index, { forceRefresh = false } = {}) {
+  const container = document.getElementById('twitch-content');
+  if (!container) return;
+
+  if (!twitchFeeds.length) {
+    container.innerHTML = '<div class="loading">配信者を追加してください。</div>';
+    return;
+  }
+
+  currentTwitchIdx = Math.max(0, Math.min(index, twitchFeeds.length - 1));
+  const feed = twitchFeeds[currentTwitchIdx];
+  container.innerHTML = '<div class="loading">Twitch情報を読み込み中...</div>';
+
+  try {
+    if (forceRefresh) twitchSnapshotCache.clear();
+    const data = await fetchTwitchSnapshot(feed, { forceRefresh });
+
+    // Twitch側の正式表示名へ自動で合わせる。ただしユーザーが明示的に別名へ編集した場合は維持。
+    if (!feed.name || feed.name === feed.url || feed.name.toLowerCase() === normalizeTwitchChannelInput(feed.url)) {
+      feed.name = data.broadcaster?.displayName || feed.name || feed.url;
+      saveStoredFeeds('twitchFeeds', twitchFeeds);
+      renderTwitchTabs();
+    }
+
+    container.innerHTML = '';
+
+    const status = document.createElement('div');
+    status.className = `twitch-status-card ${data.live?.isLive ? 'live' : 'offline'}`;
+
+    const profile = document.createElement('div');
+    profile.className = 'twitch-profile-row';
+    if (data.broadcaster?.profileImageUrl) {
+      const img = document.createElement('img');
+      img.className = 'twitch-avatar';
+      img.src = data.broadcaster.profileImageUrl;
+      img.alt = '';
+      profile.appendChild(img);
+    }
+
+    const profileText = document.createElement('div');
+    profileText.className = 'twitch-profile-text';
+    const name = document.createElement('div');
+    name.className = 'twitch-streamer-name';
+    name.textContent = data.broadcaster?.displayName || feed.name || feed.url;
+    const state = document.createElement('button');
+    state.type = 'button';
+    state.className = `twitch-live-link ${data.live?.isLive ? 'is-live' : ''}`;
+    state.textContent = data.live?.isLive ? '● 配信中 — Twitchで見る' : '○ オフライン — チャンネルを開く';
+    state.onclick = () => openTwitchLink(data.live?.url || data.broadcaster?.channelUrl);
+    profileText.append(name, state);
+    profile.appendChild(profileText);
+    status.appendChild(profile);
+
+    if (data.live?.isLive && data.live?.title) {
+      const liveTitle = document.createElement('button');
+      liveTitle.type = 'button';
+      liveTitle.className = 'twitch-current-title';
+      liveTitle.textContent = data.live.title;
+      liveTitle.onclick = () => openTwitchLink(data.live.url);
+      status.appendChild(liveTitle);
+    }
+    container.appendChild(status);
+
+    const heading = document.createElement('div');
+    heading.className = 'twitch-archive-heading';
+    heading.textContent = 'アーカイブ一覧';
+    container.appendChild(heading);
+
+    const archives = Array.isArray(data.archives) ? data.archives : [];
+    if (!archives.length) {
+      const empty = document.createElement('div');
+      empty.className = 'loading';
+      empty.textContent = 'アーカイブがありません';
+      container.appendChild(empty);
+      return;
+    }
+
+    archives.forEach(video => {
+      const row = document.createElement('div');
+      row.className = 'twitch-archive-item';
+
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'twitch-archive-link';
+      link.textContent = video.title || 'アーカイブ';
+      link.onclick = () => openTwitchLink(video.url);
+
+      const meta = document.createElement('div');
+      meta.className = 'twitch-archive-meta';
+      const d = new Date(video.createdAt || video.publishedAt || '');
+      meta.textContent = [
+        Number.isFinite(d.getTime()) ? formatCustomDate(d) : '',
+        video.duration || ''
+      ].filter(Boolean).join(' · ');
+
+      row.append(link, meta);
+      container.appendChild(row);
+    });
+  } catch (err) {
+    console.error('[Twitch]', err);
+    container.innerHTML = `<div class="loading">Twitch情報の取得に失敗しました<br><small>${escapeHtmlAttribute(err?.message || '')}</small></div>`;
+  }
+}
+
 // --- YouTube 領域 ---
 function initYoutube() {
   // YouTube IFrame Player APIを先に読み込んでおく。
@@ -3535,47 +3851,17 @@ async function loadAllYoutubeContent() {
       const now = new Date();
 
       const filtered = allVideos.filter(item => {
-        let isPremiereSoon = false;
-        let isPremiereFinished = false;
-
-        if (item.liveDetails && item.liveDetails.scheduledStartTime && !item.wasEverLive) {
-          const scheduledTime = new Date(item.liveDetails.scheduledStartTime);
-          
-          if (!isNaN(scheduledTime.getTime())) {
-            let durationMs = 0;
-            if (item.durationISO) {
-              const match = item.durationISO.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-              if (match) {
-                const hours = parseInt(match[1] || 0, 10);
-                const mins = parseInt(match[2] || 0, 10);
-                const secs = parseInt(match[3] || 0, 10);
-                durationMs = ((hours * 3600) + (mins * 60) + secs) * 1000;
-              }
-            }
-
-            const safetyBufferMs = 10 * 60 * 1000; 
-            const finishTimeWithBufferMs = scheduledTime.getTime() + durationMs + safetyBufferMs;
-            const finishTimeWithBuffer = new Date(finishTimeWithBufferMs);
-
-            if (now < scheduledTime) {
-              isPremiereSoon = true;
-            } else if (now >= scheduledTime && now <= finishTimeWithBuffer) {
-              isPremiereSoon = true;
-            } else {
-              isPremiereFinished = true;
-            }
-          }
-        }
-
         let matchesType = false;
 
         if (window.currentType === 'long') {
-          matchesType = !item.isShort && !item.wasEverLive && (item.liveStatus === 'none' || isPremiereFinished);
+          // 普通の投稿動画 + プレミア公開。Shortsと実ライブ/ライブ録画は除外。
+          matchesType = !item.isShort && !item.isLiveBroadcast;
         } else if (window.currentType === 'short') {
-          matchesType = item.isShort;
+          // 明示的にShortsと判定できた縦型短尺だけ。
+          matchesType = item.isShort && !item.isLiveBroadcast;
         } else if (window.currentType === 'live') {
-          const isLiveOrRecordedLive = (item.liveStatus === 'live' || item.liveStatus === 'upcoming' || item.liveStatus === 'completed' || item.wasEverLive) && !isPremiereFinished;
-          matchesType = isLiveOrRecordedLive || isPremiereSoon;
+          // 生配信・配信予定・ライブ録画のみ。プレミア公開は動画タブへ。
+          matchesType = item.isLiveBroadcast;
         }
 
         const matchesChannel = window.selectedChannel === 'ALL' || item.displayName === window.selectedChannel;
@@ -4735,7 +5021,8 @@ function initModals() {
         saveStoredFeeds(storageKey, feedsArray);
 
         if (kind === 'news' || kind === 'knowledge') {
-          setCurrentFeedIndex(kind, feedsArray.length - 1);
+          // Allがindex 0なので、追加した実フィードは実配列index + 1。
+          setCurrentFeedIndex(kind, feedsArray.length);
         }
 
         closeModal();
@@ -4838,6 +5125,73 @@ function initModals() {
   // 既存YouTubeの追加/編集も壊さないよう同じモーダル基盤へ接続する。
   setupAddModal('add-youtube-btn', 'YouTubeチャンネルの追加', youtubeFeeds, 'youtubeFeeds', initYoutube, 'youtube');
   setupEditModal('del-youtube-btn', 'YouTubeチャンネルの編集', youtubeFeeds, 'youtubeFeeds', initYoutube, 'youtube');
+
+  // Twitch追加はiPhoneでTwitchアプリの共有URLをそのまま貼れる1入力方式。
+  const twitchAddBtn = document.getElementById('add-twitch-btn');
+  if (twitchAddBtn) {
+    twitchAddBtn.onclick = () => {
+      cleanupExtraButtons();
+      modalTitle.textContent = 'Twitch配信者の追加';
+      modalBody.innerHTML = `
+        <div class="feed-modal-form">
+          <div>
+            <label>配信者名 / TwitchチャンネルURL</label>
+            <input type="text" id="add-twitch-channel" placeholder="例: twitchdev / @twitchdev / https://www.twitch.tv/twitchdev" autocomplete="off" autocapitalize="none">
+            <div class="modal-help">iPhoneのTwitchアプリで配信者ページ → 共有 → リンクをコピー → ここへ貼り付け、でOKです。数値IDは不要です。</div>
+          </div>
+        </div>
+      `;
+
+      submitBtn.textContent = '追加';
+      submitBtn.onclick = async () => {
+        const raw = document.getElementById('add-twitch-channel')?.value.trim() || '';
+        const login = normalizeTwitchChannelInput(raw);
+        if (!login) {
+          alert('Twitchの配信者名またはチャンネルURLを入力してください');
+          return;
+        }
+
+        if (twitchFeeds.some(feed => normalizeTwitchChannelInput(feed.url) === login)) {
+          alert('この配信者はすでに登録されています');
+          return;
+        }
+
+        const oldText = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.textContent = '確認中...';
+        try {
+          const response = await fetch(`/api/twitch-feed?channel=${encodeURIComponent(login)}&format=json`, { cache: 'no-store' });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) throw new Error(data?.error || 'Twitch配信者を確認できませんでした');
+
+          twitchFeeds.push({
+            name: data.broadcaster?.displayName || login,
+            url: data.broadcaster?.login || login
+          });
+          currentTwitchIdx = twitchFeeds.length - 1;
+          saveStoredFeeds('twitchFeeds', twitchFeeds);
+          twitchSnapshotCache.clear();
+          closeModal();
+          initTwitch();
+        } catch (err) {
+          alert(err?.message || 'Twitch配信者の追加に失敗しました');
+        } finally {
+          submitBtn.disabled = false;
+          if (!modal.classList.contains('hidden')) submitBtn.textContent = oldText;
+        }
+      };
+
+      modal.classList.remove('hidden');
+      requestAnimationFrame(() => document.getElementById('add-twitch-channel')?.focus());
+    };
+  }
+
+  setupEditModal('del-twitch-btn', 'Twitch配信者の編集', twitchFeeds, 'twitchFeeds', initTwitch, 'twitch');
+
+  const refreshNewsBtn = document.getElementById('refresh-news-btn');
+  if (refreshNewsBtn) refreshNewsBtn.onclick = () => refreshFeedSection('news');
+  const refreshKnowledgeBtn = document.getElementById('refresh-knowledge-btn');
+  if (refreshKnowledgeBtn) refreshKnowledgeBtn.onclick = () => refreshFeedSection('knowledge');
 }
 
 function escapeHtmlAttribute(value) {
