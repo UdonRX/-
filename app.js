@@ -1489,11 +1489,19 @@ const feedLoadPromises = {
 const summaryCache = new Map();
 const summaryChatHistories = new Map();
 
+// v18: iPhone Safariのメモリ使用量を抑えるため、要約キャッシュとDOMを上限管理する。
+const SUMMARY_CACHE_LIMIT = 28;
+const SUMMARY_HYDRATED_RADIUS = 1; // 現在の記事 + 前後1件だけ重いDOMを保持
+
 let summarySwiper = null;
 let summaryContext = null;
 let summaryBodyScrollY = 0;
 let summaryFeedSwitching = false;
 let summaryEdgeClosing = false;
+let summaryContextSerial = 0;
+let summaryFetchController = null;
+let summaryFetchSerial = 0;
+let summaryChatAbortController = null;
 
 const SUMMARY_EDGE_SWIPE_WIDTH = 30;
 
@@ -2290,111 +2298,63 @@ async function switchSummaryFeed(step) {
   }
 }
 
-async function openSummaryOverlay(type, feedIndex, itemIndex) {
-  const feeds = getFeedsByType(type);
-  const feed = feeds[feedIndex];
-  if (!feed) return;
-
-  if (!feedItemsCache[type].has(feed.url)) {
-    await loadFeedContent(type, feedIndex);
+function cancelActiveSummaryFetch() {
+  summaryFetchSerial += 1;
+  if (summaryFetchController) {
+    try { summaryFetchController.abort(); } catch (_) {}
+    summaryFetchController = null;
   }
-
-  const items = feedItemsCache[type].get(feed.url) || [];
-  if (!items[itemIndex]) return;
-
-  const overlay = document.getElementById('summary-overlay');
-  const wrapper = document.getElementById('summary-swiper-wrapper');
-  if (!overlay || !wrapper) return;
-
-  // 既存Swiperは、新しいスライドDOMを作る前に破棄する。
-  // タブ切替時に旧Swiperが新しいDOMのstyleを掃除してしまうのを防ぐ。
-  if (summarySwiper) {
-    summarySwiper.destroy(true, true);
-    summarySwiper = null;
-  }
-
-  summaryContext = { type, feedIndex, feed, items };
-
-  wrapper.innerHTML = '';
-  items.forEach((item, index) => {
-    wrapper.appendChild(createSummarySlide(item, feed, index));
-  });
-
-  const wasHidden = overlay.classList.contains('hidden');
-  overlay.classList.remove('hidden');
-  overlay.setAttribute('aria-hidden', 'false');
-
-  // タブ切替で要約画面を再構築するときは元ページのスクロール位置を上書きしない。
-  if (wasHidden) {
-    summaryBodyScrollY = window.scrollY;
-    document.body.style.top = `-${summaryBodyScrollY}px`;
-    document.body.classList.add('summary-open');
-  }
-
-  if (typeof Swiper !== 'function') {
-    console.error('Swiper.js が読み込まれていません');
-    updateSummaryPosition(itemIndex);
-    ensureSummaryLoaded(itemIndex);
-    renderCurrentChatHistory(itemIndex);
-    return;
-  }
-
-  summarySwiper = new Swiper('#summary-swiper', {
-    direction: 'vertical',
-    initialSlide: itemIndex,
-    speed: 260,
-    threshold: 12,
-    touchAngle: 45,
-    resistanceRatio: 0.68,
-    touchStartPreventDefault: false,
-    touchMoveStopPropagation: false,
-    passiveListeners: false,
-    noSwiping: true,
-    noSwipingSelector: '.summary-no-swipe',
-    on: {
-      slideChange() {
-        const activeIndex = this.activeIndex;
-        ensureSummaryLoaded(activeIndex);
-        renderCurrentChatHistory(activeIndex);
-        updateSummaryPosition(activeIndex);
-      }
-    }
-  });
-
-  updateSummaryPosition(itemIndex);
-  renderCurrentChatHistory(itemIndex);
-  ensureSummaryLoaded(itemIndex);
 }
 
-function closeSummaryOverlay() {
-  const overlay = document.getElementById('summary-overlay');
-  if (!overlay || overlay.classList.contains('hidden')) return;
-
-  overlay.classList.add('hidden');
-  overlay.classList.remove('summary-edge-dragging', 'summary-edge-finishing');
-  overlay.style.transform = '';
-  overlay.style.transition = '';
-  overlay.style.willChange = '';
-  overlay.style.boxShadow = '';
-  overlay.dataset.edgeSwiping = '0';
-  overlay.setAttribute('aria-hidden', 'true');
-
-  if (summarySwiper) {
-    summarySwiper.destroy(true, true);
-    summarySwiper = null;
+function cancelActiveSummaryChat() {
+  if (summaryChatAbortController) {
+    try { summaryChatAbortController.abort(); } catch (_) {}
+    summaryChatAbortController = null;
   }
-
-  summaryContext = null;
-
-  document.body.classList.remove('summary-open');
-  document.body.style.top = '';
-  window.scrollTo(0, summaryBodyScrollY);
 }
 
-function createSummarySlide(item, feed, index) {
+function getSummaryCacheValue(key) {
+  if (!summaryCache.has(key)) return null;
+  const value = summaryCache.get(key);
+  // Mapを簡易LRUとして使う。参照した要素を末尾へ移動する。
+  summaryCache.delete(key);
+  summaryCache.set(key, value);
+  return value;
+}
+
+function setSummaryCacheValue(key, value) {
+  if (summaryCache.has(key)) summaryCache.delete(key);
+  summaryCache.set(key, value);
+
+  while (summaryCache.size > SUMMARY_CACHE_LIMIT) {
+    const oldestKey = summaryCache.keys().next().value;
+    summaryCache.delete(oldestKey);
+    // 同じ記事のチャット履歴も古ければ一緒に解放する。
+    summaryChatHistories.delete(oldestKey);
+  }
+}
+
+function createSummarySlideShell(index) {
   const slide = document.createElement('div');
   slide.className = 'swiper-slide summary-slide';
   slide.dataset.articleIndex = String(index);
+  slide.dataset.hydrated = '0';
+  return slide;
+}
+
+function hydrateSummarySlide(index) {
+  if (!summaryContext) return null;
+
+  const wrapper = document.getElementById('summary-swiper-wrapper');
+  const slide = wrapper?.querySelector(`.summary-slide[data-article-index="${index}"]`);
+  const item = summaryContext.items[index];
+  if (!slide || !item) return null;
+
+  if (slide.dataset.hydrated === '1') {
+    return slide;
+  }
+
+  slide.innerHTML = '';
 
   const article = document.createElement('article');
   article.className = 'summary-card';
@@ -2404,7 +2364,7 @@ function createSummarySlide(item, feed, index) {
 
   const source = document.createElement('span');
   source.className = 'summary-source';
-  source.textContent = feed.name || 'RSS';
+  source.textContent = summaryContext.feed?.name || 'RSS';
 
   const date = document.createElement('span');
   date.textContent = formatCustomDate(item.pubDate);
@@ -2440,9 +2400,169 @@ function createSummarySlide(item, feed, index) {
   article.appendChild(aiContent);
   article.appendChild(originalLink);
   article.appendChild(chatLog);
-
   slide.appendChild(article);
+  slide.dataset.hydrated = '1';
+
+  const key = getSummaryArticleKey(item, summaryContext.feed);
+  const cached = getSummaryCacheValue(key);
+  if (cached) {
+    renderSummaryResult(aiContent, cached);
+  }
+
   return slide;
+}
+
+function releaseSummarySlide(index) {
+  const wrapper = document.getElementById('summary-swiper-wrapper');
+  const slide = wrapper?.querySelector(`.summary-slide[data-article-index="${index}"]`);
+  if (!slide || slide.dataset.hydrated !== '1') return;
+
+  slide.innerHTML = '';
+  slide.dataset.hydrated = '0';
+}
+
+function prepareSummarySlideWindow(activeIndex) {
+  if (!summaryContext) return;
+
+  const min = Math.max(0, activeIndex - SUMMARY_HYDRATED_RADIUS);
+  const max = Math.min(summaryContext.items.length - 1, activeIndex + SUMMARY_HYDRATED_RADIUS);
+
+  for (let i = min; i <= max; i += 1) {
+    hydrateSummarySlide(i);
+  }
+
+  const wrapper = document.getElementById('summary-swiper-wrapper');
+  wrapper?.querySelectorAll('.summary-slide[data-hydrated="1"]').forEach(slide => {
+    const index = Number(slide.dataset.articleIndex);
+    if (index < min || index > max) {
+      releaseSummarySlide(index);
+    }
+  });
+}
+
+async function openSummaryOverlay(type, feedIndex, itemIndex) {
+  const feeds = getFeedsByType(type);
+  const feed = feeds[feedIndex];
+  if (!feed) return;
+
+  if (!feedItemsCache[type].has(feed.url)) {
+    await loadFeedContent(type, feedIndex);
+  }
+
+  const items = feedItemsCache[type].get(feed.url) || [];
+  if (!items[itemIndex]) return;
+
+  const overlay = document.getElementById('summary-overlay');
+  const wrapper = document.getElementById('summary-swiper-wrapper');
+  if (!overlay || !wrapper) return;
+
+  // 旧画面の通信とSwiperを先に止める。高速スワイプ中に複数要約通信を残さない。
+  cancelActiveSummaryFetch();
+  cancelActiveSummaryChat();
+
+  if (summarySwiper) {
+    summarySwiper.destroy(true, true);
+    summarySwiper = null;
+  }
+
+  const sessionId = ++summaryContextSerial;
+  summaryContext = { type, feedIndex, feed, items, sessionId };
+
+  // v18: 全記事の重いカードDOMは作らず、Swiperに必要な軽いshellだけ作る。
+  // 実カードは現在位置±1件だけhydrateする。
+  wrapper.replaceChildren();
+  const fragment = document.createDocumentFragment();
+  items.forEach((_item, index) => {
+    fragment.appendChild(createSummarySlideShell(index));
+  });
+  wrapper.appendChild(fragment);
+  prepareSummarySlideWindow(itemIndex);
+
+  const wasHidden = overlay.classList.contains('hidden');
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+
+  if (wasHidden) {
+    summaryBodyScrollY = window.scrollY;
+    document.body.style.top = `-${summaryBodyScrollY}px`;
+    document.body.classList.add('summary-open');
+  }
+
+  if (typeof Swiper !== 'function') {
+    console.error('Swiper.js が読み込まれていません');
+    updateSummaryPosition(itemIndex);
+    renderCurrentChatHistory(itemIndex);
+    ensureSummaryLoaded(itemIndex);
+    return;
+  }
+
+  summarySwiper = new Swiper('#summary-swiper', {
+    direction: 'vertical',
+    initialSlide: itemIndex,
+    speed: 240,
+    threshold: 14,
+    touchAngle: 42,
+    resistanceRatio: 0.68,
+    touchStartPreventDefault: false,
+    touchMoveStopPropagation: false,
+    passiveListeners: false,
+    noSwiping: true,
+    noSwipingSelector: '.summary-no-swipe',
+    preventInteractionOnTransition: true,
+    on: {
+      activeIndexChange() {
+        const activeIndex = this.activeIndex;
+        // 高速スワイプ時は前記事のAI取得を即中断し、最新位置の1本だけ残す。
+        cancelActiveSummaryFetch();
+        prepareSummarySlideWindow(activeIndex);
+        updateSummaryPosition(activeIndex);
+        renderCurrentChatHistory(activeIndex);
+      },
+      slideChangeTransitionEnd() {
+        const activeIndex = this.activeIndex;
+        prepareSummarySlideWindow(activeIndex);
+        ensureSummaryLoaded(activeIndex);
+        renderCurrentChatHistory(activeIndex);
+        updateSummaryPosition(activeIndex);
+      }
+    }
+  });
+
+  updateSummaryPosition(itemIndex);
+  renderCurrentChatHistory(itemIndex);
+  ensureSummaryLoaded(itemIndex);
+}
+
+function closeSummaryOverlay() {
+  const overlay = document.getElementById('summary-overlay');
+  if (!overlay || overlay.classList.contains('hidden')) return;
+
+  cancelActiveSummaryFetch();
+  cancelActiveSummaryChat();
+
+  overlay.classList.add('hidden');
+  overlay.classList.remove('summary-edge-dragging', 'summary-edge-finishing');
+  overlay.style.transform = '';
+  overlay.style.transition = '';
+  overlay.style.willChange = '';
+  overlay.style.boxShadow = '';
+  overlay.dataset.edgeSwiping = '0';
+  overlay.setAttribute('aria-hidden', 'true');
+
+  if (summarySwiper) {
+    summarySwiper.destroy(true, true);
+    summarySwiper = null;
+  }
+
+  // 非表示になった要約カードDOMを残さず即解放する。
+  const wrapper = document.getElementById('summary-swiper-wrapper');
+  if (wrapper) wrapper.replaceChildren();
+
+  summaryContext = null;
+
+  document.body.classList.remove('summary-open');
+  document.body.style.top = '';
+  window.scrollTo(0, summaryBodyScrollY);
 }
 
 function updateSummaryPosition(index) {
@@ -2478,21 +2598,31 @@ function cleanRssText(value) {
 async function ensureSummaryLoaded(index) {
   if (!summaryContext) return;
 
+  hydrateSummarySlide(index);
+
+  const sessionId = summaryContext.sessionId;
+  const feed = summaryContext.feed;
   const item = summaryContext.items[index];
   if (!item) return;
 
-  const content = document.querySelector(`.summary-ai-content[data-summary-content="${index}"]`);
+  let content = document.querySelector(`.summary-ai-content[data-summary-content="${index}"]`);
   if (!content) return;
 
-  const key = getSummaryArticleKey(item, summaryContext.feed);
-  const cached = summaryCache.get(key);
+  const key = getSummaryArticleKey(item, feed);
+  const cached = getSummaryCacheValue(key);
 
   if (cached) {
     renderSummaryResult(content, cached);
     return;
   }
 
-  if (content.dataset.loading === '1') return;
+  // v18: 同時に複数の記事要約を走らせない。
+  // 高速スワイプ時は古い取得をAbortして、現在表示中の記事だけを残す。
+  cancelActiveSummaryFetch();
+  const requestSerial = ++summaryFetchSerial;
+  const controller = new AbortController();
+  summaryFetchController = controller;
+
   content.dataset.loading = '1';
   content.innerHTML = '<div class="summary-loading"><span class="summary-spinner"></span>記事本文を取得してAIが要約中...</div>';
 
@@ -2500,15 +2630,18 @@ async function ensureSummaryLoaded(index) {
     const response = await fetch('/api/summary', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         title: item.title || '',
         description: cleanRssText(item.description).slice(0, 12000),
-        source: summaryContext.feed.name || '',
+        source: feed?.name || '',
         url: item.link || ''
       })
     });
 
     const rawResponse = await response.text();
+    if (controller.signal.aborted || requestSerial !== summaryFetchSerial) return;
+
     let data = {};
     try {
       data = rawResponse ? JSON.parse(rawResponse) : {};
@@ -2528,10 +2661,26 @@ async function ensureSummaryLoaded(index) {
       fallbackReason: data.fallbackReason || ''
     };
 
-    summaryCache.set(key, result);
-    renderSummaryResult(content, result);
+    setSummaryCacheValue(key, result);
+
+    // タブ切替・閉じる・高速スワイプで別コンテキストへ移動済みならDOMへ書き込まない。
+    if (!summaryContext || summaryContext.sessionId !== sessionId || requestSerial !== summaryFetchSerial) {
+      return;
+    }
+
+    content = document.querySelector(`.summary-ai-content[data-summary-content="${index}"]`);
+    if (content) renderSummaryResult(content, result);
   } catch (err) {
+    if (err?.name === 'AbortError' || controller.signal.aborted || requestSerial !== summaryFetchSerial) {
+      return;
+    }
+
     console.error(err);
+
+    if (!summaryContext || summaryContext.sessionId !== sessionId) return;
+    content = document.querySelector(`.summary-ai-content[data-summary-content="${index}"]`);
+    if (!content) return;
+
     content.innerHTML = '';
 
     const errorText = document.createElement('div');
@@ -2543,14 +2692,21 @@ async function ensureSummaryLoaded(index) {
     retry.className = 'summary-retry-btn summary-no-swipe';
     retry.textContent = '再試行';
     retry.addEventListener('click', () => {
-      content.dataset.loading = '0';
+      if (!summaryContext || summaryContext.sessionId !== sessionId) return;
       ensureSummaryLoaded(index);
-    });
+    }, { once: true });
 
     content.appendChild(errorText);
     content.appendChild(retry);
   } finally {
-    content.dataset.loading = '0';
+    if (summaryFetchController === controller) {
+      summaryFetchController = null;
+    }
+
+    if (summaryContext?.sessionId === sessionId) {
+      const currentContent = document.querySelector(`.summary-ai-content[data-summary-content="${index}"]`);
+      if (currentContent) currentContent.dataset.loading = '0';
+    }
   }
 }
 
@@ -2619,10 +2775,14 @@ async function handleSummaryChatSubmit(event) {
   if (!question) return;
 
   const index = getCurrentSummaryIndex();
+  hydrateSummarySlide(index);
+
+  const sessionId = summaryContext.sessionId;
+  const feed = summaryContext.feed;
   const item = summaryContext.items[index];
   if (!item) return;
 
-  const key = getSummaryArticleKey(item, summaryContext.feed);
+  const key = getSummaryArticleKey(item, feed);
   const previousHistory = (summaryChatHistories.get(key) || []).filter(message => !message.pending);
 
   summaryChatHistories.set(key, [
@@ -2636,18 +2796,23 @@ async function handleSummaryChatSubmit(event) {
   input.blur();
   sendBtn.disabled = true;
 
+  cancelActiveSummaryChat();
+  const controller = new AbortController();
+  summaryChatAbortController = controller;
+
   try {
-    const cachedSummary = summaryCache.get(key);
+    const cachedSummary = getSummaryCacheValue(key);
 
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         question,
         article: {
           title: item.title || '',
           description: cleanRssText(item.description).slice(0, 12000),
-          source: summaryContext.feed.name || '',
+          source: feed?.name || '',
           url: item.link || ''
         },
         summary: cachedSummary || null,
@@ -2656,6 +2821,8 @@ async function handleSummaryChatSubmit(event) {
     });
 
     const rawResponse = await response.text();
+    if (controller.signal.aborted) return;
+
     let data = {};
     try {
       data = rawResponse ? JSON.parse(rawResponse) : {};
@@ -2674,6 +2841,13 @@ async function handleSummaryChatSubmit(event) {
       { role: 'assistant', content: data.answer || '回答を取得できませんでした。' }
     ]);
   } catch (err) {
+    if (err?.name === 'AbortError' || controller.signal.aborted) {
+      summaryChatHistories.set(key, [
+        ...previousHistory,
+        { role: 'user', content: question }
+      ]);
+      return;
+    }
     console.error(err);
     summaryChatHistories.set(key, [
       ...previousHistory,
@@ -2681,8 +2855,14 @@ async function handleSummaryChatSubmit(event) {
       { role: 'assistant', content: `回答の取得に失敗しました。${err?.message ? `\n${err.message}` : ''}` }
     ]);
   } finally {
+    if (summaryChatAbortController === controller) {
+      summaryChatAbortController = null;
+    }
     sendBtn.disabled = false;
-    renderCurrentChatHistory(index);
+
+    if (summaryContext?.sessionId === sessionId && getCurrentSummaryIndex() === index) {
+      renderCurrentChatHistory(index);
+    }
   }
 }
 
