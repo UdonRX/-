@@ -50,6 +50,7 @@ main {
 #news-section,
 #knowledge-section,
 #twitter-section,
+#twitch-section,
 #youtube-section {
   margin-bottom: 24px;
 }
@@ -1744,5 +1745,144 @@ body.summary-open {
 
   #youtube-video-modal.yt-shorts-mode .yt-orientation-control-bar {
     padding-block: 5px !important;
+  }
+}
+
+/* =========================================================
+   v16: 更新ボタン / Twitch
+   ========================================================= */
+.btn.refresh {
+  background: #e5e5ea;
+  color: var(--text-color);
+}
+
+.btn.refresh:active {
+  opacity: 0.65;
+}
+
+#twitch-section {
+  margin-bottom: 24px;
+}
+
+.twitch-scroll-area {
+  max-height: 430px;
+}
+
+.twitch-status-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  margin-bottom: 12px;
+  background: #f8f8fa;
+}
+
+.twitch-status-card.live {
+  background: #fff4f6;
+  border-color: rgba(235, 4, 0, 0.25);
+}
+
+.twitch-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.twitch-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.twitch-profile-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.twitch-streamer-name {
+  font-size: 15px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.twitch-live-link,
+.twitch-current-title,
+.twitch-archive-link {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.twitch-live-link {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.twitch-live-link.is-live {
+  color: #e60012;
+  font-weight: 700;
+}
+
+.twitch-current-title {
+  display: block;
+  margin-top: 10px;
+  width: 100%;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.twitch-archive-heading {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 6px 0 2px;
+}
+
+.twitch-archive-item {
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.twitch-archive-link {
+  width: 100%;
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.twitch-archive-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-sub);
+}
+
+.modal-help {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-sub);
+}
+
+@media (max-width: 390px) {
+  .section-header .action-buttons {
+    gap: 5px;
+  }
+
+  .section-header .action-buttons .btn {
+    padding-left: 9px;
+    padding-right: 9px;
+    font-size: 12px;
   }
 }
