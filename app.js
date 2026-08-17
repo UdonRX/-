@@ -1515,7 +1515,7 @@ const ALL_FEED_URL = '__ALL__';
 // 英語タイトル翻訳は一覧表示後に非同期実行し、表示待ち時間からGemini処理を外す。
 const PAPER_FAST_MODE = 'fast';
 const PAPER_DEEP_MODE = 'deep';
-const PAPER_PERSISTENT_CACHE_KEY = 'paperFeedCacheV24';
+const PAPER_PERSISTENT_CACHE_KEY = 'paperFeedCacheV26';
 const PAPER_PERSISTENT_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 const PAPER_PERSISTENT_MAX_ITEMS = 300;
 const PAPER_TITLE_STORAGE_KEY = 'paperTitleTranslationsV1';
