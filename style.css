@@ -1886,3 +1886,21 @@ body.summary-open {
     font-size: 12px;
   }
 }
+
+/* v17: J-STAGE論文タブの提供元クレジット */
+.jstage-credit {
+  display: inline-flex;
+  align-items: center;
+  margin: 2px 0 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f2f2f7;
+  color: var(--text-sub);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.jstage-credit:active {
+  opacity: 0.65;
+}
