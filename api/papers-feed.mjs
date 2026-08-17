@@ -1,11 +1,20 @@
 import jsdomPackage from 'jsdom';
 import { rssXml } from '../lib/rss-merge.mjs';
+import { generateGemini } from '../lib/gemini.mjs';
 
 const { JSDOM } = jsdomPackage;
 
-// 家電製品に関する日本語検索語。
-// J-STAGE WebAPI の text 検索は論文本文等を対象に日本語で検索できる。
-const SEARCH_TERMS = [
+/*
+ * v20 論文フィード
+ * - J-STAGE: 日本語論文
+ * - Semantic Scholar: 英語を中心とした公開PDF付き論文
+ * - 英語タイトルは既存のGeminiでまとめて日本語化
+ *
+ * Semantic Scholar側は openAccessPdf を指定し、公開PDF URLがある論文だけを採用する。
+ * そのPDF URLをRSSのlinkにするので、既存のPDF AI要約機能をそのまま利用できる。
+ */
+
+const JSTAGE_SEARCH_TERMS = [
   '炊飯器',
   '炊飯ジャー',
   '電気ケトル',
@@ -17,12 +26,36 @@ const SEARCH_TERMS = [
   '魔法瓶'
 ];
 
+const SEMANTIC_SCHOLAR_QUERY = [
+  '"rice cooker"',
+  '"electric rice cooker"',
+  '"rice cooking appliance"',
+  '"electric kettle"',
+  '"electric water boiler"',
+  '"electric hot water pot"',
+  '"vacuum insulated bottle"',
+  '"vacuum flask"',
+  '"thermos bottle"',
+  '"vacuum insulation"'
+].join(' | ');
+
 const JSTAGE_ENDPOINT = 'https://api.jstage.jst.go.jp/searchapi/do';
-const TTL = 15 * 60 * 1000;
-const PER_TERM = 25;
-const MAX_ITEMS = 100;
+const SEMANTIC_SCHOLAR_ENDPOINT = 'https://api.semanticscholar.org/graph/v1/paper/search/bulk';
+
+const TTL = 20 * 60 * 1000;
+const JSTAGE_PER_TERM = 25;
+const MAX_ITEMS = 120;
+const TRANSLATION_BATCH_SIZE = 45;
+const TRANSLATION_CACHE_MAX = 500;
 
 let cache = { at: 0, xml: '' };
+const translationCache = new Map();
+
+function normalizeSpace(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 function nodeText(node, selector) {
   return node?.querySelector(selector)?.textContent?.trim() || '';
@@ -41,7 +74,7 @@ function safeDate(value, fallbackYear = '') {
   if (Number.isFinite(d.getTime())) return d;
 
   const year = String(fallbackYear || '').match(/\d{4}/)?.[0];
-  if (year) return new Date(`${year}-01-01T00:00:00+09:00`);
+  if (year) return new Date(`${year}-01-01T00:00:00Z`);
   return new Date(0);
 }
 
@@ -49,7 +82,48 @@ function normalizeHttps(value) {
   return String(value || '').replace(/^http:\/\//i, 'https://').trim();
 }
 
-function parseEntry(entry) {
+function hasJapanese(value) {
+  return /[\u3040-\u30ff\u3400-\u9fff]/.test(String(value || ''));
+}
+
+function stripHtml(value) {
+  return normalizeSpace(
+    String(value || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+  );
+}
+
+function setTranslationCache(original, translated) {
+  const key = normalizeSpace(original);
+  const value = normalizeSpace(translated);
+  if (!key || !value) return;
+
+  if (translationCache.has(key)) translationCache.delete(key);
+  translationCache.set(key, value);
+
+  while (translationCache.size > TRANSLATION_CACHE_MAX) {
+    const oldest = translationCache.keys().next().value;
+    if (!oldest) break;
+    translationCache.delete(oldest);
+  }
+}
+
+function getTranslationCache(title) {
+  const key = normalizeSpace(title);
+  const value = translationCache.get(key);
+  if (!value) return '';
+  translationCache.delete(key);
+  translationCache.set(key, value);
+  return value;
+}
+
+function parseJStageEntry(entry) {
   const title = firstText(entry, [
     'article_title > ja',
     'article_title > en',
@@ -86,47 +160,53 @@ function parseEntry(entry) {
   ].filter(Boolean).join('\n');
 
   return {
-    title,
+    title: normalizeSpace(title),
+    originalTitle: normalizeSpace(title),
     link,
     pubDate,
     author: authors || journal || 'J-STAGE',
     sourceName: 'J-STAGE',
     description: details || title,
-    doi
+    doi: normalizeSpace(doi),
+    sourceId: `jstage:${normalizeSpace(doi || link || title)}`
   };
 }
 
 function parseJStageXml(xml, term) {
   const dom = new JSDOM(xml, { contentType: 'text/xml' });
-  const doc = dom.window.document;
-  if (doc.querySelector('parsererror')) {
-    throw new Error(`J-STAGE XML解析エラー (${term})`);
+  try {
+    const doc = dom.window.document;
+    if (doc.querySelector('parsererror')) {
+      throw new Error(`J-STAGE XML解析エラー (${term})`);
+    }
+
+    const status = nodeText(doc, 'result > status');
+    const message = nodeText(doc, 'result > message');
+
+    // J-STAGEは0件でもHTTP 200 + ERR_001を返す。
+    if (status === 'ERR_001') return [];
+    if (status && status !== '0' && !status.startsWith('WARN_')) {
+      throw new Error(`J-STAGE ${status}${message ? `: ${message}` : ''}`);
+    }
+
+    return Array.from(doc.querySelectorAll('entry'))
+      .map(parseJStageEntry)
+      .filter(item => item.link && item.title);
+  } finally {
+    dom.window.close();
   }
-
-  const status = nodeText(doc, 'result > status');
-  const message = nodeText(doc, 'result > message');
-
-  // J-STAGEは0件でもHTTP 200 + ERR_001を返す。
-  if (status === 'ERR_001') return [];
-  if (status && status !== '0' && !status.startsWith('WARN_')) {
-    throw new Error(`J-STAGE ${status}${message ? `: ${message}` : ''}`);
-  }
-
-  return Array.from(doc.querySelectorAll('entry'))
-    .map(parseEntry)
-    .filter(item => item.link && item.title);
 }
 
 async function searchJStage(term) {
   const url = new URL(JSTAGE_ENDPOINT);
   url.searchParams.set('service', '3');
   url.searchParams.set('text', term);
-  url.searchParams.set('count', String(PER_TERM));
+  url.searchParams.set('count', String(JSTAGE_PER_TERM));
 
   const response = await fetch(url, {
     headers: {
       'Accept': 'application/atom+xml, application/xml, text/xml, */*;q=0.5',
-      'User-Agent': 'PersonalDashboardPapers/2.0'
+      'User-Agent': 'PersonalDashboardPapers/3.0'
     },
     signal: AbortSignal.timeout(12_000)
   });
@@ -138,7 +218,107 @@ async function searchJStage(term) {
   return parseJStageXml(await response.text(), term);
 }
 
-// J-STAGEの同時アクセス制限を踏みにくくするため、最大2並列で検索する。
+function semanticScholarDate(paper) {
+  return safeDate(paper?.publicationDate, paper?.year);
+}
+
+function semanticScholarAuthors(paper) {
+  return (Array.isArray(paper?.authors) ? paper.authors : [])
+    .map(author => normalizeSpace(author?.name))
+    .filter(Boolean)
+    .slice(0, 8)
+    .join(', ');
+}
+
+function looksRelevantSemanticPaper(paper) {
+  const haystack = `${paper?.title || ''}\n${paper?.abstract || ''}`.toLowerCase();
+  return [
+    /rice\s+cooker/,
+    /rice\s+cooking\s+appliance/,
+    /electric\s+kettle/,
+    /electric\s+(?:water\s+)?boiler/,
+    /electric\s+(?:hot\s+water\s+)?pot/,
+    /vacuum[-\s]+insulat/,
+    /vacuum\s+flask/,
+    /thermos\s+bottle/,
+    /insulated\s+bottle/
+  ].some(pattern => pattern.test(haystack));
+}
+
+function parseSemanticScholarPaper(paper) {
+  const originalTitle = normalizeSpace(paper?.title);
+  const pdfUrl = normalizeHttps(paper?.openAccessPdf?.url);
+  if (!originalTitle || !pdfUrl) return null;
+  if (!looksRelevantSemanticPaper(paper)) return null;
+
+  const authors = semanticScholarAuthors(paper);
+  const venue = normalizeSpace(paper?.venue);
+  const doi = normalizeSpace(paper?.externalIds?.DOI || paper?.externalIds?.doi);
+  const abstract = normalizeSpace(paper?.abstract).slice(0, 4000);
+  const s2Url = normalizeHttps(paper?.url);
+
+  const details = [
+    `原題: ${originalTitle}`,
+    authors && `著者: ${authors}`,
+    venue && `掲載先: ${venue}`,
+    doi && `DOI: ${doi}`,
+    abstract && `抄録: ${abstract}`,
+    s2Url && `Semantic Scholar: ${s2Url}`,
+    '情報提供元: Semantic Scholar（公開PDF）'
+  ].filter(Boolean).join('\n\n');
+
+  return {
+    title: originalTitle,
+    originalTitle,
+    // 公開PDFを直接リンクにすることで、既存のPDF要約処理へ直結する。
+    link: pdfUrl,
+    pubDate: semanticScholarDate(paper),
+    author: authors || venue || 'Semantic Scholar',
+    sourceName: 'Semantic Scholar OA',
+    description: details,
+    doi,
+    sourceId: `s2:${normalizeSpace(paper?.paperId || doi || pdfUrl)}`
+  };
+}
+
+async function searchSemanticScholar() {
+  const url = new URL(SEMANTIC_SCHOLAR_ENDPOINT);
+  url.searchParams.set('query', SEMANTIC_SCHOLAR_QUERY);
+  url.searchParams.set(
+    'fields',
+    'title,url,abstract,authors,venue,publicationDate,year,externalIds,openAccessPdf,publicationTypes'
+  );
+  url.searchParams.set('sort', 'publicationDate:desc');
+  url.searchParams.set('publicationTypes', 'JournalArticle,Conference,Review');
+  url.searchParams.set('publicationDateOrYear', '2018-01-01:');
+
+  // 公式仕様では openAccessPdf は値を取らないフラグ。
+  const requestUrl = `${url.toString()}&openAccessPdf`;
+  const headers = {
+    'Accept': 'application/json',
+    'User-Agent': 'PersonalDashboardPapers/3.0'
+  };
+  if (process.env.SEMANTIC_SCHOLAR_API_KEY) {
+    headers['x-api-key'] = process.env.SEMANTIC_SCHOLAR_API_KEY;
+  }
+
+  const response = await fetch(requestUrl, {
+    headers,
+    signal: AbortSignal.timeout(15_000)
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Semantic Scholar HTTP ${response.status}${text ? `: ${text.slice(0, 180)}` : ''}`);
+  }
+
+  const data = await response.json();
+  return (Array.isArray(data?.data) ? data.data : [])
+    .map(parseSemanticScholarPaper)
+    .filter(Boolean);
+}
+
+// J-STAGEの同時アクセス制限を踏みにくくするため最大2並列。
 async function runWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
   let cursor = 0;
@@ -159,56 +339,177 @@ async function runWithConcurrency(items, limit, worker) {
   return results;
 }
 
+function splitIntoBatches(items, size) {
+  const batches = [];
+  for (let i = 0; i < items.length; i += size) {
+    batches.push(items.slice(i, i + size));
+  }
+  return batches;
+}
+
+async function translateEnglishTitles(items) {
+  const pending = [];
+
+  items.forEach((item, index) => {
+    if (!item?.title || hasJapanese(item.title)) return;
+
+    const cached = getTranslationCache(item.title);
+    if (cached) {
+      item.title = cached;
+      return;
+    }
+
+    pending.push({ index, title: item.title });
+  });
+
+  if (!pending.length) return;
+
+  const batches = splitIntoBatches(pending, TRANSLATION_BATCH_SIZE);
+
+  // 翻訳はRSS取得速度を落としすぎないよう最大2並列。
+  await runWithConcurrency(batches, 2, async batch => {
+    const prompt = batch
+      .map(entry => `${entry.index}\t${entry.title}`)
+      .join('\n');
+
+    const responseSchema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        translations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              index: { type: 'integer' },
+              ja: { type: 'string' }
+            },
+            required: ['index', 'ja']
+          }
+        }
+      },
+      required: ['translations']
+    };
+
+    try {
+      const result = await generateGemini({
+        systemInstruction: [
+          'あなたは学術論文タイトルの翻訳者です。',
+          '英語タイトルを、意味を変えず自然で簡潔な日本語の論文タイトルへ翻訳してください。',
+          '要約・補足・解説はしないでください。',
+          '製品名、材料名、専門用語、単位、略語は必要に応じて原語を残してください。',
+          '入力のindexを必ず維持してください。'
+        ].join('\n'),
+        prompt: `次の論文タイトルを日本語へ翻訳してください。\n\n${prompt}`,
+        maxOutputTokens: 5000,
+        responseSchema,
+        timeoutMs: 25_000
+      });
+
+      const parsed = JSON.parse(
+        String(result.text || '')
+          .trim()
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```$/i, '')
+      );
+
+      for (const translated of Array.isArray(parsed?.translations) ? parsed.translations : []) {
+        const index = Number(translated?.index);
+        const ja = normalizeSpace(translated?.ja);
+        if (!Number.isInteger(index) || index < 0 || index >= items.length || !ja) continue;
+
+        const original = items[index]?.originalTitle || items[index]?.title;
+        if (original) setTranslationCache(original, ja);
+        items[index].title = ja;
+      }
+    } catch (err) {
+      // 翻訳だけ失敗しても論文RSS自体は止めない。原題で表示する。
+      console.warn('[papers-feed] title translation skipped:', err?.message || err);
+    }
+  });
+}
+
+function dedupePapers(items) {
+  const seen = new Set();
+  return items.filter(item => {
+    const doiKey = normalizeSpace(item?.doi).toLowerCase();
+    const linkKey = normalizeSpace(item?.link).replace(/[?#].*$/, '').toLowerCase();
+    const titleKey = normalizeSpace(item?.originalTitle || item?.title).toLowerCase();
+    const key = doiKey ? `doi:${doiKey}` : linkKey ? `url:${linkKey}` : `title:${titleKey}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export default async function handler(req, res) {
   try {
     const forceRefresh = Boolean(req.query?._fresh || req.query?.refresh);
 
     if (!forceRefresh && cache.xml && Date.now() - cache.at < TTL) {
       res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
-      res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=900');
+      res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=1200');
+      res.setHeader('X-Papers-Source', 'J-STAGE,Semantic Scholar');
       return res.status(200).send(cache.xml);
     }
 
-    const settled = await runWithConcurrency(SEARCH_TERMS, 2, searchJStage);
-    const items = settled.flatMap(result =>
+    // Semantic Scholarは1リクエストで広く取得。J-STAGE検索と並行して待つ。
+    const [jstageSettled, semanticSettled] = await Promise.all([
+      runWithConcurrency(JSTAGE_SEARCH_TERMS, 2, searchJStage),
+      Promise.allSettled([searchSemanticScholar()])
+    ]);
+
+    const jstageItems = jstageSettled.flatMap(result =>
+      result?.status === 'fulfilled' ? result.value : []
+    );
+    const semanticItems = semanticSettled.flatMap(result =>
       result?.status === 'fulfilled' ? result.value : []
     );
 
-    const errors = settled
-      .filter(result => result?.status === 'rejected')
-      .map(result => result.reason?.message || 'J-STAGE取得失敗');
+    const errors = [
+      ...jstageSettled
+        .filter(result => result?.status === 'rejected')
+        .map(result => result.reason?.message || 'J-STAGE取得失敗'),
+      ...semanticSettled
+        .filter(result => result?.status === 'rejected')
+        .map(result => result.reason?.message || 'Semantic Scholar取得失敗')
+    ];
 
-    // 全検索が失敗した場合だけAPIエラーにする。
-    if (!items.length && errors.length === SEARCH_TERMS.length) {
-      throw new Error(errors.join(' / '));
+    const merged = dedupePapers([...jstageItems, ...semanticItems]);
+    merged.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
+
+    const finalItems = merged.slice(0, MAX_ITEMS);
+
+    // 英語タイトルだけGeminiで和訳。失敗時は英語原題のまま継続する。
+    await translateEnglishTitles(finalItems);
+
+    if (!finalItems.length) {
+      throw new Error(errors.length ? errors.join(' / ') : '該当論文が見つかりませんでした');
     }
-
-    const seen = new Set();
-    const deduped = items.filter(item => {
-      const key = (item.doi || item.link || item.title).toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    // J-STAGE WebAPIの updated は記事の公開日。
-    deduped.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
 
     const xml = rssXml(
       '論文',
-      '炊飯器・電気ケトル・電気ポット・真空断熱・魔法瓶などの関連論文。Powered by J-STAGE',
-      deduped.slice(0, MAX_ITEMS)
+      [
+        '炊飯器・電気ケトル・電気ポット・真空断熱・魔法瓶などの関連論文。',
+        `J-STAGE ${jstageItems.length}件 + Semantic Scholar公開PDF ${semanticItems.length}件を統合。`,
+        '英語タイトルはGeminiで日本語表示。発行日の新しい順。'
+      ].join(' '),
+      finalItems
     );
 
     cache = { at: Date.now(), xml };
 
     res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
-    res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=900');
-    res.setHeader('X-Papers-Source', 'J-STAGE');
+    res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=1200');
+    res.setHeader('X-Papers-Source', 'J-STAGE,Semantic Scholar');
+    res.setHeader('X-Papers-JStage-Count', String(jstageItems.length));
+    res.setHeader('X-Papers-SemanticScholar-Count', String(semanticItems.length));
     if (errors.length) res.setHeader('X-Papers-Partial-Errors', String(errors.length));
+
     return res.status(200).send(xml);
   } catch (err) {
-    console.error('[papers-feed:J-STAGE]', err);
-    return res.status(502).send(`J-STAGE論文取得エラー: ${err?.message || 'unknown'}`);
+    console.error('[papers-feed:v20]', err);
+    return res.status(502).send(`論文取得エラー: ${err?.message || 'unknown'}`);
   }
 }
