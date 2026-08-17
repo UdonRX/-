@@ -1507,6 +1507,166 @@ const SUMMARY_EDGE_SWIPE_WIDTH = 30;
 
 const ALL_FEED_URL = '__ALL__';
 
+// v23: 論文は「高速RSS → 詳細RSS」の2段階で読み込む。
+// 英語タイトル翻訳は一覧表示後に非同期実行し、表示待ち時間からGemini処理を外す。
+const PAPER_FAST_MODE = 'fast';
+const PAPER_DEEP_MODE = 'deep';
+const PAPER_TITLE_STORAGE_KEY = 'paperTitleTranslationsV1';
+const PAPER_TITLE_CACHE_MAX = 1200;
+const PAPER_TITLE_BATCH_SIZE = 40;
+const ALL_PERSISTENT_CACHE_KEY = 'dashboardAllFeedCacheV1';
+const ALL_PERSISTENT_MAX_AGE = 6 * 60 * 60 * 1000;
+
+const paperDeepLoadPromises = new Map();
+const paperDeepLoadedUrls = new Set();
+const paperTitleQueue = [];
+const paperTitleQueueSet = new Set();
+let paperTitleQueueRunning = false;
+const allFeedLoadSerial = { news: 0, knowledge: 0 };
+
+let paperTitleTranslations = (() => {
+  try {
+    const value = JSON.parse(localStorage.getItem(PAPER_TITLE_STORAGE_KEY) || '{}');
+    return value && typeof value === 'object' ? value : {};
+  } catch (_) {
+    return {};
+  }
+})();
+
+function persistPaperTitleTranslations() {
+  try {
+    const entries = Object.entries(paperTitleTranslations);
+    if (entries.length > PAPER_TITLE_CACHE_MAX) {
+      paperTitleTranslations = Object.fromEntries(entries.slice(-PAPER_TITLE_CACHE_MAX));
+    }
+    localStorage.setItem(PAPER_TITLE_STORAGE_KEY, JSON.stringify(paperTitleTranslations));
+  } catch (_) {}
+}
+
+function normalizePaperTitleKey(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function needsPaperTitleTranslation(title) {
+  const text = normalizePaperTitleKey(title);
+  if (!text) return false;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  const japanese = (text.match(/[\u3040-\u30ff\u3400-\u9fff]/g) || []).length;
+  return latin >= 8 && latin > japanese;
+}
+
+function isPaperFeed(type, feed) {
+  if (type !== 'news' || !feed) return false;
+  return feed.name === '論文' || String(feed.url || '').includes('/api/papers-feed');
+}
+
+function withQueryParam(rawUrl, key, value) {
+  const url = new URL(String(rawUrl || ''), location.origin);
+  url.searchParams.set(key, value);
+  return rawUrl.startsWith('/api/') ? `${url.pathname}${url.search}` : url.href;
+}
+
+function applyPaperTranslation(original, ja) {
+  const source = normalizePaperTitleKey(original);
+  const translated = normalizePaperTitleKey(ja);
+  if (!source || !translated) return;
+  paperTitleTranslations[source] = translated;
+
+  for (const items of feedItemsCache.news.values()) {
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      const originalTitle = normalizePaperTitleKey(item?._paperOriginalTitle || item?.title);
+      if (originalTitle !== source) continue;
+      item._paperOriginalTitle = source;
+      item.title = translated;
+    }
+  }
+
+  document.querySelectorAll('.paper-title-link[data-paper-original]').forEach(link => {
+    if (normalizePaperTitleKey(link.dataset.paperOriginal) === source) link.textContent = translated;
+  });
+}
+
+async function pumpPaperTitleQueue() {
+  if (paperTitleQueueRunning) return;
+  paperTitleQueueRunning = true;
+  try {
+    while (paperTitleQueue.length) {
+      const batch = paperTitleQueue.splice(0, PAPER_TITLE_BATCH_SIZE);
+      try {
+        const response = await fetch('/api/paper-titles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ titles: batch }),
+          cache: 'no-store'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          for (const entry of Array.isArray(data?.translations) ? data.translations : []) {
+            applyPaperTranslation(entry?.original, entry?.ja);
+          }
+          persistPaperTitleTranslations();
+        }
+      } catch (err) {
+        console.info('[papers] title translation skipped:', err?.message || err);
+      } finally {
+        batch.forEach(title => paperTitleQueueSet.delete(title));
+      }
+      if (paperTitleQueue.length) await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  } finally {
+    paperTitleQueueRunning = false;
+  }
+}
+
+function schedulePaperTitleTranslations(items) {
+  if (!Array.isArray(items) || !items.length) return;
+  for (const item of items) {
+    if (!item?.title) continue;
+    if (!item._paperOriginalTitle) item._paperOriginalTitle = normalizePaperTitleKey(item.title);
+    const original = item._paperOriginalTitle;
+    const cached = paperTitleTranslations[original];
+    if (cached) {
+      item.title = cached;
+      continue;
+    }
+    if (!needsPaperTitleTranslation(original) || paperTitleQueueSet.has(original)) continue;
+    paperTitleQueueSet.add(original);
+    paperTitleQueue.push(original);
+  }
+  void pumpPaperTitleQueue();
+}
+
+function readPersistentAllFeed(type) {
+  try {
+    const root = JSON.parse(localStorage.getItem(ALL_PERSISTENT_CACHE_KEY) || '{}');
+    const entry = root?.[type];
+    if (!entry || Date.now() - Number(entry.at || 0) > ALL_PERSISTENT_MAX_AGE) return [];
+    return (Array.isArray(entry.items) ? entry.items : []).map(item => ({ ...item, pubDate: new Date(item.pubDate || 0) }));
+  } catch (_) {
+    return [];
+  }
+}
+
+function writePersistentAllFeed(type, items) {
+  try {
+    const root = JSON.parse(localStorage.getItem(ALL_PERSISTENT_CACHE_KEY) || '{}');
+    root[type] = {
+      at: Date.now(),
+      items: (Array.isArray(items) ? items : []).slice(0, 150).map(item => ({
+        title: String(item?.title || '').slice(0, 600),
+        link: String(item?.link || '').slice(0, 2000),
+        description: String(item?.description || '').slice(0, 1500),
+        author: String(item?.author || '').slice(0, 300),
+        _isPaper: Boolean(item?._isPaper),
+        _paperOriginalTitle: item?._paperOriginalTitle ? String(item._paperOriginalTitle).slice(0, 600) : '',
+        pubDate: item?.pubDate instanceof Date ? item.pubDate.toISOString() : new Date(item?.pubDate || 0).toISOString()
+      }))
+    };
+    localStorage.setItem(ALL_PERSISTENT_CACHE_KEY, JSON.stringify(root));
+  } catch (_) {}
+}
+
 function getStoredFeedsByType(type) {
   return type === 'news' ? newsFeeds : knowledgeFeeds;
 }
@@ -1790,6 +1950,153 @@ async function loadKnowledgeContent(url) {
   activateFeedIndex('knowledge', foundIndex >= 0 ? foundIndex : 0);
 }
 
+async function fetchActualFeedItems(type, feed, { forceRefresh = false, paperMode = PAPER_FAST_MODE } = {}) {
+  if (!feed) return [];
+  const cacheKey = feed.url;
+
+  if (!forceRefresh) {
+    const cached = feedItemsCache[type].get(cacheKey);
+    if (cached) return cached;
+    const existing = feedLoadPromises[type].get(cacheKey);
+    if (existing) return await existing;
+  }
+
+  const requestUrl = isPaperFeed(type, feed)
+    ? withQueryParam(feed.url, 'mode', paperMode)
+    : feed.url;
+
+  const promise = fetchNewsRSS(requestUrl, { forceRefresh });
+  feedLoadPromises[type].set(cacheKey, promise);
+
+  try {
+    const items = await promise;
+    feedItemsCache[type].set(cacheKey, items);
+    if (isPaperFeed(type, feed)) {
+      items.forEach(item => { if (item) item._isPaper = true; });
+      schedulePaperTitleTranslations(items);
+    }
+    return items;
+  } finally {
+    if (feedLoadPromises[type].get(cacheKey) === promise) feedLoadPromises[type].delete(cacheKey);
+  }
+}
+
+function schedulePaperDeepLoad(type, feed, feedIndex, { forceRefresh = false } = {}) {
+  if (!isPaperFeed(type, feed) || paperDeepLoadPromises.has(feed.url)) return;
+  if (!forceRefresh && paperDeepLoadedUrls.has(feed.url)) return;
+
+  const deepUrl = withQueryParam(feed.url, 'mode', PAPER_DEEP_MODE);
+  const promise = fetchNewsRSS(deepUrl, { forceRefresh })
+    .then(items => {
+      if (!Array.isArray(items) || !items.length) return items;
+      items.forEach(item => { if (item) item._isPaper = true; });
+      schedulePaperTitleTranslations(items);
+      feedItemsCache[type].set(feed.url, items);
+      paperDeepLoadedUrls.add(feed.url);
+
+      const cachedGroups = getStoredFeedsByType(type)
+        .map(actualFeed => feedItemsCache[type].get(actualFeed.url))
+        .filter(Array.isArray);
+      if (cachedGroups.length) {
+        const mergedAll = mergeFeedItemsChronologically(cachedGroups).slice(0, 150);
+        feedItemsCache[type].set(ALL_FEED_URL, mergedAll);
+        writePersistentAllFeed(type, mergedAll);
+      }
+
+      const container = document.getElementById(getFeedContentId(type));
+      const target = container?.querySelector(`.feed-slide-scroll[data-feed-index="${feedIndex}"]`);
+      const feedNow = getFeedsByType(type)[feedIndex];
+      if (target && feedNow?.url === feed.url && target.scrollTop < 40) {
+        renderFeedItems(type, feedIndex, items);
+      }
+      return items;
+    })
+    .catch(err => {
+      console.info('[papers] deep feed skipped:', err?.message || err);
+      return [];
+    })
+    .finally(() => paperDeepLoadPromises.delete(feed.url));
+
+  paperDeepLoadPromises.set(feed.url, promise);
+}
+
+function mergeCachedActualFeeds(type) {
+  return mergeFeedItemsChronologically(
+    getStoredFeedsByType(type)
+      .map(feed => feedItemsCache[type].get(feed.url))
+      .filter(Array.isArray)
+  ).slice(0, 150);
+}
+
+async function loadAllFeedProgressively(type, index, { forceRefresh = false } = {}) {
+  const container = document.getElementById(getFeedContentId(type));
+  const target = container?.querySelector(`.feed-slide-scroll[data-feed-index="${index}"]`);
+  if (!target) return;
+
+  const serial = ++allFeedLoadSerial[type];
+  const actualFeeds = getStoredFeedsByType(type);
+
+  if (forceRefresh) {
+    feedItemsCache[type].delete(ALL_FEED_URL);
+    actualFeeds.forEach(feed => {
+      feedItemsCache[type].delete(feed.url);
+      feedLoadPromises[type].delete(feed.url);
+    });
+  }
+
+  let immediate = !forceRefresh ? feedItemsCache[type].get(ALL_FEED_URL) : null;
+  if (!immediate?.length && !forceRefresh) immediate = mergeCachedActualFeeds(type);
+  if (!immediate?.length && !forceRefresh) immediate = readPersistentAllFeed(type);
+
+  let hasRendered = false;
+  if (immediate?.length) {
+    feedItemsCache[type].set(ALL_FEED_URL, immediate);
+    renderFeedItems(type, index, immediate);
+    hasRendered = true;
+  } else {
+    target.innerHTML = `<div class="loading">${getFeedLoadingText(type)}</div>`;
+  }
+
+  let lastRenderAt = 0;
+  const jobs = actualFeeds.map(async feed => {
+    try {
+      const items = await fetchActualFeedItems(type, feed, { forceRefresh, paperMode: PAPER_FAST_MODE });
+      if (serial !== allFeedLoadSerial[type]) return items;
+
+      const merged = mergeCachedActualFeeds(type);
+      feedItemsCache[type].set(ALL_FEED_URL, merged);
+
+      const canRefreshDom = !hasRendered || (target.scrollTop < 8 && Date.now() - lastRenderAt > 700);
+      if (merged.length && canRefreshDom) {
+        renderFeedItems(type, index, merged);
+        hasRendered = true;
+        lastRenderAt = Date.now();
+      }
+
+      if (isPaperFeed(type, feed)) {
+        const paperIndex = getFeedsByType(type).findIndex(f => f.url === feed.url);
+        schedulePaperDeepLoad(type, feed, paperIndex, { forceRefresh });
+      }
+      return items;
+    } catch (err) {
+      console.warn(`[${type}:All] ${feed.name} failed`, err);
+      return [];
+    }
+  });
+
+  void Promise.allSettled(jobs).then(() => {
+    if (serial !== allFeedLoadSerial[type]) return;
+    const finalItems = mergeCachedActualFeeds(type);
+    if (!finalItems.length) {
+      if (!hasRendered) target.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
+      return;
+    }
+    feedItemsCache[type].set(ALL_FEED_URL, finalItems);
+    writePersistentAllFeed(type, finalItems);
+    if (target.scrollTop < 8) renderFeedItems(type, index, finalItems);
+  });
+}
+
 async function loadFeedContent(type, index, { forceRefresh = false } = {}) {
   const feeds = getFeedsByType(type);
   const feed = feeds[index];
@@ -1798,74 +2105,42 @@ async function loadFeedContent(type, index, { forceRefresh = false } = {}) {
   const container = document.getElementById(getFeedContentId(type));
   const target = container?.querySelector(`.feed-slide-scroll[data-feed-index="${index}"]`);
   if (!target) return;
-
   setCurrentFeedUrl(type, feed.url);
+
+  if (feed.virtualAll) {
+    await loadAllFeedProgressively(type, index, { forceRefresh });
+    return;
+  }
 
   if (forceRefresh) {
     feedItemsCache[type].delete(feed.url);
     feedLoadPromises[type].delete(feed.url);
+    if (isPaperFeed(type, feed)) {
+      paperDeepLoadedUrls.delete(feed.url);
+      paperDeepLoadPromises.delete(feed.url);
+    }
   }
 
   const cachedItems = feedItemsCache[type].get(feed.url);
   if (cachedItems && !forceRefresh) {
     renderFeedItems(type, index, cachedItems);
-    return;
-  }
-
-  const existingPromise = feedLoadPromises[type].get(feed.url);
-  if (existingPromise && !forceRefresh) {
-    try {
-      const items = await existingPromise;
-      renderFeedItems(type, index, items);
-    } catch (_) {}
+    if (isPaperFeed(type, feed)) schedulePaperDeepLoad(type, feed, index);
     return;
   }
 
   target.innerHTML = `<div class="loading">${getFeedLoadingText(type)}</div>`;
 
-  let loadPromise;
-  if (feed.virtualAll) {
-    // Allは保存された全タブを同時取得→重複除外→公開日時の新しい順に統合する。
-    const actualFeeds = getStoredFeedsByType(type);
-    loadPromise = Promise.all(
-      actualFeeds.map(async actualFeed => {
-        if (forceRefresh) {
-          feedItemsCache[type].delete(actualFeed.url);
-          feedLoadPromises[type].delete(actualFeed.url);
-        }
-        const cached = feedItemsCache[type].get(actualFeed.url);
-        if (cached && !forceRefresh) return cached;
-        try {
-          const items = await fetchNewsRSS(actualFeed.url, { forceRefresh });
-          feedItemsCache[type].set(actualFeed.url, items);
-          return items;
-        } catch (err) {
-          console.warn(`[${type}:All] ${actualFeed.name} failed`, err);
-          return [];
-        }
-      })
-    ).then(groups => mergeFeedItemsChronologically(groups).slice(0, 150));
-  } else {
-    loadPromise = fetchNewsRSS(feed.url, { forceRefresh });
-  }
-
-  feedLoadPromises[type].set(feed.url, loadPromise);
-
   try {
-    const items = await loadPromise;
-    feedItemsCache[type].set(feed.url, items);
-
-    if (items.length === 0) {
+    const items = await fetchActualFeedItems(type, feed, { forceRefresh, paperMode: PAPER_FAST_MODE });
+    if (!items.length) {
       target.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
       return;
     }
-
     renderFeedItems(type, index, items);
+    if (isPaperFeed(type, feed)) schedulePaperDeepLoad(type, feed, index, { forceRefresh });
   } catch (err) {
     console.error(err);
     target.innerHTML = `<div class="loading">${getFeedFailureText(type)}<br><small>${escapeHtmlAttribute(err?.message || '')}</small></div>`;
-  } finally {
-    feedLoadPromises[type].delete(feed.url);
   }
 }
 
@@ -1873,10 +2148,17 @@ async function refreshFeedSection(type) {
   const feeds = getFeedsByType(type);
   if (!feeds.length) return;
 
-  feedItemsCache[type].clear();
-  feedLoadPromises[type].clear();
-
   const index = Math.max(0, Math.min(getCurrentFeedIndex(type), feeds.length - 1));
+  const current = feeds[index];
+
+  if (current?.virtualAll) {
+    feedItemsCache[type].clear();
+    feedLoadPromises[type].clear();
+  } else if (current) {
+    feedItemsCache[type].delete(current.url);
+    feedLoadPromises[type].delete(current.url);
+  }
+
   await loadFeedContent(type, index, { forceRefresh: true });
 }
 
@@ -1887,42 +2169,25 @@ function renderFeedItems(type, feedIndex, items) {
 
   target.innerHTML = '';
 
-  // v22: 論文タブは J-STAGE + Semantic Scholar + Crossref の統合フィード。
+  // v23: 論文は高速4ソース + 詳細追加ソースを統合。
   const feed = getFeedsByType(type)[feedIndex];
-  if (type === 'news' && feed?.name === '論文') {
+  const paperFeed = isPaperFeed(type, feed);
+  if (paperFeed) {
     const credit = document.createElement('div');
     credit.className = 'jstage-credit paper-sources-credit';
-
-    const label = document.createElement('span');
-    label.textContent = '論文ソース: ';
-
-    const jstage = document.createElement('a');
-    jstage.href = 'https://www.jstage.jst.go.jp/browse/-char/ja';
-    jstage.target = '_blank';
-    jstage.rel = 'noopener noreferrer';
-    jstage.textContent = 'J-STAGE';
-
-    const sep = document.createTextNode(' + ');
-
-    const semanticScholar = document.createElement('a');
-    semanticScholar.href = 'https://www.semanticscholar.org/';
-    semanticScholar.target = '_blank';
-    semanticScholar.rel = 'noopener noreferrer';
-    semanticScholar.textContent = 'Semantic Scholar';
-
-    const sep2 = document.createTextNode(' + ');
-
-    const crossref = document.createElement('a');
-    crossref.href = 'https://www.crossref.org/';
-    crossref.target = '_blank';
-    crossref.rel = 'noopener noreferrer';
-    crossref.textContent = 'Crossref';
-
-    credit.append(label, jstage, sep, semanticScholar, sep2, crossref);
+    credit.innerHTML = [
+      '<span>論文ソース: </span>',
+      '<a href="https://www.jstage.jst.go.jp/" target="_blank" rel="noopener noreferrer">J-STAGE</a>',
+      ' + <a href="https://www.semanticscholar.org/" target="_blank" rel="noopener noreferrer">Semantic Scholar</a>',
+      ' + <a href="https://pmc.ncbi.nlm.nih.gov/" target="_blank" rel="noopener noreferrer">PMC</a>',
+      ' + <a href="https://plos.org/" target="_blank" rel="noopener noreferrer">PLOS</a>',
+      ' + <span class="paper-source-extra">Crossref + CORE + CiNii / IEEE（設定時）</span>'
+    ].join('');
     target.appendChild(credit);
   }
 
   items.forEach((item, itemIndex) => {
+    const paperItem = paperFeed || Boolean(item?._isPaper);
     const newsDiv = document.createElement('div');
     newsDiv.className = 'news-item';
 
@@ -1931,6 +2196,13 @@ function renderFeedItems(type, feedIndex, items) {
     link.target = '_blank';
     link.rel = 'noopener';
     link.className = 'news-link';
+    if (paperItem) {
+      if (!item._paperOriginalTitle) item._paperOriginalTitle = normalizePaperTitleKey(item.title || '無題');
+      const cachedPaperTitle = paperTitleTranslations[item._paperOriginalTitle];
+      if (cachedPaperTitle) item.title = cachedPaperTitle;
+      link.classList.add('paper-title-link');
+      link.dataset.paperOriginal = item._paperOriginalTitle;
+    }
     link.textContent = item.title || '無題';
 
     const right = document.createElement('div');
@@ -1958,6 +2230,8 @@ function renderFeedItems(type, feedIndex, items) {
     newsDiv.appendChild(right);
     target.appendChild(newsDiv);
   });
+
+  if (paperFeed || items.some(item => item?._isPaper)) schedulePaperTitleTranslations(items);
 }
 
 function initSummaryUI() {
