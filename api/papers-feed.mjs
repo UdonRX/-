@@ -4,7 +4,7 @@ import { rssXml } from '../lib/rss-merge.mjs';
 const { JSDOM } = jsdomPackage;
 
 /*
- * v23 論文フィード
+ * v26 論文フィード
  * - fast: J-STAGE + Semantic Scholar + PLOS を先に返して一覧を高速表示
  * - deep: fast に加えて Crossref競合企業、CiNii Research、CORE、IEEE Xplore を統合
  * - 英語タイトルのGemini和訳はRSS生成時には待たず、クライアントから /api/paper-titles で非同期実行
@@ -15,72 +15,91 @@ const { JSDOM } = jsdomPackage;
 // J-STAGEは日本語の関連語を複数検索し、Semantic ScholarはBoolean検索で広く拾った後、
 // タイトル+抄録から関連度スコアを付けてノイズを落とす。
 const JSTAGE_SEARCH_TERMS = [
-  // 製品そのもの
-  '炊飯器',
-  '炊飯ジャー',
-  '電気ケトル',
-  '電気ポット',
-  '真空断熱 ボトル',
-  '魔法瓶',
-  'フードジャー',
-  'ミキサー 調理',
-  'ブレンダー 調理',
-  'コーヒーメーカー',
-  '電気圧力鍋',
-  'ホットプレート 調理',
-  'オーブントースター',
+  // 1) 炊飯科学：米の吸水・糊化・食感・食味・温度履歴
+  '米 炊飯 糊化',
+  '米 α化 炊飯',
+  '米 吸水 炊飯',
+  '米 浸漬 炊飯',
+  '米飯 食感 硬さ 粘り',
+  '米飯 官能評価 食味',
+  '米 でんぷん アミロース 炊飯',
+  '米 アミロペクチン 炊飯',
+  '米飯 デンプン 溶出',
+  '炊飯 温度履歴',
+  '炊飯 加熱速度',
+  'IH 炊飯 温度制御',
+  '炊飯器 保温 米飯 品質',
+  '炊飯器 保温 消費電力',
 
-  // 要素技術・現象
-  'IH 炊飯',
-  '誘導加熱 調理',
-  '米飯 加熱',
-  '湯沸かし 温度制御',
-  '真空断熱 容器',
-  '保温 容器 熱',
-  'コーヒー 抽出 温度',
-  '圧力調理',
-  '赤外線 加熱 調理',
-  '対流 加熱 調理',
-  '撹拌 食品 流動',
+  // 2) 真空断熱・蓄熱
+  '真空断熱 熱伝導',
+  '真空断熱 放熱',
+  '真空断熱 熱橋',
+  '真空断熱 真空度',
+  '真空断熱 バリア材',
+  '真空断熱 経時劣化',
+  '真空断熱 容器 保温',
+  '魔法瓶 保温 熱',
+  '魔法瓶 熱伝導',
+  '相変化 蓄熱 保温 容器',
+  '潜熱 蓄熱 温水 容器',
 
-  // 国内メーカー。J-STAGE全文に会社名が出る論文も補助的に拾う。
-  'タイガー魔法瓶',
-  '象印マホービン',
-  'パナソニック 調理家電',
+  // 3) 対象製品 × 省エネ・保温・ユーザビリティ
+  '炊飯器 省エネルギー',
+  '炊飯器 ユーザビリティ',
+  '電気ポット 省エネルギー',
+  '電気ポット 保温 消費電力',
+  '電気ポット 操作性',
+  '電気ケトル 省エネルギー',
+  '電気ケトル 使いやすさ',
+  '電気ケトル 安全性',
+  '真空断熱ボトル 保温',
+  '真空断熱ボトル 使いやすさ',
+  'コーヒーメーカー 抽出 温度',
+  'コーヒーメーカー 省エネルギー',
+  'コーヒーメーカー ユーザビリティ',
+
+  // 4) 競合メーカー × 対象製品
+  'タイガー魔法瓶 炊飯器',
+  'タイガー魔法瓶 真空断熱',
+  '象印マホービン 炊飯器',
+  '象印マホービン 電気ポット',
+  'パナソニック 炊飯器',
+  'パナソニック コーヒーメーカー',
   'サーモス 真空断熱',
-  '三菱電機 炊飯',
-  'シャープ 調理家電',
-  'アイリスオーヤマ 調理家電'
+  'サーモス コーヒーメーカー',
+  'アイリスオーヤマ 炊飯器',
+  'アイリスオーヤマ 電気ケトル'
 ];
 
 const SEMANTIC_SCHOLAR_QUERIES = [
   {
-    name: '調理家電・製品名',
-    query: '(("rice cooker" | "electric kettle" | "water boiler" | "hot water dispenser" | "vacuum flask" | "vacuum insulated bottle" | "food jar" | blender | mixer | "coffee maker" | "coffee machine" | "pressure cooker" | multicooker | "hot plate" | griddle | "toaster oven" | toaster))'
+    name: '重点3軸',
+    query: '((rice + (cooking | cooked) + (gelatinization | starch | amylose | amylopectin | "water absorption" | soaking | hydration | texture | sensory | taste | stickiness | hardness | pasting | "starch leaching" | "temperature profile")) | (("vacuum insulation" | "vacuum insulated" | "vacuum flask" | "thermos flask" | dewar) + ("thermal conductivity" | "heat transfer" | "heat loss" | "thermal bridge" | emissivity | radiation | "vacuum degree" | "barrier envelope" | "core material" | aging | "heat retention")) | (("rice cooker" | "electric kettle" | "water boiler" | "water warmer" | "coffee maker" | "coffee machine" | "vacuum flask" | "vacuum insulated bottle") + ("energy efficiency" | "energy consumption" | "power consumption" | "heat loss" | insulation | "heat retention" | "temperature control" | usability | ergonomics | "user behavior" | safety | "human factors")))'
   },
   {
-    name: '加熱・温度制御',
-    query: '((cooking | beverage | food | water | rice) + ("induction heating" | heating | boiling | "temperature control" | thermal | infrared | convection | steam) + (appliance | cooker | kettle | boiler | oven | toaster | plate | griddle))'
+    name: '炊飯科学',
+    query: '(rice + (cooking | cooked) + (gelatinization | starch | amylose | amylopectin | "water absorption" | "water uptake" | soaking | hydration | texture | hardness | stickiness | adhesiveness | sensory | taste | flavor | aroma | pasting | "starch leaching" | swelling | retrogradation | "thermal history"))'
   },
   {
-    name: '断熱・保温',
-    query: '((bottle | flask | container | jar | vessel) + (vacuum | insulat* | thermal) + (heat | retention | conductivity | beverage | food))'
+    name: '真空断熱',
+    query: '(("vacuum insulation" | "vacuum insulated" | "vacuum flask" | "thermos flask" | dewar) + ("thermal conductivity" | "heat transfer" | "heat loss" | "thermal bridge" | emissivity | radiation | "vacuum degree" | "barrier envelope" | "core material" | outgassing | aging | "service life" | "heat retention"))'
   },
   {
-    name: 'ミキサー・食品撹拌',
-    query: '((blender | mixer | "food processor" | blade | mixing) + (food | beverage | kitchen | rheology | flow | particle | homogenization))'
+    name: '蓄熱・保温',
+    query: '(("phase change material" | PCM | "thermal energy storage" | "latent heat storage") + ("heat retention" | "hot water" | beverage | food | container | vessel | bottle | flask | appliance | domestic | "keep warm"))'
   },
   {
-    name: 'コーヒー・抽出',
-    query: '((coffee | espresso | brewing | extraction) + (machine | maker | temperature | pressure | grinder | beverage | thermal))'
+    name: '製品省エネ・保温',
+    query: '(("rice cooker" | "electric kettle" | "water boiler" | "water warmer" | "coffee maker" | "coffee machine" | "vacuum flask" | "vacuum insulated bottle") + ("energy efficiency" | "energy consumption" | "power consumption" | "heat loss" | insulation | "heat retention" | "keep warm" | "temperature control" | overfill | "boil control"))'
   },
   {
-    name: '圧力調理・ホットプレート・トースター',
-    query: '(("pressure cooking" | "pressure cooker" | multicooker | griddle | "hot plate" | "toaster oven" | toaster | countertop) + (cooking | food | heating | thermal | temperature | browning | convection | infrared))'
+    name: '製品ユーザビリティ',
+    query: '(("rice cooker" | "electric kettle" | "water boiler" | "coffee maker" | "coffee machine" | "vacuum bottle" | "vacuum flask") + (usability | ergonomics | "human factors" | "user behavior" | accessibility | safety | pouring | grip | cleaning | "water level" | "user interface"))'
   },
   {
-    name: 'メーカー・ブランド言及',
-    query: '((Panasonic | Zojirushi | "Tiger Corporation" | Thermos | "Mitsubishi Electric" | "Iris Ohyama" | Tefal | SUPOR | Krups | Moulinex | WMF | DeLonghi | Kenwood | Braun | NutriBullet | SharkNinja | Breville | Midea | Joyoung | Cuckoo | Cuchen | Philips | "Hamilton Beach" | "Instant Pot" | Thermomix) + (cooker | kettle | bottle | flask | blender | mixer | coffee | pressure | griddle | toaster | kitchen | cooking))'
+    name: '競合メーカー関連',
+    query: '((Panasonic | Zojirushi | "Tiger Corporation" | Thermos | "Iris Ohyama" | Cuckoo | Cuchen | Midea | Joyoung | "Groupe SEB" | Tefal | SUPOR | Breville | DeLonghi | SharkNinja | "Hamilton Beach" | Versuni) + ("rice cooker" | kettle | "water boiler" | "vacuum bottle" | "vacuum flask" | "coffee maker" | "coffee machine") + ("energy efficiency" | "heat retention" | insulation | "temperature control" | usability | safety | cooking | gelatinization | extraction))'
   }
 ];
 
@@ -88,23 +107,20 @@ const CROSSREF_COMPANIES = [
   { label: 'タイガー', query: 'Tiger Corporation', aliases: ['Tiger Corporation', 'Tiger Vacuum Bottle', 'タイガー魔法瓶'] },
   { label: '象印', query: 'Zojirushi Corporation', aliases: ['Zojirushi Corporation', 'Zojirushi', '象印マホービン', '象印魔法瓶'] },
   { label: 'Panasonic', query: 'Panasonic Corporation', aliases: ['Panasonic Corporation', 'Panasonic Holdings Corporation', 'Panasonic', 'Matsushita Electric Industrial', '松下電器産業'] },
-  { label: 'THERMOS', query: 'THERMOS K.K.', aliases: ['THERMOS K.K.', 'Thermos LLC', 'Thermos L.L.C.', 'Thermos (China) Housewares', 'Thermos (Jiangsu) Housewares', 'Thermos', 'サーモス'] },
-  { label: '三菱電機', query: 'Mitsubishi Electric Corporation', aliases: ['Mitsubishi Electric Corporation', 'Mitsubishi Electric', '三菱電機'] },
-  { label: 'シャープ', query: 'Sharp Corporation', aliases: ['Sharp Corporation', 'Sharp', 'シャープ'] },
+  { label: 'THERMOS', query: 'THERMOS K.K.', aliases: ['THERMOS K.K.', 'Thermos LLC', 'Thermos L.L.C.', 'Thermos', 'サーモス'] },
   { label: 'アイリスオーヤマ', query: 'Iris Ohyama', aliases: ['Iris Ohyama', 'IRIS OHYAMA', 'アイリスオーヤマ'] },
-  { label: 'Groupe SEB', query: 'Groupe SEB', aliases: ['Groupe SEB', 'SEB S.A.', 'SEB SA'] },
-  { label: 'SUPOR', query: 'Zhejiang Supor', aliases: ['Zhejiang Supor', 'SUPOR', 'Supor'] },
-  { label: "De'Longhi", query: "De Longhi", aliases: ["De'Longhi", 'De Longhi', 'DeLonghi', "De'Longhi Group"] },
-  { label: 'SharkNinja', query: 'SharkNinja', aliases: ['SharkNinja', 'SharkNinja Operating LLC', 'Ninja Kitchen'] },
-  { label: 'Breville', query: 'Breville', aliases: ['Breville Group', 'Breville Pty', 'Breville'] },
-  { label: 'Midea', query: 'Midea Group', aliases: ['Midea Group', 'Midea'] },
-  { label: 'Joyoung', query: 'Joyoung', aliases: ['Joyoung Co', 'Joyoung', '九阳'] },
+  { label: '三菱電機', query: 'Mitsubishi Electric Corporation', aliases: ['Mitsubishi Electric Corporation', 'Mitsubishi Electric', '三菱電機'] },
   { label: 'Cuckoo', query: 'Cuckoo Electronics', aliases: ['Cuckoo Electronics', 'CUCKOO Electronics', 'Cuckoo'] },
   { label: 'Cuchen', query: 'Cuchen', aliases: ['Cuchen Co', 'Cuchen'] },
-  { label: 'Philips', query: 'Philips', aliases: ['Koninklijke Philips', 'Philips Domestic Appliances', 'Philips'] },
+  { label: 'Midea', query: 'Midea Group', aliases: ['Midea Group', 'Midea'] },
+  { label: 'Joyoung', query: 'Joyoung', aliases: ['Joyoung Co', 'Joyoung', '九阳'] },
+  { label: 'Groupe SEB', query: 'Groupe SEB', aliases: ['Groupe SEB', 'SEB S.A.', 'SEB SA', 'Tefal'] },
+  { label: 'SUPOR', query: 'Zhejiang Supor', aliases: ['Zhejiang Supor', 'SUPOR', 'Supor'] },
+  { label: 'Breville', query: 'Breville', aliases: ['Breville Group', 'Breville Pty', 'Breville'] },
+  { label: "De'Longhi", query: "De Longhi", aliases: ["De'Longhi", 'De Longhi', 'DeLonghi', "De'Longhi Group"] },
+  { label: 'SharkNinja', query: 'SharkNinja', aliases: ['SharkNinja', 'SharkNinja Operating LLC', 'Ninja Kitchen'] },
   { label: 'Hamilton Beach', query: 'Hamilton Beach Brands', aliases: ['Hamilton Beach Brands', 'Hamilton Beach'] },
-  { label: 'Instant Brands', query: 'Instant Brands', aliases: ['Instant Brands', 'Instant Pot'] },
-  { label: 'Vorwerk', query: 'Vorwerk', aliases: ['Vorwerk', 'Thermomix'] }
+  { label: 'Versuni', query: 'Versuni', aliases: ['Versuni', 'Philips Domestic Appliances'] }
 ];
 
 const JSTAGE_ENDPOINT = 'https://api.jstage.jst.go.jp/searchapi/do';
@@ -119,21 +135,40 @@ const CORE_ENDPOINT = 'https://api.core.ac.uk/v3/search/works';
 const IEEE_ENDPOINT = 'https://ieeexploreapi.ieee.org/api/v1/search/articles';
 
 const FAST_JSTAGE_TERMS = [
-  '炊飯器', '電気ケトル', '真空断熱 ボトル', 'コーヒーメーカー'
+  '米 炊飯 糊化',
+  '米 吸水 炊飯',
+  '米飯 食感 食味',
+  '真空断熱 容器 保温',
+  '炊飯器 保温 消費電力',
+  '電気ケトル 省エネルギー'
 ];
 const FAST_SEMANTIC_QUERIES = [SEMANTIC_SCHOLAR_QUERIES[0]];
 const CINII_SEARCH_TERMS = [
-  '炊飯器 OR 電気ケトル OR 電気ポット',
-  '真空断熱 OR 魔法瓶 OR フードジャー',
-  'ミキサー OR ブレンダー OR コーヒーメーカー',
-  '電気圧力鍋 OR ホットプレート OR オーブントースター',
-  '誘導加熱 OR 温度制御 OR 熱伝達 OR 保温'
+  '米 炊飯 糊化 吸水',
+  '米飯 食感 食味 炊飯器',
+  '真空断熱 熱伝導 保温',
+  '相変化 蓄熱 保温 容器',
+  '炊飯器 省エネルギー 保温',
+  '電気ポット 電気ケトル 省エネルギー',
+  'コーヒーメーカー 抽出 温度',
+  '炊飯器 電気ポット 電気ケトル 魔法瓶 コーヒーメーカー ユーザビリティ'
 ];
 const PAPER_QUERY_EN = [
-  '"rice cooker"', '"electric kettle"', '"water boiler"', '"vacuum insulated bottle"',
-  '"vacuum flask"', '"food jar"', 'blender', '"coffee maker"', '"coffee brewing"',
-  '"pressure cooker"', '"hot plate"', '"toaster oven"', '"induction heating"',
-  '"temperature control"', '"thermal insulation"', '"heat retention"'
+  '"rice cooking" gelatinization',
+  '"rice cooking" "water absorption"',
+  '"cooked rice" texture sensory',
+  '"rice cooker" "temperature control"',
+  '"rice cooker" "energy consumption"',
+  '"vacuum insulation" "thermal conductivity"',
+  '"vacuum insulation" "heat retention"',
+  '"vacuum flask" "heat transfer"',
+  '"phase change material" "heat retention" container',
+  '"electric kettle" "energy efficiency"',
+  '"electric kettle" usability',
+  '"water boiler" "heat retention"',
+  '"coffee maker" "temperature control"',
+  '"coffee brewing" temperature extraction',
+  '"coffee maker" "energy consumption"'
 ];
 
 const FAST_TTL = 10 * 60 * 1000;
@@ -141,7 +176,7 @@ const DEEP_TTL = 30 * 60 * 1000;
 const JSTAGE_PER_TERM = 35;
 const SEMANTIC_SCHOLAR_PER_QUERY = 100;
 const CROSSREF_ROWS_PER_COMPANY = 45;
-const MAX_ITEMS = 350;
+const MAX_ITEMS = 250;
 const FAST_PROVIDER_TIMEOUT = 9_000;
 const UPSTREAM_RETRY_DELAYS = [700, 1_600];
 
@@ -283,7 +318,7 @@ async function searchJStage(term, timeoutMs = 12_000) {
   const response = await fetchWithRetry(url, {
     headers: {
       'Accept': 'application/atom+xml, application/xml, text/xml, */*;q=0.5',
-      'User-Agent': 'PersonalDashboardPapers/7.0'
+      'User-Agent': 'PersonalDashboardPapers/8.0'
     },
     timeoutMs,
     retryStatuses: new Set([429, 500, 502, 503, 504])
@@ -293,7 +328,10 @@ async function searchJStage(term, timeoutMs = 12_000) {
     throw new Error(`J-STAGE HTTP ${response.status} (${term})`);
   }
 
-  return parseJStageXml(await response.text(), term);
+  return parseJStageXml(await response.text(), term).map(item => ({
+    ...item,
+    description: [item.description, `検索語: ${term}`].filter(Boolean).join('\n\n')
+  }));
 }
 
 function semanticScholarDate(paper) {
@@ -308,135 +346,421 @@ function semanticScholarAuthors(paper) {
     .join(', ');
 }
 
-const SEMANTIC_STRONG_PATTERNS = [
-  /rice\s+cooker/,
-  /rice\s+cooking\s+(?:appliance|device|system)/,
-  /electric\s+kettle/,
-  /(?:electric\s+)?water\s+boiler/,
-  /hot\s+water\s+dispenser/,
-  /vacuum[-\s]+insulat\w*\s+(?:bottle|flask|container|vessel|jar)/,
-  /vacuum\s+flask/,
-  /thermos(?:\s+bottle)?/,
-  /insulated\s+(?:bottle|flask|container|food\s+jar)/,
-  /food\s+jar/,
-  /(?:kitchen\s+)?blender/,
-  /(?:food|stand|hand)\s+mixer/,
-  /food\s+processor/,
-  /coffee\s+(?:maker|machine|brewer)/,
-  /espresso\s+(?:machine|maker)/,
-  /electric\s+pressure\s+cooker/,
-  /pressure\s+cooker/,
-  /multi[-\s]?cooker/,
-  /electric\s+(?:hot\s+plate|griddle)/,
-  /hot\s+plate/,
-  /toaster\s+oven/,
-  /countertop\s+oven/
+const RICE_BASE_PATTERNS = [
+  /\brice\b/,
+  /cooked\s+rice/,
+  /rice\s+grain/,
+  /japonica/,
+  /oryza\s+sativa/,
+  /米飯/,
+  /α化米/,
+  /アルファ化米/,
+  /米(?:の|を|に|が|は|粒|デンプン|でんぷん|澱粉)/,
+  /炊飯/,
+  /米粒/,
+  /精白米/,
+  /ジャポニカ/,
+  /コメ/
 ];
 
-const SEMANTIC_CONTEXT_PATTERNS = [
-  /cooker/,
-  /kettle/,
-  /boiler/,
-  /water\s+heater/,
-  /hot\s+water/,
-  /bottle/,
-  /flask/,
-  /food\s+jar/,
-  /beverage\s+container/,
-  /food\s+container/,
-  /rice\s+cook/,
-  /cooking\s+appliance/,
-  /kitchen\s+appliance/,
-  /small\s+domestic\s+appliance/,
-  /blender/,
-  /mixer/,
-  /food\s+processor/,
-  /coffee/,
-  /espresso/,
-  /brewing/,
-  /pressure\s+cook/,
-  /griddle/,
-  /hot\s+plate/,
-  /toaster/,
-  /countertop\s+oven/
-];
-
-const SEMANTIC_TECH_PATTERNS = [
+const RICE_TECH_PATTERNS = [
+  /gelatini[sz]ation/,
+  /糊化/,
+  /α化/,
+  /アルファ化/,
+  /starch/,
+  /でん粉/,
+  /澱粉/,
+  /amylose/,
+  /amylopectin/,
+  /アミロース/,
+  /アミロペクチン/,
+  /water\s+(?:absorption|uptake|penetration)/,
+  /moisture\s+(?:uptake|migration|distribution)/,
+  /吸水/,
+  /浸漬/,
+  /水分移動/,
+  /含水/,
+  /texture/,
+  /hardness/,
+  /stickiness/,
+  /adhesiveness/,
+  /chewiness/,
+  /食感/,
+  /硬さ/,
+  /粘り/,
+  /付着/,
+  /sensory/,
+  /taste/,
+  /flavo[u]?r/,
+  /aroma/,
+  /官能/,
+  /食味/,
+  /甘み/,
+  /pasting/,
+  /gel\s+consistency/,
+  /starch\s+leaching/,
+  /swelling/,
+  /retrogradation/,
+  /溶出/,
+  /膨潤/,
+  /老化/,
+  /temperature\s+profile/,
+  /thermal\s+history/,
+  /heating\s+rate/,
+  /cooking\s+time/,
+  /温度履歴/,
+  /加熱速度/,
+  /炊飯時間/,
   /induction\s+heating/,
-  /electromagnetic\s+induction/,
-  /thermal\s+insulat/,
+  /ih\s*加熱/,
+  /温度制御/,
+  /fuzzy\s+control/,
+  /sensor/,
+  /制御/
+];
+
+const VACUUM_BASE_PATTERNS = [
   /vacuum\s+insulat/,
+  /vacuum[-\s]+insulated/,
+  /vacuum\s+flask/,
+  /thermos\s+flask/,
+  /\bthermos\b/,
+  /\bdewar\b/,
+  /真空断熱/,
+  /魔法瓶/
+];
+
+const VACUUM_TECH_PATTERNS = [
+  /thermal\s+conductiv/,
   /heat\s+transfer/,
   /heat\s+loss/,
-  /thermal\s+conductiv/,
-  /energy\s+efficien/,
-  /thermal\s+efficien/,
-  /temperature\s+control/,
-  /boiling/,
+  /thermal\s+bridge/,
+  /emissiv/,
+  /radiati(?:on|ve)/,
+  /residual\s+gas/,
+  /vacuum\s+degree/,
+  /barrier\s+(?:film|envelope|layer)/,
+  /core\s+material/,
+  /outgassing/,
+  /aging/,
+  /service\s+life/,
   /heat\s+retention/,
-  /thermal\s+retention/,
-  /stainless\s+steel/,
-  /heating\s+element/,
-  /infrared\s+heating/,
-  /convection\s+heating/,
-  /steam\s+heating/,
-  /coffee\s+extraction/,
-  /brewing\s+temperature/,
-  /extraction\s+yield/,
-  /mixing\s+performance/,
-  /blade\s+(?:design|geometry|speed)/,
-  /homogenization/,
-  /rheolog/,
-  /pressure\s+control/,
-  /browning/,
-  /maillard/
+  /thermal\s+resistance/,
+  /熱伝導/,
+  /伝熱/,
+  /放熱/,
+  /熱損失/,
+  /熱橋/,
+  /放射/,
+  /輻射/,
+  /真空度/,
+  /バリア(?:材|フィルム|層)/,
+  /芯材/,
+  /経時劣化/,
+  /耐久/,
+  /寿命/,
+  /保温/
 ];
 
-const SEMANTIC_NEGATIVE_PATTERNS = [
+const STORAGE_BASE_PATTERNS = [
+  /phase\s+change\s+material/,
+  /\bpcm\b/,
+  /thermal\s+energy\s+storage/,
+  /latent\s+heat\s+storage/,
+  /latent\s+heat/,
+  /相変化/,
+  /潜熱/,
+  /蓄熱/
+];
+
+const STORAGE_APPLICATION_PATTERNS = [
+  /heat\s+retention/,
+  /keep\s+warm/,
+  /hot\s+water/,
+  /beverage/,
+  /food/,
+  /container/,
+  /vessel/,
+  /bottle/,
+  /flask/,
+  /domestic/,
+  /household/,
+  /appliance/,
+  /温水/,
+  /飲料/,
+  /食品/,
+  /容器/,
+  /ボトル/,
+  /ポット/,
+  /保温/,
+  /家庭用/,
+  /調理家電/
+];
+
+const TARGET_PRODUCT_PATTERNS = [
+  /rice\s+cooker/,
+  /electric\s+kettle/,
+  /water\s+(?:boiler|warmer)/,
+  /hot\s+water\s+(?:pot|dispenser)/,
+  /vacuum[-\s]+insulated\s+(?:bottle|flask|pot|carafe)/,
+  /vacuum\s+flask/,
+  /thermos\s+(?:bottle|flask)/,
+  /coffee\s+(?:maker|machine|brewer)/,
+  /espresso\s+machine/,
+  /炊飯器/,
+  /炊飯ジャー/,
+  /電気ポット/,
+  /ジャーポット/,
+  /電気ケトル/,
+  /真空断熱(?:ボトル|ポット|水筒|容器)/,
+  /魔法瓶/,
+  /コーヒーメーカー/
+];
+
+const PRODUCT_TECH_PATTERNS = [
+  /energy\s+efficien/,
+  /energy\s+consumption/,
+  /power\s+consumption/,
+  /energy\s+sav/,
+  /省エネ/,
+  /省エネルギー/,
+  /消費電力/,
+  /電力量/,
+  /heat\s+loss/,
+  /heat\s+retention/,
+  /keep\s+warm/,
+  /insulat/,
+  /thermal\s+efficien/,
+  /保温/,
+  /断熱/,
+  /放熱/,
+  /temperature\s+control/,
+  /temperature\s+profil/,
+  /brewing\s+temperature/,
+  /extraction(?:\s+yield)?/,
+  /抽出(?:温度|率)?/,
+  /boil\s+control/,
+  /heating\s+control/,
+  /温度制御/,
+  /加熱制御/,
+  /usability/,
+  /ergonomic/,
+  /human\s+factors?/,
+  /user\s+behavio[u]?r/,
+  /user\s+interface/,
+  /accessib/,
+  /overfill/,
+  /pouring/,
+  /grip/,
+  /cleaning/,
+  /water\s+level/,
+  /safety/,
+  /使いやす/,
+  /操作性/,
+  /ユーザビリティ/,
+  /人間工学/,
+  /ユーザー行動/,
+  /安全性/,
+  /転倒/,
+  /湯漏れ/,
+  /注ぎ/,
+  /把持/,
+  /洗浄/,
+  /手入れ/,
+  /水位/,
+  /product\s+development/,
+  /design\s+optimization/,
+  /smart\s+appliance/,
+  /control\s+algorithm/,
+  /sensor/,
+  /製品開発/,
+  /最適化/,
+  /制御/,
+  /センサ/
+];
+
+const COFFEE_BASE_PATTERNS = [
+  /coffee/,
+  /espresso/,
+  /コーヒー/
+];
+
+const COFFEE_TECH_PATTERNS = [
+  /brewing/,
+  /extraction/,
+  /temperature\s+profil/,
+  /brewing\s+temperature/,
+  /extraction\s+yield/,
+  /sensory/,
+  /taste/,
+  /抽出/,
+  /抽出温度/,
+  /抽出率/,
+  /官能/,
+  /味/
+];
+
+const COMPANY_PATTERNS = [
+  /tiger\s+corporation/,
+  /タイガー魔法瓶/,
+  /zojirushi/,
+  /象印マホービン/,
+  /panasonic/,
+  /thermos/,
+  /サーモス/,
+  /iris\s+ohyama/,
+  /アイリスオーヤマ/,
+  /mitsubishi\s+electric/,
+  /三菱電機/,
+  /cuckoo/,
+  /cuchen/,
+  /midea/,
+  /joyoung/,
+  /groupe\s+seb/,
+  /tefal/,
+  /supor/,
+  /breville/,
+  /de[’']?longhi/,
+  /sharkninja/,
+  /hamilton\s+beach/,
+  /versuni/
+];
+
+const HARD_NEGATIVE_PATTERNS = [
+  /cancer/,
+  /tumou?r/,
+  /medical\s+imaging/,
+  /drug\s+delivery/,
   /cryogenic/,
   /liquid\s+(?:hydrogen|nitrogen|helium)/,
   /\blng\b/,
   /spacecraft/,
   /satellite/,
-  /building\s+envelope/,
-  /wall\s+insulation/,
   /pipeline/,
-  /laboratory\s+flask/,
-  /chemical\s+reactor/,
-  /semiconductor/,
-  /photovoltaic/,
-  /battery\s+cell/,
-  /electric\s+vehicle/,
   /automotive\s+engine/,
-  /cancer/,
-  /tumou?r/,
-  /medical\s+imaging/
+  /electric\s+vehicle/,
+  /battery\s+cell/,
+  /semiconductor/
 ];
 
-function semanticRelevanceScore(paper) {
-  const haystack = `${paper?.title || ''}\n${paper?.abstract || ''}`.toLowerCase();
-  if (!haystack.trim()) return 0;
+const SOFT_NEGATIVE_PATTERNS = [
+  /building\s+envelope/,
+  /building\s+insulation/,
+  /wall\s+insulation/,
+  /window\s+insulation/,
+  /construction/,
+  /refrigerator/,
+  /cold\s+storage/,
+  /laboratory\s+flask/,
+  /chemical\s+reactor/
+];
 
+function patternHits(patterns, text) {
+  return patterns.filter(pattern => pattern.test(text)).length;
+}
+
+function evaluateResearchRelevance(raw) {
+  const text = [
+    raw?.title,
+    raw?.originalTitle,
+    raw?.abstract,
+    raw?.description,
+    raw?.author,
+    raw?.sourceName,
+    raw?.companyLabel
+  ].filter(Boolean).join('\n').normalize('NFKC').toLowerCase();
+
+  if (!text.trim()) return { score: 0, axes: [] };
+
+  const riceBase = patternHits(RICE_BASE_PATTERNS, text);
+  const riceTech = patternHits(RICE_TECH_PATTERNS, text);
+  const vacuumBase = patternHits(VACUUM_BASE_PATTERNS, text);
+  const vacuumTech = patternHits(VACUUM_TECH_PATTERNS, text);
+  const storageBase = patternHits(STORAGE_BASE_PATTERNS, text);
+  const storageApp = patternHits(STORAGE_APPLICATION_PATTERNS, text);
+  const product = patternHits(TARGET_PRODUCT_PATTERNS, text);
+  const productTech = patternHits(PRODUCT_TECH_PATTERNS, text);
+  const coffeeBase = patternHits(COFFEE_BASE_PATTERNS, text);
+  const coffeeTech = patternHits(COFFEE_TECH_PATTERNS, text);
+  const company = patternHits(COMPANY_PATTERNS, text);
+  const hardNegative = patternHits(HARD_NEGATIVE_PATTERNS, text);
+  const softNegative = patternHits(SOFT_NEGATIVE_PATTERNS, text);
+
+  const axes = [];
   let score = 0;
-  const strongCount = SEMANTIC_STRONG_PATTERNS.filter(pattern => pattern.test(haystack)).length;
-  const contextCount = SEMANTIC_CONTEXT_PATTERNS.filter(pattern => pattern.test(haystack)).length;
-  const techCount = SEMANTIC_TECH_PATTERNS.filter(pattern => pattern.test(haystack)).length;
-  const negativeCount = SEMANTIC_NEGATIVE_PATTERNS.filter(pattern => pattern.test(haystack)).length;
 
-  score += Math.min(16, strongCount * 8);
-  score += Math.min(8, contextCount * 3);
-  score += Math.min(10, techCount * 2);
-  score -= Math.min(14, negativeCount * 7);
+  // 軸1: 炊飯科学。米だけ/食品だけでは採用せず、物性・吸水・糊化・食味などを必須にする。
+  if (riceBase > 0 && riceTech > 0) {
+    axes.push('炊飯科学');
+    score += 12 + Math.min(8, riceTech * 2);
+    if (/rice\s+cooker|炊飯器/.test(text)) score += 3;
+  }
 
-  if (/rice|grain/.test(haystack) && /cook|heat|temperature/.test(haystack) && /induction|appliance|cooker|thermal/.test(haystack)) score += 7;
-  if (/water|beverage/.test(haystack) && /heat|boil|temperature/.test(haystack) && /kettle|boiler|heater|dispenser|appliance/.test(haystack)) score += 7;
-  if (/bottle|flask|container|vessel|jar/.test(haystack) && /vacuum|insulat|thermal/.test(haystack) && /heat|retention|conductiv|beverage|food/.test(haystack)) score += 7;
-  if (/blender|mixer|food processor/.test(haystack) && /food|beverage|mix|blade|flow|rheolog|homogen/.test(haystack)) score += 7;
-  if (/coffee|espresso/.test(haystack) && /maker|machine|brew|extract|temperature|pressure/.test(haystack)) score += 7;
-  if (/pressure cooker|multicooker|pressure cooking/.test(haystack) && /food|cook|heat|temperature|steam/.test(haystack)) score += 7;
-  if (/hot plate|griddle|toaster|countertop oven/.test(haystack) && /cook|heat|thermal|temperature|browning|infrared|convection/.test(haystack)) score += 7;
+  // 軸2: 真空断熱。vacuum単独や建築用途単独では採用しない。
+  if (vacuumBase > 0 && vacuumTech > 0) {
+    axes.push('真空断熱');
+    score += 12 + Math.min(8, vacuumTech * 2);
+  }
 
-  return score;
+  // 軸2補助: 蓄熱。PCMだけでは広すぎるため、保温/容器/温水/家庭機器の文脈を必須にする。
+  if (storageBase > 0 && storageApp > 0) {
+    axes.push('蓄熱・保温');
+    score += 9 + Math.min(6, storageApp * 2);
+  }
+
+  // 軸3: 対象5製品 × 省エネ・保温・ユーザビリティ/製品制御
+  if (product > 0 && productTech > 0) {
+    axes.push('製品技術');
+    score += 11 + Math.min(8, productTech * 2);
+  }
+
+  // コーヒーメーカー開発へ直接つながる抽出温度・抽出率・官能研究も拾う。
+  if (coffeeBase > 0 && coffeeTech > 0) {
+    axes.push('コーヒー抽出');
+    score += 10 + Math.min(6, coffeeTech * 2);
+  }
+
+  // 軸3補助: 対象メーカーが関与していて、上記いずれかの研究軸にも入る場合だけ加点。
+  if (company > 0 && axes.length > 0) {
+    axes.push('競合企業');
+    score += 6;
+  }
+
+  // 明らかな別分野は強く落とす。建築VIPは基礎技術として転用可能なためsoft penaltyに留める。
+  score -= Math.min(24, hardNegative * 12);
+  if (!product && !company) score -= Math.min(10, softNegative * 5);
+  else score -= Math.min(4, softNegative * 2);
+
+  return {
+    score,
+    axes: [...new Set(axes)]
+  };
+}
+
+function semanticRelevanceScore(paper) {
+  return evaluateResearchRelevance({
+    title: paper?.title,
+    originalTitle: paper?.title,
+    abstract: paper?.abstract
+  }).score;
+}
+
+function applyResearchFilter(item) {
+  if (!item) return null;
+  const result = evaluateResearchRelevance(item);
+  if (!result.axes.length || result.score < 10) return null;
+
+  item.relevanceScore = Math.max(Number(item.relevanceScore || 0), result.score);
+  item.researchAxes = result.axes;
+
+  const axisText = `調査軸: ${result.axes.join(' / ')}`;
+  const scoreText = `関連度スコア: ${result.score}`;
+  const description = normalizeSpace(item.description || '');
+  if (!description.includes('調査軸:')) {
+    item.description = [axisText, scoreText, description].filter(Boolean).join('\n\n');
+  }
+  return item;
 }
 
 function parseSemanticScholarPaper(paper) {
@@ -445,7 +769,7 @@ function parseSemanticScholarPaper(paper) {
   if (!originalTitle || !pdfUrl) return null;
 
   const relevanceScore = semanticRelevanceScore(paper);
-  if (relevanceScore < 5) return null;
+  if (relevanceScore < 10) return null;
 
   const authors = semanticScholarAuthors(paper);
   const venue = normalizeSpace(paper?.venue);
@@ -525,7 +849,7 @@ async function searchSemanticScholar(queryDef, timeoutMs = 18_000) {
   const requestUrl = `${url.toString()}&openAccessPdf`;
   const headers = {
     'Accept': 'application/json',
-    'User-Agent': 'PersonalDashboardPapers/5.0'
+    'User-Agent': 'PersonalDashboardPapers/8.0'
   };
   if (process.env.SEMANTIC_SCHOLAR_API_KEY) headers['x-api-key'] = process.env.SEMANTIC_SCHOLAR_API_KEY;
 
@@ -650,24 +974,12 @@ function crossrefTopicScore(work) {
   const title = crossrefTitle(work);
   const abstract = stripHtml(work?.abstract || '');
   const journal = normalizeSpace(Array.isArray(work?.['container-title']) ? work['container-title'][0] : work?.['container-title']);
-  const haystack = `${title}\n${abstract}\n${journal}`.toLowerCase();
-  if (!haystack.trim()) return 0;
-
-  const strongCount = SEMANTIC_STRONG_PATTERNS.filter(pattern => pattern.test(haystack)).length;
-  const contextCount = SEMANTIC_CONTEXT_PATTERNS.filter(pattern => pattern.test(haystack)).length;
-  const techCount = SEMANTIC_TECH_PATTERNS.filter(pattern => pattern.test(haystack)).length;
-  const negativeCount = SEMANTIC_NEGATIVE_PATTERNS.filter(pattern => pattern.test(haystack)).length;
-
-  let score = 0;
-  score += Math.min(18, strongCount * 8);
-  score += Math.min(10, contextCount * 3);
-  score += Math.min(10, techCount * 2);
-  score -= Math.min(18, negativeCount * 7);
-
-  // 競合企業所属であること自体は強い情報なので、周辺技術1語でも候補に残す。
-  if (/kitchen|cooking|food preparation|beverage|household appliance|small domestic appliance/.test(haystack)) score += 4;
-
-  return score;
+  return evaluateResearchRelevance({
+    title,
+    originalTitle: title,
+    abstract,
+    description: journal
+  }).score;
 }
 
 function crossrefBestLink(work) {
@@ -702,7 +1014,7 @@ function parseCrossrefWork(work, company) {
   if (!matchedAffiliations.length) return null;
 
   const relevanceScore = crossrefTopicScore(work);
-  if (relevanceScore < 2) return null;
+  if (relevanceScore < 10) return null;
 
   const link = crossrefBestLink(work);
   if (!link) return null;
@@ -745,7 +1057,7 @@ async function searchCrossrefCompany(company) {
   url.searchParams.set('query.affiliation', company.query);
   url.searchParams.set(
     'query.bibliographic',
-    'rice cooker kettle water boiler vacuum insulated bottle food jar blender mixer coffee maker coffee machine pressure cooker hot plate griddle toaster oven kitchen appliance induction heating thermal insulation temperature control'
+    'rice cooker rice cooking gelatinization water absorption electric kettle water boiler vacuum insulated bottle vacuum flask thermos coffee maker coffee brewing energy efficiency heat retention temperature control usability thermal conductivity'
   );
   url.searchParams.set('filter', 'from-pub-date:2005-01-01,has-affiliation:1');
   url.searchParams.set('rows', String(CROSSREF_ROWS_PER_COMPANY));
@@ -759,8 +1071,8 @@ async function searchCrossrefCompany(company) {
     headers: {
       'Accept': 'application/json',
       'User-Agent': process.env.CROSSREF_MAILTO
-        ? `PersonalDashboardPapers/5.0 (mailto:${process.env.CROSSREF_MAILTO})`
-        : 'PersonalDashboardPapers/5.0'
+        ? `PersonalDashboardPapers/8.0 (mailto:${process.env.CROSSREF_MAILTO})`
+        : 'PersonalDashboardPapers/8.0'
     },
     signal: AbortSignal.timeout(16_000)
   });
@@ -819,7 +1131,7 @@ async function enrichCrossrefWithOpenAccessPdf(items) {
     const headers = {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
-      'User-Agent': 'PersonalDashboardPapers/5.0'
+      'User-Agent': 'PersonalDashboardPapers/8.0'
     };
     if (process.env.SEMANTIC_SCHOLAR_API_KEY) headers['x-api-key'] = process.env.SEMANTIC_SCHOLAR_API_KEY;
 
@@ -934,11 +1246,14 @@ async function searchCiniiAll() {
     url.searchParams.set('lang', 'ja');
 
     const response = await fetch(url, {
-      headers: { 'Accept': 'application/rss+xml, application/xml, text/xml, */*;q=0.5', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+      headers: { 'Accept': 'application/rss+xml, application/xml, text/xml, */*;q=0.5', 'User-Agent': 'PersonalDashboardPapers/8.0' },
       signal: AbortSignal.timeout(10_000)
     });
     if (!response.ok) throw new Error(`CiNii HTTP ${response.status}`);
-    const items = parseRssLikeItems(await response.text(), 'CiNii Research');
+    const items = parseRssLikeItems(await response.text(), 'CiNii Research').map(item => ({
+      ...item,
+      description: [item.description, `検索語: ${term}`].filter(Boolean).join('\n\n')
+    }));
     return { term, items };
   });
 
@@ -958,9 +1273,10 @@ async function searchCiniiAll() {
 
 async function searchPlos(timeoutMs = 8_000) {
   const terms = [
-    '"rice cooker"', '"electric kettle"', '"vacuum flask"', '"vacuum insulated"',
-    '"coffee brewing"', '"pressure cooking"', '"induction heating"', '"food mixing"',
-    '"thermal insulation"', '"heat retention"'
+    '"rice cooking"', 'gelatinization', '"water absorption"', '"cooked rice texture"',
+    '"rice cooker"', '"vacuum insulation"', '"vacuum flask"', '"thermal conductivity"',
+    '"heat retention"', '"electric kettle"', '"energy efficiency"',
+    '"water boiler"', '"coffee maker"', '"coffee brewing"', '"temperature control"'
   ];
   const url = new URL(PLOS_ENDPOINT);
   url.searchParams.set('q', `title:(${terms.join(' OR ')}) OR abstract:(${terms.join(' OR ')})`);
@@ -971,7 +1287,7 @@ async function searchPlos(timeoutMs = 8_000) {
   if (process.env.PLOS_API_KEY) url.searchParams.set('api_key', process.env.PLOS_API_KEY);
 
   const response = await fetch(url, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/8.0' },
     signal: AbortSignal.timeout(timeoutMs)
   });
   if (!response.ok) throw new Error(`PLOS HTTP ${response.status}`);
@@ -997,11 +1313,12 @@ async function searchPlos(timeoutMs = 8_000) {
 
 async function searchPmcOpenAccess() {
   const term = [
-    '"rice cooker"[Title/Abstract]', '"electric kettle"[Title/Abstract]',
-    '"vacuum flask"[Title/Abstract]', '"vacuum insulation"[Title/Abstract]',
-    '"coffee brewing"[Title/Abstract]', '"pressure cooking"[Title/Abstract]',
-    '"induction heating"[Title/Abstract]', '"food mixing"[Title/Abstract]',
-    '"thermal insulation"[Title/Abstract]', '"heat retention"[Title/Abstract]'
+    '("rice cooking"[Title/Abstract] AND (gelatinization[Title/Abstract] OR starch[Title/Abstract] OR "water absorption"[Title/Abstract] OR texture[Title/Abstract] OR sensory[Title/Abstract]))',
+    '("rice cooker"[Title/Abstract] AND ("temperature control"[Title/Abstract] OR "energy consumption"[Title/Abstract] OR "heat retention"[Title/Abstract]))',
+    '("vacuum insulation"[Title/Abstract] AND ("thermal conductivity"[Title/Abstract] OR "heat transfer"[Title/Abstract] OR "heat retention"[Title/Abstract]))',
+    '("phase change material"[Title/Abstract] AND (container[Title/Abstract] OR "hot water"[Title/Abstract] OR "heat retention"[Title/Abstract]))',
+    '("electric kettle"[Title/Abstract] AND ("energy efficiency"[Title/Abstract] OR usability[Title/Abstract] OR safety[Title/Abstract]))',
+    '("coffee maker"[Title/Abstract] AND (temperature[Title/Abstract] OR extraction[Title/Abstract] OR "energy consumption"[Title/Abstract]))'
   ].join(' OR ');
 
   const searchUrl = new URL(NCBI_ESEARCH_ENDPOINT);
@@ -1015,7 +1332,7 @@ async function searchPmcOpenAccess() {
   if (process.env.NCBI_API_KEY) searchUrl.searchParams.set('api_key', process.env.NCBI_API_KEY);
 
   const searchResponse = await fetch(searchUrl, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/8.0' },
     signal: AbortSignal.timeout(8_000)
   });
   if (!searchResponse.ok) throw new Error(`PMC ESearch HTTP ${searchResponse.status}`);
@@ -1033,7 +1350,7 @@ async function searchPmcOpenAccess() {
   if (process.env.NCBI_API_KEY) summaryUrl.searchParams.set('api_key', process.env.NCBI_API_KEY);
 
   const summaryResponse = await fetch(summaryUrl, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/8.0' },
     signal: AbortSignal.timeout(8_000)
   });
   if (!summaryResponse.ok) throw new Error(`PMC ESummary HTTP ${summaryResponse.status}`);
@@ -1068,7 +1385,7 @@ async function searchCore() {
   const url = new URL(CORE_ENDPOINT);
   url.searchParams.set('q', paperQueryText());
   url.searchParams.set('limit', '100');
-  const headers = { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' };
+  const headers = { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/8.0' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const response = await fetch(url, {
     headers,
@@ -1120,7 +1437,7 @@ async function searchIeeeOpenAccess() {
   url.searchParams.set('format', 'json');
 
   const response = await fetch(url, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/8.0' },
     signal: AbortSignal.timeout(12_000)
   });
   if (!response.ok) throw new Error(`IEEE Xplore HTTP ${response.status}`);
@@ -1365,6 +1682,8 @@ export default async function handler(req, res) {
       : await collectFastSources({ forceRefresh });
 
     const finalItems = dedupePapers(result.items)
+      .map(applyResearchFilter)
+      .filter(Boolean)
       .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())
       .slice(0, MAX_ITEMS);
 
@@ -1404,7 +1723,7 @@ export default async function handler(req, res) {
     const xml = rssXml(
       '論文',
       [
-        '調理家電・断熱・熱・食品調理技術と国内外競合メーカー関連論文を統合。',
+        '炊飯科学・真空断熱/蓄熱・対象5製品の省エネ/保温/ユーザビリティ・競合企業関与の4軸で厳密に絞り込んだ論文を統合。',
         mode === 'fast'
           ? '高速表示: J-STAGE + Semantic Scholar + PLOS。PMCなどは一覧表示後に詳細取得。'
           : '詳細表示: 高速ソース + Crossref競合企業 + CORE + PMC + CiNii Research/IRDB・IEEE Xplore（設定済みAPIのみ）。',
@@ -1428,7 +1747,7 @@ export default async function handler(req, res) {
 
     return res.status(200).send(xml);
   } catch (err) {
-    console.error('[papers-feed:v24]', err);
+    console.error('[papers-feed:v26]', err);
 
     const staleXml = feedCaches.fast.xml || feedCaches.deep.xml;
     if (staleXml) {
