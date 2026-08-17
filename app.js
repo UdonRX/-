@@ -2658,6 +2658,10 @@ async function ensureSummaryLoaded(index) {
       points: Array.isArray(data.points) ? data.points : [],
       contentSource: data.contentSource || 'rss',
       extractedLength: Number(data.extractedLength) || 0,
+      aiInputLength: Number(data.aiInputLength) || 0,
+      pdfPageCount: Number(data.pdfPageCount) || 0,
+      pdfUrl: data.pdfUrl || '',
+      fastPath: data.fastPath || '',
       fallbackReason: data.fallbackReason || ''
     };
 
@@ -2714,10 +2718,26 @@ function renderSummaryResult(container, result) {
   container.innerHTML = '';
 
   const sourceNote = document.createElement('div');
-  sourceNote.className = `summary-content-source ${result.contentSource === 'article' ? 'article' : 'rss'}`;
-  sourceNote.textContent = result.contentSource === 'article'
-    ? `リンク先の記事本文から要約${result.extractedLength ? `（${result.extractedLength.toLocaleString()}文字取得）` : ''}`
-    : 'リンク先本文を取得できなかったためRSS本文から要約';
+  const sourceClass = result.contentSource === 'pdf'
+    ? 'pdf'
+    : result.contentSource === 'article'
+      ? 'article'
+      : 'rss';
+  sourceNote.className = `summary-content-source ${sourceClass}`;
+
+  if (result.contentSource === 'pdf') {
+    const details = [];
+    if (result.pdfPageCount) details.push(`${result.pdfPageCount}ページ`);
+    if (result.extractedLength) details.push(`${result.extractedLength.toLocaleString()}文字抽出`);
+    if (result.aiInputLength && result.aiInputLength < result.extractedLength) {
+      details.push(`AI入力${result.aiInputLength.toLocaleString()}文字`);
+    }
+    sourceNote.textContent = `PDF本文から要約${details.length ? `（${details.join('・')}）` : ''}`;
+  } else if (result.contentSource === 'article') {
+    sourceNote.textContent = `リンク先の記事本文から要約${result.extractedLength ? `（${result.extractedLength.toLocaleString()}文字取得）` : ''}`;
+  } else {
+    sourceNote.textContent = 'リンク先本文を取得できなかったためRSS本文から要約';
+  }
 
   const pointLabel = document.createElement('div');
   pointLabel.className = 'summary-section-label summary-points-label';
@@ -3848,7 +3868,12 @@ function openTwitchLink(url) {
 
 async function loadTwitchContent(index, { forceRefresh = false } = {}) {
   const container = document.getElementById('twitch-content');
+  const liveSlot = document.getElementById('twitch-live-slot');
+  const section = document.getElementById('twitch-section');
   if (!container) return;
+
+  if (liveSlot) liveSlot.replaceChildren();
+  section?.classList.remove('has-live');
 
   if (!twitchFeeds.length) {
     container.innerHTML = '<div class="loading">配信者を追加してください。</div>';
@@ -3907,7 +3932,12 @@ async function loadTwitchContent(index, { forceRefresh = false } = {}) {
       liveTitle.onclick = () => openTwitchLink(data.live.url);
       status.appendChild(liveTitle);
     }
-    container.appendChild(status);
+    if (data.live?.isLive && liveSlot) {
+      liveSlot.replaceChildren(status);
+      section?.classList.add('has-live');
+    } else {
+      container.appendChild(status);
+    }
 
     const heading = document.createElement('div');
     heading.className = 'twitch-archive-heading';
