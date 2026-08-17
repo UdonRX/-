@@ -5,47 +5,68 @@ import { generateGemini } from '../lib/gemini.mjs';
 const { JSDOM } = jsdomPackage;
 
 /*
- * v20 論文フィード
+ * v21 論文フィード
  * - J-STAGE: 日本語論文
  * - Semantic Scholar: 英語を中心とした公開PDF付き論文
+ * - 製品名だけでなく周辺の熱工学・加熱・断熱技術まで検索
  * - 英語タイトルは既存のGeminiでまとめて日本語化
  *
  * Semantic Scholar側は openAccessPdf を指定し、公開PDF URLがある論文だけを採用する。
  * そのPDF URLをRSSのlinkにするので、既存のPDF AI要約機能をそのまま利用できる。
  */
 
+// v21: 製品名だけでなく、周辺の要素技術・熱現象まで検索対象を広げる。
+// J-STAGEは日本語の関連語を複数検索し、Semantic ScholarはBoolean検索で広く拾った後、
+// タイトル+抄録から関連度スコアを付けてノイズを落とす。
 const JSTAGE_SEARCH_TERMS = [
   '炊飯器',
-  '炊飯ジャー',
+  '炊飯 加熱',
+  'IH 炊飯',
+  '誘導加熱 炊飯',
+  '米飯 加熱',
   '電気ケトル',
+  '電気 湯沸かし',
   '電気ポット',
-  '電気湯沸かし',
-  '真空断熱ボトル',
-  '真空断熱容器',
+  '保温 ポット',
   '真空断熱',
-  '魔法瓶'
+  '真空断熱 容器',
+  '魔法瓶',
+  'ステンレスボトル',
+  '保温 ボトル',
+  '断熱 ボトル'
 ];
 
-const SEMANTIC_SCHOLAR_QUERY = [
-  '"rice cooker"',
-  '"electric rice cooker"',
-  '"rice cooking appliance"',
-  '"electric kettle"',
-  '"electric water boiler"',
-  '"electric hot water pot"',
-  '"vacuum insulated bottle"',
-  '"vacuum flask"',
-  '"thermos bottle"',
-  '"vacuum insulation"'
-].join(' | ');
+const SEMANTIC_SCHOLAR_QUERIES = [
+  {
+    name: '製品名',
+    query: '(("rice cooker" | "electric kettle" | "water boiler" | "hot water dispenser" | "vacuum flask" | "vacuum insulated bottle" | "insulated bottle" | thermos))'
+  },
+  {
+    name: '炊飯・誘導加熱',
+    query: '((rice | grain) + (cooking | heating | temperature) + (induction | thermal | appliance | cooker))'
+  },
+  {
+    name: '湯沸かし・温度制御',
+    query: '((water | beverage) + (heating | boiling | temperature) + (kettle | boiler | dispenser | appliance))'
+  },
+  {
+    name: '断熱容器',
+    query: '((bottle | flask | container | vessel) + (vacuum | insulat* | thermal) + (heat | retention | conductivity | beverage))'
+  },
+  {
+    name: '熱効率・熱損失',
+    query: '(("energy efficiency" | "thermal efficiency" | "heat loss" | "temperature control") + (cooker | kettle | boiler | "water heating" | bottle | flask | container))'
+  }
+];
 
 const JSTAGE_ENDPOINT = 'https://api.jstage.jst.go.jp/searchapi/do';
 const SEMANTIC_SCHOLAR_ENDPOINT = 'https://api.semanticscholar.org/graph/v1/paper/search/bulk';
 
 const TTL = 20 * 60 * 1000;
-const JSTAGE_PER_TERM = 25;
-const MAX_ITEMS = 120;
-const TRANSLATION_BATCH_SIZE = 45;
+const JSTAGE_PER_TERM = 35;
+const SEMANTIC_SCHOLAR_PER_QUERY = 100;
+const MAX_ITEMS = 220;
+const TRANSLATION_BATCH_SIZE = 60;
 const TRANSLATION_CACHE_MAX = 500;
 
 let cache = { at: 0, xml: '' };
@@ -230,26 +251,92 @@ function semanticScholarAuthors(paper) {
     .join(', ');
 }
 
-function looksRelevantSemanticPaper(paper) {
+const SEMANTIC_STRONG_PATTERNS = [
+  /rice\s+cooker/,
+  /rice\s+cooking\s+(?:appliance|device|system)/,
+  /electric\s+kettle/,
+  /(?:electric\s+)?water\s+boiler/,
+  /hot\s+water\s+dispenser/,
+  /vacuum[-\s]+insulat\w*\s+(?:bottle|flask|container|vessel)/,
+  /vacuum\s+flask/,
+  /thermos(?:\s+bottle)?/,
+  /insulated\s+(?:bottle|flask|container)/,
+  /thermal\s+(?:bottle|flask)/
+];
+
+const SEMANTIC_CONTEXT_PATTERNS = [
+  /cooker/,
+  /kettle/,
+  /boiler/,
+  /water\s+heater/,
+  /hot\s+water/,
+  /bottle/,
+  /flask/,
+  /beverage\s+container/,
+  /food\s+container/,
+  /rice\s+cook/,
+  /cooking\s+appliance/
+];
+
+const SEMANTIC_TECH_PATTERNS = [
+  /induction\s+heating/,
+  /electromagnetic\s+induction/,
+  /thermal\s+insulat/,
+  /vacuum\s+insulat/,
+  /heat\s+transfer/,
+  /heat\s+loss/,
+  /thermal\s+conductiv/,
+  /energy\s+efficien/,
+  /thermal\s+efficien/,
+  /temperature\s+control/,
+  /boiling/,
+  /heat\s+retention/,
+  /thermal\s+retention/,
+  /stainless\s+steel/
+];
+
+const SEMANTIC_NEGATIVE_PATTERNS = [
+  /cryogenic/,
+  /liquid\s+(?:hydrogen|nitrogen|helium)/,
+  /\blng\b/,
+  /spacecraft/,
+  /satellite/,
+  /building\s+envelope/,
+  /wall\s+insulation/,
+  /pipeline/,
+  /laboratory\s+flask/,
+  /chemical\s+reactor/
+];
+
+function semanticRelevanceScore(paper) {
   const haystack = `${paper?.title || ''}\n${paper?.abstract || ''}`.toLowerCase();
-  return [
-    /rice\s+cooker/,
-    /rice\s+cooking\s+appliance/,
-    /electric\s+kettle/,
-    /electric\s+(?:water\s+)?boiler/,
-    /electric\s+(?:hot\s+water\s+)?pot/,
-    /vacuum[-\s]+insulat/,
-    /vacuum\s+flask/,
-    /thermos\s+bottle/,
-    /insulated\s+bottle/
-  ].some(pattern => pattern.test(haystack));
+  if (!haystack.trim()) return 0;
+
+  let score = 0;
+  const strongCount = SEMANTIC_STRONG_PATTERNS.filter(pattern => pattern.test(haystack)).length;
+  const contextCount = SEMANTIC_CONTEXT_PATTERNS.filter(pattern => pattern.test(haystack)).length;
+  const techCount = SEMANTIC_TECH_PATTERNS.filter(pattern => pattern.test(haystack)).length;
+  const negativeCount = SEMANTIC_NEGATIVE_PATTERNS.filter(pattern => pattern.test(haystack)).length;
+
+  score += Math.min(16, strongCount * 8);
+  score += Math.min(8, contextCount * 3);
+  score += Math.min(10, techCount * 2);
+  score -= Math.min(14, negativeCount * 7);
+
+  if (/rice|grain/.test(haystack) && /cook|heat|temperature/.test(haystack) && /induction|appliance|cooker|thermal/.test(haystack)) score += 7;
+  if (/water|beverage/.test(haystack) && /heat|boil|temperature/.test(haystack) && /kettle|boiler|heater|dispenser|appliance/.test(haystack)) score += 7;
+  if (/bottle|flask|container|vessel/.test(haystack) && /vacuum|insulat|thermal/.test(haystack) && /heat|retention|conductiv|beverage/.test(haystack)) score += 7;
+
+  return score;
 }
 
 function parseSemanticScholarPaper(paper) {
   const originalTitle = normalizeSpace(paper?.title);
   const pdfUrl = normalizeHttps(paper?.openAccessPdf?.url);
   if (!originalTitle || !pdfUrl) return null;
-  if (!looksRelevantSemanticPaper(paper)) return null;
+
+  const relevanceScore = semanticRelevanceScore(paper);
+  if (relevanceScore < 6) return null;
 
   const authors = semanticScholarAuthors(paper);
   const venue = normalizeSpace(paper?.venue);
@@ -264,6 +351,7 @@ function parseSemanticScholarPaper(paper) {
     doi && `DOI: ${doi}`,
     abstract && `抄録: ${abstract}`,
     s2Url && `Semantic Scholar: ${s2Url}`,
+    `関連度スコア: ${relevanceScore}`,
     '情報提供元: Semantic Scholar（公開PDF）'
   ].filter(Boolean).join('\n\n');
 
@@ -277,45 +365,73 @@ function parseSemanticScholarPaper(paper) {
     sourceName: 'Semantic Scholar OA',
     description: details,
     doi,
+    relevanceScore,
     sourceId: `s2:${normalizeSpace(paper?.paperId || doi || pdfUrl)}`
   };
 }
 
-async function searchSemanticScholar() {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function searchSemanticScholar(queryDef) {
   const url = new URL(SEMANTIC_SCHOLAR_ENDPOINT);
-  url.searchParams.set('query', SEMANTIC_SCHOLAR_QUERY);
-  url.searchParams.set(
-    'fields',
-    'title,url,abstract,authors,venue,publicationDate,year,externalIds,openAccessPdf,publicationTypes'
-  );
+  url.searchParams.set('query', queryDef.query);
+  url.searchParams.set('fields', 'title,url,abstract,authors,venue,publicationDate,year,externalIds,openAccessPdf,publicationTypes');
   url.searchParams.set('sort', 'publicationDate:desc');
   url.searchParams.set('publicationTypes', 'JournalArticle,Conference,Review');
-  url.searchParams.set('publicationDateOrYear', '2018-01-01:');
+  url.searchParams.set('publicationDateOrYear', '2014-01-01:');
+  url.searchParams.set('limit', String(SEMANTIC_SCHOLAR_PER_QUERY));
 
-  // 公式仕様では openAccessPdf は値を取らないフラグ。
   const requestUrl = `${url.toString()}&openAccessPdf`;
   const headers = {
     'Accept': 'application/json',
-    'User-Agent': 'PersonalDashboardPapers/3.0'
+    'User-Agent': 'PersonalDashboardPapers/4.0'
   };
-  if (process.env.SEMANTIC_SCHOLAR_API_KEY) {
-    headers['x-api-key'] = process.env.SEMANTIC_SCHOLAR_API_KEY;
-  }
+  if (process.env.SEMANTIC_SCHOLAR_API_KEY) headers['x-api-key'] = process.env.SEMANTIC_SCHOLAR_API_KEY;
 
   const response = await fetch(requestUrl, {
     headers,
-    signal: AbortSignal.timeout(15_000)
+    signal: AbortSignal.timeout(18_000)
   });
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new Error(`Semantic Scholar HTTP ${response.status}${text ? `: ${text.slice(0, 180)}` : ''}`);
+    throw new Error(`Semantic Scholar HTTP ${response.status} [${queryDef.name}]${text ? `: ${text.slice(0, 180)}` : ''}`);
   }
 
   const data = await response.json();
-  return (Array.isArray(data?.data) ? data.data : [])
+  const items = (Array.isArray(data?.data) ? data.data : [])
     .map(parseSemanticScholarPaper)
     .filter(Boolean);
+
+  return {
+    name: queryDef.name,
+    estimatedTotal: Number(data?.total || 0),
+    items
+  };
+}
+
+async function searchSemanticScholarAll() {
+  const items = [];
+  const errors = [];
+  const counts = [];
+  const hasOwnKey = Boolean(process.env.SEMANTIC_SCHOLAR_API_KEY);
+
+  for (let i = 0; i < SEMANTIC_SCHOLAR_QUERIES.length; i += 1) {
+    if (i > 0) await sleep(hasOwnKey ? 1050 : 1350);
+    const queryDef = SEMANTIC_SCHOLAR_QUERIES[i];
+
+    try {
+      const result = await searchSemanticScholar(queryDef);
+      items.push(...result.items);
+      counts.push(`${result.name}:${result.items.length}`);
+    } catch (err) {
+      errors.push(err?.message || `Semantic Scholar取得失敗 [${queryDef.name}]`);
+    }
+  }
+
+  return { items, errors, counts };
 }
 
 // J-STAGEの同時アクセス制限を踏みにくくするため最大2並列。
@@ -402,7 +518,7 @@ async function translateEnglishTitles(items) {
           '入力のindexを必ず維持してください。'
         ].join('\n'),
         prompt: `次の論文タイトルを日本語へ翻訳してください。\n\n${prompt}`,
-        maxOutputTokens: 5000,
+        maxOutputTokens: 8000,
         responseSchema,
         timeoutMs: 25_000
       });
@@ -454,26 +570,21 @@ export default async function handler(req, res) {
       return res.status(200).send(cache.xml);
     }
 
-    // Semantic Scholarは1リクエストで広く取得。J-STAGE検索と並行して待つ。
-    const [jstageSettled, semanticSettled] = await Promise.all([
+    const [jstageSettled, semanticResult] = await Promise.all([
       runWithConcurrency(JSTAGE_SEARCH_TERMS, 2, searchJStage),
-      Promise.allSettled([searchSemanticScholar()])
+      searchSemanticScholarAll()
     ]);
 
     const jstageItems = jstageSettled.flatMap(result =>
       result?.status === 'fulfilled' ? result.value : []
     );
-    const semanticItems = semanticSettled.flatMap(result =>
-      result?.status === 'fulfilled' ? result.value : []
-    );
+    const semanticItems = semanticResult.items;
 
     const errors = [
       ...jstageSettled
         .filter(result => result?.status === 'rejected')
         .map(result => result.reason?.message || 'J-STAGE取得失敗'),
-      ...semanticSettled
-        .filter(result => result?.status === 'rejected')
-        .map(result => result.reason?.message || 'Semantic Scholar取得失敗')
+      ...semanticResult.errors
     ];
 
     const merged = dedupePapers([...jstageItems, ...semanticItems]);
@@ -491,8 +602,9 @@ export default async function handler(req, res) {
     const xml = rssXml(
       '論文',
       [
-        '炊飯器・電気ケトル・電気ポット・真空断熱・魔法瓶などの関連論文。',
+        '家電製品名に加え、誘導加熱・湯沸かし・温度制御・熱効率・熱損失・保温・真空断熱など周辺技術まで広く検索。',
         `J-STAGE ${jstageItems.length}件 + Semantic Scholar公開PDF ${semanticItems.length}件を統合。`,
+        `Semantic Scholar内訳: ${semanticResult.counts.join(' / ') || '0件'}。`,
         '英語タイトルはGeminiで日本語表示。発行日の新しい順。'
       ].join(' '),
       finalItems
@@ -505,11 +617,12 @@ export default async function handler(req, res) {
     res.setHeader('X-Papers-Source', 'J-STAGE,Semantic Scholar');
     res.setHeader('X-Papers-JStage-Count', String(jstageItems.length));
     res.setHeader('X-Papers-SemanticScholar-Count', String(semanticItems.length));
+    res.setHeader('X-Papers-SemanticScholar-Queries', semanticResult.counts.join(','));
     if (errors.length) res.setHeader('X-Papers-Partial-Errors', String(errors.length));
 
     return res.status(200).send(xml);
   } catch (err) {
-    console.error('[papers-feed:v20]', err);
+    console.error('[papers-feed:v21]', err);
     return res.status(502).send(`論文取得エラー: ${err?.message || 'unknown'}`);
   }
 }
