@@ -1904,3 +1904,22 @@ body.summary-open {
 .jstage-credit:active {
   opacity: 0.65;
 }
+
+/* =========================================================
+   v18: AI要約 iPhoneメモリ安定化 / Twitch LIVE固定
+   ========================================================= */
+/* 要約スライドは表示中±1件だけ中身を持つ。空shellは描画コストを最小化する。 */
+.summary-slide[data-hydrated="0"] {
+  contain: layout paint style;
+}
+
+/* 配信中のTwitchステータスだけ、アーカイブをスクロールしてもカード上部に固定。 */
+.twitch-status-card.live {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  margin-top: -8px;
+  padding-top: 12px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+}
