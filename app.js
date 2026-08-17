@@ -550,7 +550,11 @@ async function fetchNewsRSS(feedUrl, { forceRefresh = false } = {}) {
   }
 
   const response = await fetch(apiUrl, { cache: forceRefresh ? 'no-store' : 'default' });
-  if (!response.ok) throw new Error('RSS取得エラー');
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    const detail = body.replace(/\s+/g, ' ').trim().slice(0, 180);
+    throw new Error(`RSS取得エラー (${response.status})${detail ? `: ${detail}` : ''}`);
+  }
   const xmlText = await response.text();
 
   const parser = new DOMParser();
@@ -1511,6 +1515,9 @@ const ALL_FEED_URL = '__ALL__';
 // 英語タイトル翻訳は一覧表示後に非同期実行し、表示待ち時間からGemini処理を外す。
 const PAPER_FAST_MODE = 'fast';
 const PAPER_DEEP_MODE = 'deep';
+const PAPER_PERSISTENT_CACHE_KEY = 'paperFeedCacheV24';
+const PAPER_PERSISTENT_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const PAPER_PERSISTENT_MAX_ITEMS = 300;
 const PAPER_TITLE_STORAGE_KEY = 'paperTitleTranslationsV1';
 const PAPER_TITLE_CACHE_MAX = 1200;
 const PAPER_TITLE_BATCH_SIZE = 40;
@@ -1635,6 +1642,39 @@ function schedulePaperTitleTranslations(items) {
     paperTitleQueue.push(original);
   }
   void pumpPaperTitleQueue();
+}
+
+function readPersistentPaperFeed() {
+  try {
+    const entry = JSON.parse(localStorage.getItem(PAPER_PERSISTENT_CACHE_KEY) || 'null');
+    if (!entry || Date.now() - Number(entry.at || 0) > PAPER_PERSISTENT_MAX_AGE) return [];
+    return (Array.isArray(entry.items) ? entry.items : []).map(item => ({
+      ...item,
+      _isPaper: true,
+      pubDate: new Date(item.pubDate || 0)
+    }));
+  } catch (_) {
+    return [];
+  }
+}
+
+function writePersistentPaperFeed(items) {
+  if (!Array.isArray(items) || !items.length) return;
+  try {
+    const payload = {
+      at: Date.now(),
+      items: items.slice(0, PAPER_PERSISTENT_MAX_ITEMS).map(item => ({
+        title: String(item?.title || '').slice(0, 700),
+        link: String(item?.link || '').slice(0, 2500),
+        description: String(item?.description || '').slice(0, 5000),
+        author: String(item?.author || '').slice(0, 600),
+        _isPaper: true,
+        _paperOriginalTitle: item?._paperOriginalTitle ? String(item._paperOriginalTitle).slice(0, 700) : '',
+        pubDate: item?.pubDate instanceof Date ? item.pubDate.toISOString() : new Date(item?.pubDate || 0).toISOString()
+      }))
+    };
+    localStorage.setItem(PAPER_PERSISTENT_CACHE_KEY, JSON.stringify(payload));
+  } catch (_) {}
 }
 
 function readPersistentAllFeed(type) {
@@ -1974,6 +2014,7 @@ async function fetchActualFeedItems(type, feed, { forceRefresh = false, paperMod
     if (isPaperFeed(type, feed)) {
       items.forEach(item => { if (item) item._isPaper = true; });
       schedulePaperTitleTranslations(items);
+      writePersistentPaperFeed(items);
     }
     return items;
   } finally {
@@ -1991,6 +2032,7 @@ function schedulePaperDeepLoad(type, feed, feedIndex, { forceRefresh = false } =
       if (!Array.isArray(items) || !items.length) return items;
       items.forEach(item => { if (item) item._isPaper = true; });
       schedulePaperTitleTranslations(items);
+      writePersistentPaperFeed(items);
       feedItemsCache[type].set(feed.url, items);
       paperDeepLoadedUrls.add(feed.url);
 
@@ -2128,18 +2170,66 @@ async function loadFeedContent(type, index, { forceRefresh = false } = {}) {
     return;
   }
 
-  target.innerHTML = `<div class="loading">${getFeedLoadingText(type)}</div>`;
+  const paperFeed = isPaperFeed(type, feed);
+  const persistentPaperItems = paperFeed ? readPersistentPaperFeed() : [];
+  let renderedPersistentPaper = false;
+
+  if (persistentPaperItems.length && !forceRefresh) {
+    persistentPaperItems.forEach(item => { if (item) item._isPaper = true; });
+    // 画面には即表示するが、メモリキャッシュへはまだ入れない。
+    // ここでfeedItemsCacheへ入れるとfetchActualFeedItems()が通信せず古い一覧だけを返してしまうため。
+    schedulePaperTitleTranslations(persistentPaperItems);
+    renderFeedItems(type, index, persistentPaperItems);
+    renderedPersistentPaper = true;
+  } else {
+    target.innerHTML = `<div class="loading">${getFeedLoadingText(type)}</div>`;
+  }
 
   try {
-    const items = await fetchActualFeedItems(type, feed, { forceRefresh, paperMode: PAPER_FAST_MODE });
+    // v24: 論文だけは一時的な外部API障害を想定し、1回だけ短い再試行を行う。
+    let items;
+    try {
+      items = await fetchActualFeedItems(type, feed, { forceRefresh, paperMode: PAPER_FAST_MODE });
+    } catch (firstErr) {
+      if (!paperFeed) throw firstErr;
+      await new Promise(resolve => setTimeout(resolve, 900));
+      feedItemsCache[type].delete(feed.url);
+      feedLoadPromises[type].delete(feed.url);
+      items = await fetchActualFeedItems(type, feed, { forceRefresh: true, paperMode: PAPER_FAST_MODE });
+    }
+
     if (!items.length) {
-      target.innerHTML = '<div class="loading">記事が見つかりませんでした</div>';
+      if (!renderedPersistentPaper) {
+        const fallback = readPersistentPaperFeed();
+        if (fallback.length) {
+          renderFeedItems(type, index, fallback);
+          renderedPersistentPaper = true;
+        } else {
+          target.innerHTML = paperFeed
+            ? '<div class="loading">論文取得先が一時的に応答していません。少し時間をおいて「更新」を押してください。</div>'
+            : '<div class="loading">記事が見つかりませんでした</div>';
+        }
+      }
+      if (paperFeed) schedulePaperDeepLoad(type, feed, index, { forceRefresh });
       return;
     }
+
     renderFeedItems(type, index, items);
-    if (isPaperFeed(type, feed)) schedulePaperDeepLoad(type, feed, index, { forceRefresh });
+    if (paperFeed) {
+      writePersistentPaperFeed(items);
+      schedulePaperDeepLoad(type, feed, index, { forceRefresh });
+    }
   } catch (err) {
     console.error(err);
+    if (paperFeed) {
+      const fallback = readPersistentPaperFeed();
+      if (fallback.length) {
+        renderFeedItems(type, index, fallback);
+        return;
+      }
+      target.innerHTML = `<div class="loading">論文取得先との通信に失敗しました<br><small>${escapeHtmlAttribute(err?.message || '')}</small><br><small>少し時間をおいて「更新」を押すと再試行します。</small></div>`;
+      return;
+    }
     target.innerHTML = `<div class="loading">${getFeedFailureText(type)}<br><small>${escapeHtmlAttribute(err?.message || '')}</small></div>`;
   }
 }
