@@ -1887,8 +1887,7 @@ function renderFeedItems(type, feedIndex, items) {
 
   target.innerHTML = '';
 
-  // v20: 論文タブは J-STAGE + Semantic Scholar の統合フィード。
-  // J-STAGEの提供元リンクを残しつつ、英語OA論文の取得元も表示する。
+  // v22: 論文タブは J-STAGE + Semantic Scholar + Crossref の統合フィード。
   const feed = getFeedsByType(type)[feedIndex];
   if (type === 'news' && feed?.name === '論文') {
     const credit = document.createElement('div');
@@ -1911,7 +1910,15 @@ function renderFeedItems(type, feedIndex, items) {
     semanticScholar.rel = 'noopener noreferrer';
     semanticScholar.textContent = 'Semantic Scholar';
 
-    credit.append(label, jstage, sep, semanticScholar);
+    const sep2 = document.createTextNode(' + ');
+
+    const crossref = document.createElement('a');
+    crossref.href = 'https://www.crossref.org/';
+    crossref.target = '_blank';
+    crossref.rel = 'noopener noreferrer';
+    crossref.textContent = 'Crossref';
+
+    credit.append(label, jstage, sep, semanticScholar, sep2, crossref);
     target.appendChild(credit);
   }
 
