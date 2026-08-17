@@ -1521,7 +1521,8 @@ const PAPER_PERSISTENT_MAX_ITEMS = 300;
 const PAPER_TITLE_STORAGE_KEY = 'paperTitleTranslationsV1';
 const PAPER_TITLE_CACHE_MAX = 1200;
 const PAPER_TITLE_BATCH_SIZE = 40;
-const ALL_PERSISTENT_CACHE_KEY = 'dashboardAllFeedCacheV1';
+// v25: NHK ONE由来の旧Allキャッシュを引き継がないためキーを更新。
+const ALL_PERSISTENT_CACHE_KEY = 'dashboardAllFeedCacheV2';
 const ALL_PERSISTENT_MAX_AGE = 6 * 60 * 60 * 1000;
 
 const paperDeepLoadPromises = new Map();
