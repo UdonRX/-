@@ -1,5 +1,5 @@
 // アプリ更新時はバージョン（v1, v2, v3...）を更新してください
-const CACHE_NAME = 'pwa-dashboard-v27';
+const CACHE_NAME = 'pwa-dashboard-v28';
 
 // キャッシュ対象の静的ファイル
 const STATIC_ASSETS = [
