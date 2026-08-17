@@ -1982,3 +1982,17 @@ body.summary-open {
 .twitch-scroll-area {
   max-height: 645px;
 }
+
+
+/* =========================================================
+   v20: 論文タブ J-STAGE + Semantic Scholar クレジット
+   ========================================================= */
+.paper-sources-credit {
+  gap: 2px;
+}
+
+.paper-sources-credit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
