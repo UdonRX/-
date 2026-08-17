@@ -1,17 +1,14 @@
 import jsdomPackage from 'jsdom';
 import { rssXml } from '../lib/rss-merge.mjs';
-import { generateGemini } from '../lib/gemini.mjs';
 
 const { JSDOM } = jsdomPackage;
 
 /*
- * v22 論文フィード
- * - J-STAGE: 日本語論文 + 国内メーカー名検索
- * - Semantic Scholar: 英語を中心とした公開PDF付き論文
- * - Crossref: 競合メーカー所属著者の論文を affiliation から追加
- * - 炊飯/湯沸かし/断熱だけでなく、ミキサー、コーヒー、圧力調理、ホットプレート、トースター、フードジャーまで対象
- * - 英語タイトルは既存のGeminiでまとめて日本語化
- * - Crossrefの query.affiliation は関連度検索なので、レスポンス内の author.affiliation を再照合して誤検出を除外
+ * v23 論文フィード
+ * - fast: J-STAGE + Semantic Scholar + PLOS を先に返して一覧を高速表示
+ * - deep: fast に加えて Crossref競合企業、CiNii Research、CORE、IEEE Xplore を統合
+ * - 英語タイトルのGemini和訳はRSS生成時には待たず、クライアントから /api/paper-titles で非同期実行
+ * - CiNii/IEEEは各公式APIキー設定時に有効化。COREは無料の無登録枠でも取得を試す
  */
 
 // v21: 製品名だけでなく、周辺の要素技術・熱現象まで検索対象を広げる。
@@ -114,17 +111,43 @@ const JSTAGE_ENDPOINT = 'https://api.jstage.jst.go.jp/searchapi/do';
 const SEMANTIC_SCHOLAR_ENDPOINT = 'https://api.semanticscholar.org/graph/v1/paper/search/bulk';
 const SEMANTIC_SCHOLAR_BATCH_ENDPOINT = 'https://api.semanticscholar.org/graph/v1/paper/batch';
 const CROSSREF_ENDPOINT = 'https://api.crossref.org/works';
+const CINII_ENDPOINT = 'https://cir.nii.ac.jp/opensearch/v2/articles';
+const PLOS_ENDPOINT = 'https://api.plos.org/search';
+const NCBI_ESEARCH_ENDPOINT = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi';
+const NCBI_ESUMMARY_ENDPOINT = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
+const CORE_ENDPOINT = 'https://api.core.ac.uk/v3/search/works';
+const IEEE_ENDPOINT = 'https://ieeexploreapi.ieee.org/api/v1/search/articles';
 
-const TTL = 20 * 60 * 1000;
+const FAST_JSTAGE_TERMS = [
+  '炊飯器', '電気ケトル', '真空断熱 ボトル', 'コーヒーメーカー'
+];
+const FAST_SEMANTIC_QUERIES = [SEMANTIC_SCHOLAR_QUERIES[0]];
+const CINII_SEARCH_TERMS = [
+  '炊飯器 OR 電気ケトル OR 電気ポット',
+  '真空断熱 OR 魔法瓶 OR フードジャー',
+  'ミキサー OR ブレンダー OR コーヒーメーカー',
+  '電気圧力鍋 OR ホットプレート OR オーブントースター',
+  '誘導加熱 OR 温度制御 OR 熱伝達 OR 保温'
+];
+const PAPER_QUERY_EN = [
+  '"rice cooker"', '"electric kettle"', '"water boiler"', '"vacuum insulated bottle"',
+  '"vacuum flask"', '"food jar"', 'blender', '"coffee maker"', '"coffee brewing"',
+  '"pressure cooker"', '"hot plate"', '"toaster oven"', '"induction heating"',
+  '"temperature control"', '"thermal insulation"', '"heat retention"'
+];
+
+const FAST_TTL = 10 * 60 * 1000;
+const DEEP_TTL = 30 * 60 * 1000;
 const JSTAGE_PER_TERM = 35;
 const SEMANTIC_SCHOLAR_PER_QUERY = 100;
 const CROSSREF_ROWS_PER_COMPANY = 45;
-const MAX_ITEMS = 300;
-const TRANSLATION_BATCH_SIZE = 60;
-const TRANSLATION_CACHE_MAX = 500;
+const MAX_ITEMS = 350;
 
-let cache = { at: 0, xml: '' };
-const translationCache = new Map();
+const feedCaches = {
+  fast: { at: 0, xml: '' },
+  deep: { at: 0, xml: '' }
+};
+const providerCache = new Map();
 
 function normalizeSpace(value) {
   return String(value || '')
@@ -174,29 +197,6 @@ function stripHtml(value) {
   );
 }
 
-function setTranslationCache(original, translated) {
-  const key = normalizeSpace(original);
-  const value = normalizeSpace(translated);
-  if (!key || !value) return;
-
-  if (translationCache.has(key)) translationCache.delete(key);
-  translationCache.set(key, value);
-
-  while (translationCache.size > TRANSLATION_CACHE_MAX) {
-    const oldest = translationCache.keys().next().value;
-    if (!oldest) break;
-    translationCache.delete(oldest);
-  }
-}
-
-function getTranslationCache(title) {
-  const key = normalizeSpace(title);
-  const value = translationCache.get(key);
-  if (!value) return '';
-  translationCache.delete(key);
-  translationCache.set(key, value);
-  return value;
-}
 
 function parseJStageEntry(entry) {
   const title = firstText(entry, [
@@ -272,7 +272,7 @@ function parseJStageXml(xml, term) {
   }
 }
 
-async function searchJStage(term) {
+async function searchJStage(term, timeoutMs = 12_000) {
   const url = new URL(JSTAGE_ENDPOINT);
   url.searchParams.set('service', '3');
   url.searchParams.set('text', term);
@@ -283,7 +283,7 @@ async function searchJStage(term) {
       'Accept': 'application/atom+xml, application/xml, text/xml, */*;q=0.5',
       'User-Agent': 'PersonalDashboardPapers/3.0'
     },
-    signal: AbortSignal.timeout(12_000)
+    signal: AbortSignal.timeout(timeoutMs)
   });
 
   if (!response.ok) {
@@ -480,7 +480,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function searchSemanticScholar(queryDef) {
+async function searchSemanticScholar(queryDef, timeoutMs = 18_000) {
   const url = new URL(SEMANTIC_SCHOLAR_ENDPOINT);
   url.searchParams.set('query', queryDef.query);
   url.searchParams.set('fields', 'title,url,abstract,authors,venue,publicationDate,year,externalIds,openAccessPdf,publicationTypes');
@@ -498,7 +498,7 @@ async function searchSemanticScholar(queryDef) {
 
   const response = await fetch(requestUrl, {
     headers,
-    signal: AbortSignal.timeout(18_000)
+    signal: AbortSignal.timeout(timeoutMs)
   });
 
   if (!response.ok) {
@@ -826,6 +826,384 @@ async function enrichCrossrefWithOpenAccessPdf(items) {
   return { enriched, error: '' };
 }
 
+
+function paperQueryText() {
+  return PAPER_QUERY_EN.join(' OR ');
+}
+
+async function cachedProvider(key, ttlMs, worker, { forceRefresh = false } = {}) {
+  const cached = providerCache.get(key);
+  if (!forceRefresh && cached && Date.now() - cached.at < ttlMs) return cached.value;
+  const value = await worker();
+  providerCache.set(key, { at: Date.now(), value });
+  if (providerCache.size > 32) {
+    const oldestKey = providerCache.keys().next().value;
+    providerCache.delete(oldestKey);
+  }
+  return value;
+}
+
+function parseRssLikeItems(xml, sourceName) {
+  const dom = new JSDOM(xml, { contentType: 'text/xml' });
+  try {
+    const doc = dom.window.document;
+    if (doc.querySelector('parsererror')) throw new Error(`${sourceName}: XML parse error`);
+    return Array.from(doc.querySelectorAll('item, entry')).map(node => {
+      const title = firstText(node, ['title']) || '無題';
+      let link = firstText(node, ['link', 'guid', 'id']);
+      if (!link) {
+        const alternate = Array.from(node.querySelectorAll('link')).find(el => {
+          const rel = String(el.getAttribute('rel') || '').toLowerCase();
+          return !rel || rel === 'alternate';
+        });
+        link = alternate?.getAttribute('href') || '';
+      }
+
+      const candidatePdf = Array.from(node.querySelectorAll('link, rdfs\\:seeAlso, dc\\:identifier'))
+        .map(el => el.getAttribute?.('href') || el.getAttribute?.('rdf:resource') || el.textContent || '')
+        .map(normalizeHttps)
+        .find(value => /\.pdf(?:$|[?#])/i.test(value));
+
+      const rawDate = firstText(node, ['pubDate', 'published', 'updated', 'dc\\:date', 'prism\\:publicationDate', 'date']);
+      const author = firstText(node, ['dc\\:creator', 'creator', 'author > name', 'author']) || sourceName;
+      const description = firstText(node, ['description', 'summary', 'content', 'dc\\:description']) || title;
+      const doi = firstText(node, ['prism\\:doi', 'dc\\:identifier', 'doi']);
+      const finalLink = candidatePdf || normalizeHttps(link);
+      if (!finalLink) return null;
+      return {
+        title: normalizeSpace(title),
+        originalTitle: normalizeSpace(title),
+        link: finalLink,
+        pubDate: safeDate(rawDate),
+        author: normalizeSpace(author),
+        sourceName,
+        description: normalizeSpace(description),
+        doi: /10\.\d{4,9}\//i.test(doi) ? normalizeSpace(doi).replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '') : ''
+      };
+    }).filter(Boolean);
+  } finally {
+    dom.window.close();
+  }
+}
+
+async function searchCiniiAll() {
+  const appid = normalizeSpace(process.env.CINII_APP_ID);
+  if (!appid) return { items: [], errors: [], counts: [], disabled: 'CINII_APP_ID未設定' };
+
+  const settled = await runWithConcurrency(CINII_SEARCH_TERMS, 3, async term => {
+    const url = new URL(CINII_ENDPOINT);
+    url.searchParams.set('appid', appid);
+    url.searchParams.set('q', term);
+    url.searchParams.set('count', '80');
+    url.searchParams.set('sortorder', '0');
+    url.searchParams.set('format', 'rss');
+    url.searchParams.set('lang', 'ja');
+
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/rss+xml, application/xml, text/xml, */*;q=0.5', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!response.ok) throw new Error(`CiNii HTTP ${response.status}`);
+    const items = parseRssLikeItems(await response.text(), 'CiNii Research');
+    return { term, items };
+  });
+
+  const items = [];
+  const errors = [];
+  const counts = [];
+  settled.forEach((result, index) => {
+    if (result?.status === 'fulfilled') {
+      items.push(...result.value.items);
+      counts.push(`${result.value.term}:${result.value.items.length}`);
+    } else {
+      errors.push(result?.reason?.message || `CiNii取得失敗 [${CINII_SEARCH_TERMS[index]}]`);
+    }
+  });
+  return { items, errors, counts };
+}
+
+async function searchPlos(timeoutMs = 8_000) {
+  const terms = [
+    '"rice cooker"', '"electric kettle"', '"vacuum flask"', '"vacuum insulated"',
+    '"coffee brewing"', '"pressure cooking"', '"induction heating"', '"food mixing"',
+    '"thermal insulation"', '"heat retention"'
+  ];
+  const url = new URL(PLOS_ENDPOINT);
+  url.searchParams.set('q', `title:(${terms.join(' OR ')}) OR abstract:(${terms.join(' OR ')})`);
+  url.searchParams.set('fl', 'id,title,publication_date,author_display,abstract,journal');
+  url.searchParams.set('rows', '100');
+  url.searchParams.set('sort', 'publication_date desc');
+  url.searchParams.set('wt', 'json');
+  if (process.env.PLOS_API_KEY) url.searchParams.set('api_key', process.env.PLOS_API_KEY);
+
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  if (!response.ok) throw new Error(`PLOS HTTP ${response.status}`);
+  const data = await response.json();
+  const docs = Array.isArray(data?.response?.docs) ? data.response.docs : [];
+  return docs.map(doc => {
+    const doi = normalizeSpace(doc?.id);
+    const title = normalizeSpace(Array.isArray(doc?.title) ? doc.title[0] : doc?.title) || '無題';
+    const authors = Array.isArray(doc?.author_display) ? doc.author_display.join(', ') : normalizeSpace(doc?.author_display);
+    const abstract = normalizeSpace(Array.isArray(doc?.abstract) ? doc.abstract.join(' ') : doc?.abstract);
+    return {
+      title,
+      originalTitle: title,
+      link: doi ? `https://doi.org/${encodeURIComponent(doi)}` : '',
+      pubDate: safeDate(doc?.publication_date),
+      author: authors || 'PLOS',
+      sourceName: 'PLOS',
+      description: [abstract, doc?.journal && `Journal: ${doc.journal}`, doi && `DOI: ${doi}`].filter(Boolean).join('\n\n'),
+      doi
+    };
+  }).filter(item => item.link);
+}
+
+async function searchPmcOpenAccess() {
+  const term = [
+    '"rice cooker"[Title/Abstract]', '"electric kettle"[Title/Abstract]',
+    '"vacuum flask"[Title/Abstract]', '"vacuum insulation"[Title/Abstract]',
+    '"coffee brewing"[Title/Abstract]', '"pressure cooking"[Title/Abstract]',
+    '"induction heating"[Title/Abstract]', '"food mixing"[Title/Abstract]',
+    '"thermal insulation"[Title/Abstract]', '"heat retention"[Title/Abstract]'
+  ].join(' OR ');
+
+  const searchUrl = new URL(NCBI_ESEARCH_ENDPOINT);
+  searchUrl.searchParams.set('db', 'pmc');
+  searchUrl.searchParams.set('term', `(${term}) AND open access[filter]`);
+  searchUrl.searchParams.set('retmode', 'json');
+  searchUrl.searchParams.set('retmax', '100');
+  searchUrl.searchParams.set('sort', 'pub date');
+  searchUrl.searchParams.set('tool', 'personal_dashboard');
+  if (process.env.NCBI_EMAIL) searchUrl.searchParams.set('email', process.env.NCBI_EMAIL);
+  if (process.env.NCBI_API_KEY) searchUrl.searchParams.set('api_key', process.env.NCBI_API_KEY);
+
+  const searchResponse = await fetch(searchUrl, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+    signal: AbortSignal.timeout(8_000)
+  });
+  if (!searchResponse.ok) throw new Error(`PMC ESearch HTTP ${searchResponse.status}`);
+  const searchData = await searchResponse.json();
+  const ids = Array.isArray(searchData?.esearchresult?.idlist) ? searchData.esearchresult.idlist : [];
+  if (!ids.length) return [];
+
+  const summaryUrl = new URL(NCBI_ESUMMARY_ENDPOINT);
+  summaryUrl.searchParams.set('db', 'pmc');
+  summaryUrl.searchParams.set('id', ids.join(','));
+  summaryUrl.searchParams.set('retmode', 'json');
+  summaryUrl.searchParams.set('version', '2.0');
+  summaryUrl.searchParams.set('tool', 'personal_dashboard');
+  if (process.env.NCBI_EMAIL) summaryUrl.searchParams.set('email', process.env.NCBI_EMAIL);
+  if (process.env.NCBI_API_KEY) summaryUrl.searchParams.set('api_key', process.env.NCBI_API_KEY);
+
+  const summaryResponse = await fetch(summaryUrl, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+    signal: AbortSignal.timeout(8_000)
+  });
+  if (!summaryResponse.ok) throw new Error(`PMC ESummary HTTP ${summaryResponse.status}`);
+  const data = await summaryResponse.json();
+  const result = data?.result || {};
+
+  return ids.map(uid => {
+    const doc = result?.[uid];
+    if (!doc) return null;
+    const title = normalizeSpace(doc.title) || '無題';
+    const articleIds = Array.isArray(doc.articleids) ? doc.articleids : [];
+    const pmcid = normalizeSpace(
+      articleIds.find(id => String(id?.idtype || '').toLowerCase() === 'pmcid')?.value || `PMC${uid}`
+    );
+    const doi = normalizeSpace(articleIds.find(id => String(id?.idtype || '').toLowerCase() === 'doi')?.value);
+    const authors = Array.isArray(doc.authors) ? doc.authors.map(a => a?.name).filter(Boolean).join(', ') : '';
+    return {
+      title,
+      originalTitle: title,
+      link: `https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`,
+      pubDate: safeDate(doc.pubdate || doc.epubdate || doc.sortpubdate),
+      author: authors || 'PubMed Central',
+      sourceName: 'PMC Open Access',
+      description: [doc.fulljournalname, doi && `DOI: ${doi}`, `PMCID: ${pmcid}`].filter(Boolean).join('\n\n'),
+      doi
+    };
+  }).filter(Boolean);
+}
+
+async function searchCore() {
+  const apiKey = normalizeSpace(process.env.CORE_API_KEY);
+  const url = new URL(CORE_ENDPOINT);
+  url.searchParams.set('q', paperQueryText());
+  url.searchParams.set('limit', '100');
+  const headers = { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const response = await fetch(url, {
+    headers,
+    signal: AbortSignal.timeout(12_000)
+  });
+  if (!response.ok) throw new Error(`CORE HTTP ${response.status}`);
+  const data = await response.json();
+  const works = Array.isArray(data?.results) ? data.results : Array.isArray(data?.data) ? data.data : [];
+  const items = works.map(work => {
+    const title = normalizeSpace(work?.title) || '無題';
+    const authors = (Array.isArray(work?.authors) ? work.authors : [])
+      .map(author => normalizeSpace(author?.name || author)).filter(Boolean).join(', ');
+    const fulltextCandidates = [
+      work?.downloadUrl,
+      work?.fullTextUrl,
+      ...(Array.isArray(work?.sourceFulltextUrls) ? work.sourceFulltextUrls : []),
+      ...(Array.isArray(work?.links) ? work.links.map(link => link?.url || link) : [])
+    ].map(normalizeHttps).filter(Boolean);
+    const link = fulltextCandidates.find(value => /\.pdf(?:$|[?#])/i.test(value))
+      || fulltextCandidates[0]
+      || normalizeHttps(work?.doi ? `https://doi.org/${work.doi}` : work?.url);
+    if (!link) return null;
+    const doi = normalizeSpace(work?.doi).replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '');
+    return {
+      title,
+      originalTitle: title,
+      link,
+      pubDate: safeDate(work?.publishedDate || work?.datePublished || work?.yearPublished),
+      author: authors || 'CORE',
+      sourceName: 'CORE',
+      description: normalizeSpace(work?.abstract || work?.description || title),
+      doi
+    };
+  }).filter(Boolean);
+  return { items };
+}
+
+async function searchIeeeOpenAccess() {
+  const apiKey = normalizeSpace(process.env.IEEE_API_KEY);
+  if (!apiKey) return { items: [], disabled: 'IEEE_API_KEY未設定' };
+  const url = new URL(IEEE_ENDPOINT);
+  url.searchParams.set('apikey', apiKey);
+  url.searchParams.set('querytext', paperQueryText());
+  url.searchParams.set('open_access', 'true');
+  url.searchParams.set('max_records', '100');
+  url.searchParams.set('start_year', '2010');
+  url.searchParams.set('sort_field', 'publication_year');
+  url.searchParams.set('sort_order', 'desc');
+  url.searchParams.set('format', 'json');
+
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'PersonalDashboardPapers/6.0' },
+    signal: AbortSignal.timeout(12_000)
+  });
+  if (!response.ok) throw new Error(`IEEE Xplore HTTP ${response.status}`);
+  const data = await response.json();
+  const articles = Array.isArray(data?.articles) ? data.articles : [];
+  const items = articles.map(article => {
+    const title = normalizeSpace(article?.title) || '無題';
+    const doi = normalizeSpace(article?.doi);
+    const link = normalizeHttps(article?.html_url || article?.abstract_url || (doi ? `https://doi.org/${doi}` : ''));
+    if (!link) return null;
+    return {
+      title,
+      originalTitle: title,
+      link,
+      pubDate: safeDate(article?.publication_date || article?.publication_year),
+      author: normalizeSpace(article?.authors?.authors?.map?.(a => a?.full_name).filter(Boolean).join(', ')) || 'IEEE Xplore',
+      sourceName: 'IEEE Xplore OA',
+      description: normalizeSpace(article?.abstract || title),
+      doi
+    };
+  }).filter(Boolean);
+  return { items };
+}
+
+async function collectFastSources({ forceRefresh = false } = {}) {
+  const [jstageSettled, semanticSettled, plosSettled] = await Promise.all([
+    runWithConcurrency(FAST_JSTAGE_TERMS, 4, term => searchJStage(term, 5_000)),
+    Promise.allSettled(FAST_SEMANTIC_QUERIES.map(query => searchSemanticScholar(query, 5_000))),
+    Promise.allSettled([cachedProvider('plos-fast', 20 * 60 * 1000, () => searchPlos(5_000), { forceRefresh })])
+  ]);
+
+  const jstageItems = jstageSettled.flatMap(result => result?.status === 'fulfilled' ? result.value : []);
+  const semanticItems = semanticSettled.flatMap(result => result?.status === 'fulfilled' ? result.value : []);
+  const plosItems = plosSettled[0]?.status === 'fulfilled' ? plosSettled[0].value : [];
+  const errors = [
+    ...jstageSettled.filter(r => r?.status === 'rejected').map(r => r.reason?.message || 'J-STAGE取得失敗'),
+    ...semanticSettled.filter(r => r?.status === 'rejected').map(r => r.reason?.message || 'Semantic Scholar取得失敗'),
+    ...(plosSettled[0]?.status === 'rejected' ? [plosSettled[0].reason?.message || 'PLOS取得失敗'] : [])
+  ];
+  return {
+    items: dedupePapers([...jstageItems, ...semanticItems, ...plosItems]),
+    errors,
+    counts: { jstage: jstageItems.length, semantic: semanticItems.length, plos: plosItems.length }
+  };
+}
+
+async function collectDeepSources({ forceRefresh = false } = {}) {
+  const optionalTasks = [
+    cachedProvider('cinii', DEEP_TTL, searchCiniiAll, { forceRefresh }),
+    cachedProvider('core', DEEP_TTL, searchCore, { forceRefresh }),
+    cachedProvider('ieee', DEEP_TTL, searchIeeeOpenAccess, { forceRefresh })
+  ];
+
+  const [jstageSettled, semanticResult, crossrefResult, plosResult, pmcResult, optionalSettled] = await Promise.all([
+    runWithConcurrency(JSTAGE_SEARCH_TERMS, 3, searchJStage),
+    searchSemanticScholarAll(),
+    searchCrossrefCompanies(),
+    cachedProvider('plos', 20 * 60 * 1000, searchPlos, { forceRefresh }).catch(error => ({ __error: error })),
+    cachedProvider('pmc', 20 * 60 * 1000, searchPmcOpenAccess, { forceRefresh }).catch(error => ({ __error: error })),
+    Promise.allSettled(optionalTasks)
+  ]);
+
+  const jstageItems = jstageSettled.flatMap(result => result?.status === 'fulfilled' ? result.value : []);
+  const crossrefItems = crossrefResult.items;
+  const crossrefPdfResult = await enrichCrossrefWithOpenAccessPdf(crossrefItems);
+  const plosItems = Array.isArray(plosResult) ? plosResult : [];
+  const pmcItems = Array.isArray(pmcResult) ? pmcResult : [];
+
+  const optional = { cinii: [], core: [], ieee: [] };
+  const optionalErrors = [];
+  ['cinii', 'core', 'ieee'].forEach((key, index) => {
+    const result = optionalSettled[index];
+    if (result?.status === 'fulfilled') {
+      const value = result.value || {};
+      optional[key] = Array.isArray(value?.items) ? value.items : [];
+      if (Array.isArray(value?.errors)) optionalErrors.push(...value.errors);
+    } else {
+      optionalErrors.push(result?.reason?.message || `${key}取得失敗`);
+    }
+  });
+
+  const errors = [
+    ...jstageSettled.filter(r => r?.status === 'rejected').map(r => r.reason?.message || 'J-STAGE取得失敗'),
+    ...semanticResult.errors,
+    ...crossrefResult.errors,
+    ...(crossrefPdfResult.error ? [crossrefPdfResult.error] : []),
+    ...(plosResult?.__error ? [plosResult.__error?.message || 'PLOS取得失敗'] : []),
+    ...(pmcResult?.__error ? [pmcResult.__error?.message || 'PMC取得失敗'] : []),
+    ...optionalErrors
+  ];
+
+  return {
+    items: dedupePapers([
+      ...jstageItems,
+      ...semanticResult.items,
+      ...crossrefItems,
+      ...plosItems,
+      ...pmcItems,
+      ...optional.cinii,
+      ...optional.core,
+      ...optional.ieee
+    ]),
+    errors,
+    counts: {
+      jstage: jstageItems.length,
+      semantic: semanticResult.items.length,
+      crossref: crossrefItems.length,
+      plos: plosItems.length,
+      pmc: pmcItems.length,
+      cinii: optional.cinii.length,
+      core: optional.core.length,
+      ieee: optional.ieee.length,
+      crossrefPdf: crossrefPdfResult.enriched
+    }
+  };
+}
+
 function decorateCompanyTitles(items) {
   for (const item of items) {
     if (!item?.companyLabel || !item?.title) continue;
@@ -863,89 +1241,6 @@ function splitIntoBatches(items, size) {
   return batches;
 }
 
-async function translateEnglishTitles(items) {
-  const pending = [];
-
-  items.forEach((item, index) => {
-    if (!item?.title || hasJapanese(item.title)) return;
-
-    const cached = getTranslationCache(item.title);
-    if (cached) {
-      item.title = cached;
-      return;
-    }
-
-    pending.push({ index, title: item.title });
-  });
-
-  if (!pending.length) return;
-
-  const batches = splitIntoBatches(pending, TRANSLATION_BATCH_SIZE);
-
-  // 翻訳はRSS取得速度を落としすぎないよう最大2並列。
-  await runWithConcurrency(batches, 2, async batch => {
-    const prompt = batch
-      .map(entry => `${entry.index}\t${entry.title}`)
-      .join('\n');
-
-    const responseSchema = {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        translations: {
-          type: 'array',
-          items: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              index: { type: 'integer' },
-              ja: { type: 'string' }
-            },
-            required: ['index', 'ja']
-          }
-        }
-      },
-      required: ['translations']
-    };
-
-    try {
-      const result = await generateGemini({
-        systemInstruction: [
-          'あなたは学術論文タイトルの翻訳者です。',
-          '英語タイトルを、意味を変えず自然で簡潔な日本語の論文タイトルへ翻訳してください。',
-          '要約・補足・解説はしないでください。',
-          '製品名、材料名、専門用語、単位、略語は必要に応じて原語を残してください。',
-          '入力のindexを必ず維持してください。'
-        ].join('\n'),
-        prompt: `次の論文タイトルを日本語へ翻訳してください。\n\n${prompt}`,
-        maxOutputTokens: 8000,
-        responseSchema,
-        timeoutMs: 25_000
-      });
-
-      const parsed = JSON.parse(
-        String(result.text || '')
-          .trim()
-          .replace(/^```(?:json)?\s*/i, '')
-          .replace(/\s*```$/i, '')
-      );
-
-      for (const translated of Array.isArray(parsed?.translations) ? parsed.translations : []) {
-        const index = Number(translated?.index);
-        const ja = normalizeSpace(translated?.ja);
-        if (!Number.isInteger(index) || index < 0 || index >= items.length || !ja) continue;
-
-        const original = items[index]?.originalTitle || items[index]?.title;
-        if (original) setTranslationCache(original, ja);
-        items[index].title = ja;
-      }
-    } catch (err) {
-      // 翻訳だけ失敗しても論文RSS自体は止めない。原題で表示する。
-      console.warn('[papers-feed] title translation skipped:', err?.message || err);
-    }
-  });
-}
-
 function dedupePapers(items) {
   const seen = new Set();
   return items.filter(item => {
@@ -961,90 +1256,65 @@ function dedupePapers(items) {
 
 export default async function handler(req, res) {
   try {
+    const mode = String(req.query?.mode || 'deep').toLowerCase() === 'fast' ? 'fast' : 'deep';
     const forceRefresh = Boolean(req.query?._fresh || req.query?.refresh);
+    const cache = feedCaches[mode];
+    const ttl = mode === 'deep' ? DEEP_TTL : FAST_TTL;
 
-    if (!forceRefresh && cache.xml && Date.now() - cache.at < TTL) {
+    if (!forceRefresh && cache.xml && Date.now() - cache.at < ttl) {
       res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
-      res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=1200');
-      res.setHeader('X-Papers-Source', 'J-STAGE,Semantic Scholar,Crossref');
+      res.setHeader('Cache-Control', mode === 'deep' ? 's-maxage=1800, stale-while-revalidate=3600' : 's-maxage=600, stale-while-revalidate=1800');
+      res.setHeader('X-Papers-Mode', mode);
       return res.status(200).send(cache.xml);
     }
 
-    // 3系統を並列開始。Crossrefは内部で会社ごと最大5並列、J-STAGEは最大2並列。
-    const [jstageSettled, semanticResult, crossrefResult] = await Promise.all([
-      runWithConcurrency(JSTAGE_SEARCH_TERMS, 2, searchJStage),
-      searchSemanticScholarAll(),
-      searchCrossrefCompanies()
-    ]);
+    const result = mode === 'deep'
+      ? await collectDeepSources({ forceRefresh })
+      : await collectFastSources({ forceRefresh });
 
-    const jstageItems = jstageSettled.flatMap(result =>
-      result?.status === 'fulfilled' ? result.value : []
-    );
-    const semanticItems = semanticResult.items;
-    const crossrefItems = crossrefResult.items;
+    const finalItems = dedupePapers(result.items)
+      .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime())
+      .slice(0, MAX_ITEMS);
 
-    // Crossrefで見つけた企業所属論文のDOIをSemantic Scholarへ一括照会し、
-    // 公開PDFがあればリンクをPDFへ差し替える。
-    const crossrefPdfResult = await enrichCrossrefWithOpenAccessPdf(crossrefItems);
-
-    const errors = [
-      ...jstageSettled
-        .filter(result => result?.status === 'rejected')
-        .map(result => result.reason?.message || 'J-STAGE取得失敗'),
-      ...semanticResult.errors,
-      ...crossrefResult.errors,
-      ...(crossrefPdfResult.error ? [crossrefPdfResult.error] : [])
-    ];
-
-    const merged = dedupePapers([
-      ...jstageItems,
-      ...semanticItems,
-      ...crossrefItems
-    ]);
-    merged.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
-
-    const finalItems = merged.slice(0, MAX_ITEMS);
-
-    // 英語タイトルだけGeminiでまとめて和訳。失敗時は英語原題のまま継続。
-    await translateEnglishTitles(finalItems);
-
-    // Crossrefの企業所属論文は一覧だけで分かるようにメーカー名を先頭へ付ける。
+    // 企業所属論文には会社名を残す。英語タイトルの和訳はここでは待たず、UI側で非同期実行する。
     decorateCompanyTitles(finalItems);
 
     if (!finalItems.length) {
-      throw new Error(errors.length ? errors.join(' / ') : '該当論文が見つかりませんでした');
+      throw new Error(result.errors.length ? result.errors.join(' / ') : '該当論文が見つかりませんでした');
     }
+
+    const countText = Object.entries(result.counts || {})
+      .map(([key, value]) => `${key}:${value}`)
+      .join(' / ');
 
     const xml = rssXml(
       '論文',
       [
-        '炊飯器、ケトル、ポット、真空断熱ボトル/フードジャー、ミキサー/ブレンダー、コーヒーメーカー、電気圧力鍋、ホットプレート、オーブントースターと周辺技術を検索。',
-        'J-STAGEとSemantic Scholarに加え、Crossrefの著者所属情報から国内外の競合メーカーに関与する論文を追加。',
-        `J-STAGE ${jstageItems.length}件 + Semantic Scholar公開PDF ${semanticItems.length}件 + 企業所属/Crossref ${crossrefItems.length}件を統合。`,
-        `Crossref企業論文のうち ${crossrefPdfResult.enriched}件はSemantic Scholar経由で公開PDFへ補完。`,
-        `Semantic Scholar内訳: ${semanticResult.counts.join(' / ') || '0件'}。`,
-        `企業所属内訳: ${crossrefResult.counts.join(' / ') || '0件'}。`,
-        '英語タイトルはGeminiで日本語表示。発行日の新しい順。'
+        '調理家電・断熱・熱・食品調理技術と国内外競合メーカー関連論文を統合。',
+        mode === 'fast'
+          ? '高速表示: J-STAGE + Semantic Scholar + PLOS。PMCなどは一覧表示後に詳細取得。'
+          : '詳細表示: 高速ソース + Crossref競合企業 + CORE + PMC + CiNii Research/IRDB・IEEE Xplore（設定済みAPIのみ）。',
+        `取得内訳 ${countText}。`,
+        '英語タイトルは画面表示後にGeminiで非同期和訳するため、RSS応答では翻訳待ちをしません。'
       ].join(' '),
       finalItems
     );
 
-    cache = { at: Date.now(), xml };
+    feedCaches[mode] = { at: Date.now(), xml };
 
     res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
-    res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=1200');
-    res.setHeader('X-Papers-Source', 'J-STAGE,Semantic Scholar,Crossref');
-    res.setHeader('X-Papers-JStage-Count', String(jstageItems.length));
-    res.setHeader('X-Papers-SemanticScholar-Count', String(semanticItems.length));
-    res.setHeader('X-Papers-Crossref-Company-Count', String(crossrefItems.length));
-    res.setHeader('X-Papers-Crossref-OA-PDF-Enriched', String(crossrefPdfResult.enriched));
-    res.setHeader('X-Papers-SemanticScholar-Queries', semanticResult.counts.join(','));
-    res.setHeader('X-Papers-Crossref-Companies', crossrefResult.counts.join(','));
-    if (errors.length) res.setHeader('X-Papers-Partial-Errors', String(errors.length));
+    res.setHeader('Cache-Control', mode === 'deep' ? 's-maxage=1800, stale-while-revalidate=3600' : 's-maxage=600, stale-while-revalidate=1800');
+    res.setHeader('X-Papers-Mode', mode);
+    res.setHeader('X-Papers-Source', mode === 'deep'
+      ? 'J-STAGE,Semantic Scholar,Crossref,PLOS,PMC,CiNii Research,CORE,IEEE Xplore'
+      : 'J-STAGE,Semantic Scholar,PLOS');
+    res.setHeader('X-Papers-Count', String(finalItems.length));
+    res.setHeader('X-Papers-Counts', countText.slice(0, 900));
+    if (result.errors.length) res.setHeader('X-Papers-Partial-Errors', String(result.errors.length));
 
     return res.status(200).send(xml);
   } catch (err) {
-    console.error('[papers-feed:v22]', err);
+    console.error('[papers-feed:v23]', err);
     return res.status(502).send(`論文取得エラー: ${err?.message || 'unknown'}`);
   }
 }
