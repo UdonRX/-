@@ -1887,16 +1887,31 @@ function renderFeedItems(type, feedIndex, items) {
 
   target.innerHTML = '';
 
-  // J-STAGE WebAPI 利用規約に基づくクレジット表示。
-  // 論文タブだけに表示し、通常のニュース/知識UIには影響させない。
+  // v20: 論文タブは J-STAGE + Semantic Scholar の統合フィード。
+  // J-STAGEの提供元リンクを残しつつ、英語OA論文の取得元も表示する。
   const feed = getFeedsByType(type)[feedIndex];
   if (type === 'news' && feed?.name === '論文') {
-    const credit = document.createElement('a');
-    credit.className = 'jstage-credit';
-    credit.href = 'https://www.jstage.jst.go.jp/browse/-char/ja';
-    credit.target = '_blank';
-    credit.rel = 'noopener noreferrer';
-    credit.textContent = 'Powered by J-STAGE';
+    const credit = document.createElement('div');
+    credit.className = 'jstage-credit paper-sources-credit';
+
+    const label = document.createElement('span');
+    label.textContent = '論文ソース: ';
+
+    const jstage = document.createElement('a');
+    jstage.href = 'https://www.jstage.jst.go.jp/browse/-char/ja';
+    jstage.target = '_blank';
+    jstage.rel = 'noopener noreferrer';
+    jstage.textContent = 'J-STAGE';
+
+    const sep = document.createTextNode(' + ');
+
+    const semanticScholar = document.createElement('a');
+    semanticScholar.href = 'https://www.semanticscholar.org/';
+    semanticScholar.target = '_blank';
+    semanticScholar.rel = 'noopener noreferrer';
+    semanticScholar.textContent = 'Semantic Scholar';
+
+    credit.append(label, jstage, sep, semanticScholar);
     target.appendChild(credit);
   }
 
