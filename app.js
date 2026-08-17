@@ -3123,7 +3123,12 @@ function renderSummaryResult(container, result) {
   } else if (result.contentSource === 'article') {
     sourceNote.textContent = `リンク先の記事本文から要約${result.extractedLength ? `（${result.extractedLength.toLocaleString()}文字取得）` : ''}`;
   } else {
-    sourceNote.textContent = 'リンク先本文を取得できなかったためRSS本文から要約';
+    const reason = String(result.fallbackReason || '').trim();
+    const shortReason = reason.length > 90 ? `${reason.slice(0, 90)}…` : reason;
+    sourceNote.textContent = shortReason
+      ? `リンク先本文を取得できなかったためRSS本文から要約（${shortReason}）`
+      : 'リンク先本文を取得できなかったためRSS本文から要約';
+    if (reason) sourceNote.title = reason;
   }
 
   const pointLabel = document.createElement('div');
