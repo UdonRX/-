@@ -1923,3 +1923,62 @@ body.summary-open {
   padding-top: 12px;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
 }
+
+/* =========================================================
+   v19: J-STAGE PDF要約 / Twitch LIVEをタブ直下へ固定
+   ========================================================= */
+.summary-content-source.pdf {
+  color: #7a4b00;
+  background: #fff8e8;
+  border-color: rgba(255, 149, 0, 0.28);
+}
+
+/* Twitch: タブの直下をLIVE専用領域にし、アーカイブのスクロール領域から分離する。 */
+#twitch-tabs {
+  margin-bottom: 0;
+  background: var(--card-bg);
+}
+
+.twitch-live-slot {
+  position: relative;
+  z-index: 10;
+  margin: 0;
+  padding: 0;
+  background: var(--card-bg);
+}
+
+.twitch-live-slot:empty {
+  display: none;
+}
+
+.twitch-live-slot:not(:empty) {
+  display: block;
+  padding-bottom: 0;
+}
+
+.twitch-live-slot .twitch-status-card.live {
+  position: relative !important;
+  top: auto !important;
+  z-index: 1;
+  margin: 0 !important;
+  padding: 12px !important;
+  border-radius: 12px 12px 0 0;
+  box-shadow: none;
+}
+
+#twitch-section.has-live .twitch-scroll-area {
+  border-top: 0;
+  padding-top: 0;
+}
+
+#twitch-section.has-live .twitch-archive-heading {
+  margin-top: 0;
+  padding: 10px 2px 4px;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border-color);
+}
+
+/* 430px → 約1.5倍。アーカイブを一度に多く見られるようにする。 */
+.twitch-scroll-area {
+  max-height: 645px;
+}
