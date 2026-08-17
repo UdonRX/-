@@ -521,9 +521,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initKnowledge();
   initSummaryUI();
   initTwitter();
-  initTwitch();
   initYoutube();
-  initFutocyan();
+  initTwitch();
   initModals();
   registerSW();
 });
@@ -1879,6 +1878,19 @@ function renderFeedItems(type, feedIndex, items) {
   if (!target) return;
 
   target.innerHTML = '';
+
+  // J-STAGE WebAPI 利用規約に基づくクレジット表示。
+  // 論文タブだけに表示し、通常のニュース/知識UIには影響させない。
+  const feed = getFeedsByType(type)[feedIndex];
+  if (type === 'news' && feed?.name === '論文') {
+    const credit = document.createElement('a');
+    credit.className = 'jstage-credit';
+    credit.href = 'https://www.jstage.jst.go.jp/browse/-char/ja';
+    credit.target = '_blank';
+    credit.rel = 'noopener noreferrer';
+    credit.textContent = 'Powered by J-STAGE';
+    target.appendChild(credit);
+  }
 
   items.forEach((item, itemIndex) => {
     const newsDiv = document.createElement('div');
@@ -3960,87 +3972,6 @@ async function loadAllYoutubeContent() {
   } catch (err) {
     console.error(err);
     container.innerHTML = '<div class="loading">YouTube情報の取得中にエラーが発生しました</div>';
-  }
-}
-
-// --- 布団ちゃん機能 ---
-function initFutocyan() {
-  const youtubeSection = document.getElementById('youtube-section') || document.querySelector('.youtube-section');
-  if (!youtubeSection) return;
-
-  let futocyanSection = document.getElementById('futocyan-section');
-  if (!futocyanSection) {
-    futocyanSection = document.createElement('div');
-    futocyanSection.id = 'futocyan-section';
-    futocyanSection.className = 'section'; 
-    futocyanSection.style.cssText = 'margin-top: 24px; background: var(--card-bg, #fff); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color, #e0e0e0);';
-    
-    youtubeSection.parentNode.insertBefore(futocyanSection, youtubeSection.nextSibling);
-  }
-
-  futocyanSection.innerHTML = `
-    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-      <h2 style="font-size: 16px; margin: 0;">布団ちゃん</h2>
-      <button id="futocyan-refresh-btn" class="btn" style="padding: 4px 8px; font-size: 12px; cursor: pointer;">更新</button>
-    </div>
-    <div id="futocyan-content" style="font-size: 13px;">
-      <div class="loading">読み込み中...</div>
-    </div>
-  `;
-
-  document.getElementById('futocyan-refresh-btn').onclick = loadFutocyanContent;
-  loadFutocyanContent();
-}
-
-async function loadFutocyanContent() {
-  const container = document.getElementById('futocyan-content');
-  if (!container) return;
-  container.innerHTML = '<div class="loading">布団ちゃんの情報を読み込み中...</div>';
-
-  try {
-    const feedUrl = 'https://rss.app/feeds/jHml07gZvosRuZXm.xml';
-    const items = await fetchNewsRSS(feedUrl);
-
-    if (items.length === 0) {
-      container.innerHTML = '<div class="loading">データが見つかりませんでした</div>';
-      return;
-    }
-
-    container.innerHTML = '';
-    const table = document.createElement('table');
-    table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed;';
-
-    items.forEach(item => {
-      const isLive = item.description && item.description.toUpperCase().includes('LIVE');
-      
-      let dateStr = '';
-      if (item.pubDate instanceof Date && !isNaN(item.pubDate)) {
-        dateStr = formatCustomDate(item.pubDate);
-      }
-
-      const tr = document.createElement('tr');
-      const rowBgStyle = isLive ? 'background-color: #FEF0E5;' : '';
-      tr.style.cssText = `border-bottom: 1px solid rgba(0,0,0,0.1); ${rowBgStyle}`;
-
-      tr.innerHTML = `
-        <td style="padding: 8px 4px; vertical-align: middle;">
-          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
-            <a href="${item.link}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: var(--text-main, #007aff); text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">
-              ${item.title}
-            </a>
-          </div>
-          <div style="font-size: 11px; color: #666; margin-top: 2px;">
-            ${dateStr}
-          </div>
-        </td>
-      `;
-      table.appendChild(tr);
-    });
-
-    container.appendChild(table);
-  } catch (err) {
-    console.error(err);
-    container.innerHTML = '<div class="loading" style="color: red;">情報の取得に失敗しました</div>';
   }
 }
 
