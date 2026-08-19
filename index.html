@@ -127,6 +127,10 @@
       <div style="font-size:13px; line-height:1.6; color:var(--text-sub);">
         新しいWebアプリの「設定 → 設定を読み込む」で使えるJSONを保存します。
       </div>
+      <div id="export-v2-status"
+           style="margin-top:8px; font-size:12px; line-height:1.5; color:var(--text-sub);">
+        準備完了
+      </div>
     </section>
   </main>
 
@@ -175,7 +179,474 @@
   <script src="https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.js"></script>
   <script src="app.js"></script>
 
-  <!-- 旧アプリ → Dashboard V2 設定移行 -->
-  <script src="migration-export.js"></script>
+
+  <!-- 旧アプリ → Dashboard V2 設定移行（インライン版 / iPhone対応） -->
+  <script>
+(() => {
+  'use strict';
+
+  // =========================================================
+  // 旧 Personal Dashboard → Dashboard V2 設定エクスポート
+  // =========================================================
+  // app.js は変更しません。
+  // 旧アプリの localStorage を読み取り、新アプリの importAll() が読める
+  // { version: 2, values: {...} } 形式のJSONを生成します。
+
+  const LEGACY_DEFAULTS = {
+    weatherLocations: [{ name: '京都府', code: '260000' }],
+    newsFeeds: [
+      { name: '全国ニュース', url: '/api/news-feed?category=national' },
+      { name: '日本政治ニュース', url: '/api/news-feed?category=politics' },
+      { name: '国内企業ニュース', url: '/api/news-feed?category=domestic-business' },
+      { name: '海外企業ニュース', url: '/api/news-feed?category=global-business' },
+      { name: '海外ニュース', url: '/api/news-feed?category=world' },
+      { name: 'IT系', url: '/api/news-feed?category=it' },
+      { name: '家電', url: '/api/news-feed?category=appliances' },
+      { name: '香川のニュース', url: '/api/news-feed?category=kagawa' },
+      { name: '京都のニュース', url: '/api/news-feed?category=kyoto' },
+      { name: '論文', url: '/api/papers-feed' }
+    ],
+    knowledgeFeeds: [
+      { name: 'Qiita', url: 'https://qiita.com/tags/javascript/feed.atom' },
+      { name: 'GIGAZINE', url: 'https://gigazine.net/news/rss_2.0/' }
+    ],
+    youtubeFeeds: [],
+    twitchFeeds: [],
+    twitterFeeds: [
+      { name: 'デフォルトリスト', url: '2087706843519111304' }
+    ]
+  };
+
+  const V2_KNOWLEDGE_DEFAULTS = [
+    { name: 'MONOist', url: 'https://rss.itmedia.co.jp/rss/2.0/monoist.xml' },
+    { name: 'EE Times Japan', url: 'https://rss.itmedia.co.jp/rss/2.0/eetimes.xml' },
+    { name: 'GIGAZINE', url: 'https://gigazine.net/news/rss_2.0/' }
+  ];
+
+  const PREF_COORDS = {
+    '北海道':[43.0618,141.3545],
+    '青森県':[40.8244,140.7400],
+    '岩手県':[39.7036,141.1527],
+    '宮城県':[38.2682,140.8694],
+    '秋田県':[39.7186,140.1024],
+    '山形県':[38.2404,140.3633],
+    '福島県':[37.7608,140.4747],
+    '茨城県':[36.3418,140.4468],
+    '栃木県':[36.5657,139.8836],
+    '群馬県':[36.3912,139.0608],
+    '埼玉県':[35.8617,139.6455],
+    '千葉県':[35.6073,140.1063],
+    '東京都':[35.6762,139.6503],
+    '神奈川県':[35.4437,139.6380],
+    '新潟県':[37.9161,139.0364],
+    '富山県':[36.6953,137.2113],
+    '石川県':[36.5613,136.6562],
+    '福井県':[36.0652,136.2216],
+    '山梨県':[35.6639,138.5683],
+    '長野県':[36.6486,138.1948],
+    '岐阜県':[35.4233,136.7607],
+    '静岡県':[34.9756,138.3828],
+    '愛知県':[35.1815,136.9066],
+    '三重県':[34.7303,136.5086],
+    '滋賀県':[35.0179,135.8546],
+    '京都府':[35.0116,135.7681],
+    '大阪府':[34.6937,135.5023],
+    '兵庫県':[34.6901,135.1955],
+    '奈良県':[34.6851,135.8048],
+    '和歌山県':[34.2305,135.1708],
+    '鳥取県':[35.5011,134.2351],
+    '島根県':[35.4723,133.0505],
+    '岡山県':[34.6551,133.9195],
+    '広島県':[34.3853,132.4553],
+    '山口県':[34.1785,131.4737],
+    '徳島県':[34.0703,134.5548],
+    '香川県':[34.3428,134.0466],
+    '愛媛県':[33.8392,132.7657],
+    '高知県':[33.5597,133.5311],
+    '福岡県':[33.5902,130.4017],
+    '佐賀県':[33.2494,130.2988],
+    '長崎県':[32.7503,129.8777],
+    '熊本県':[32.8031,130.7079],
+    '大分県':[33.2396,131.6093],
+    '宮崎県':[31.9111,131.4239],
+    '鹿児島県':[31.5966,130.5571],
+    '沖縄県':[26.2124,127.6809]
+  };
+
+  const PREF_JMA_CODES = {
+    '青森県':'020000','岩手県':'030000','宮城県':'040000','秋田県':'050000',
+    '山形県':'060000','福島県':'070000','茨城県':'080000','栃木県':'090000',
+    '群馬県':'100000','埼玉県':'110000','千葉県':'120000','東京都':'130000',
+    '神奈川県':'140000','新潟県':'150000','富山県':'160000','石川県':'170000',
+    '福井県':'180000','山梨県':'190000','長野県':'200000','岐阜県':'210000',
+    '静岡県':'220000','愛知県':'230000','三重県':'240000','滋賀県':'250000',
+    '京都府':'260000','大阪府':'270000','兵庫県':'280000','奈良県':'290000',
+    '和歌山県':'300000','鳥取県':'310000','島根県':'320000','岡山県':'330000',
+    '広島県':'340000','山口県':'350000','徳島県':'360000','香川県':'370000',
+    '愛媛県':'380000','高知県':'390000','福岡県':'400000','佐賀県':'410000',
+    '長崎県':'420000','熊本県':'430000','大分県':'440000','宮崎県':'450000',
+    '鹿児島県':'460100'
+  };
+
+  const CODE_COORDS = {
+    '011000':[45.4157,141.6731],
+    '012000':[43.7706,142.3650],
+    '013000':[44.0206,144.2735],
+    '014100':[42.9849,144.3810],
+    '014030':[42.9236,143.1960],
+    '015000':[42.3152,140.9738],
+    '016000':[43.0618,141.3545],
+    '017000':[41.7687,140.7288],
+    '020000':PREF_COORDS['青森県'],
+    '030000':PREF_COORDS['岩手県'],
+    '040000':PREF_COORDS['宮城県'],
+    '050000':PREF_COORDS['秋田県'],
+    '060000':PREF_COORDS['山形県'],
+    '070000':PREF_COORDS['福島県'],
+    '080000':PREF_COORDS['茨城県'],
+    '090000':PREF_COORDS['栃木県'],
+    '100000':PREF_COORDS['群馬県'],
+    '110000':PREF_COORDS['埼玉県'],
+    '120000':PREF_COORDS['千葉県'],
+    '130000':PREF_COORDS['東京都'],
+    '140000':PREF_COORDS['神奈川県'],
+    '150000':PREF_COORDS['新潟県'],
+    '160000':PREF_COORDS['富山県'],
+    '170000':PREF_COORDS['石川県'],
+    '180000':PREF_COORDS['福井県'],
+    '190000':PREF_COORDS['山梨県'],
+    '200000':PREF_COORDS['長野県'],
+    '210000':PREF_COORDS['岐阜県'],
+    '220000':PREF_COORDS['静岡県'],
+    '230000':PREF_COORDS['愛知県'],
+    '240000':PREF_COORDS['三重県'],
+    '250000':PREF_COORDS['滋賀県'],
+    '260000':PREF_COORDS['京都府'],
+    '270000':PREF_COORDS['大阪府'],
+    '280000':PREF_COORDS['兵庫県'],
+    '290000':PREF_COORDS['奈良県'],
+    '300000':PREF_COORDS['和歌山県'],
+    '310000':PREF_COORDS['鳥取県'],
+    '320000':PREF_COORDS['島根県'],
+    '330000':PREF_COORDS['岡山県'],
+    '340000':PREF_COORDS['広島県'],
+    '350000':PREF_COORDS['山口県'],
+    '360000':PREF_COORDS['徳島県'],
+    '370000':PREF_COORDS['香川県'],
+    '380000':PREF_COORDS['愛媛県'],
+    '390000':PREF_COORDS['高知県'],
+    '400000':PREF_COORDS['福岡県'],
+    '410000':PREF_COORDS['佐賀県'],
+    '420000':PREF_COORDS['長崎県'],
+    '430000':PREF_COORDS['熊本県'],
+    '440000':PREF_COORDS['大分県'],
+    '450000':PREF_COORDS['宮崎県'],
+    '460100':PREF_COORDS['鹿児島県'],
+    '471000':[26.2124,127.6809],
+    '472000':[25.8280,131.2320],
+    '473000':[24.8055,125.2811],
+    '474000':[24.3448,124.1572]
+  };
+
+  function cloneFallback(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function readArray(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw == null) return cloneFallback(fallback);
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : cloneFallback(fallback);
+    } catch (err) {
+      console.warn(`[migration] ${key} を読めなかったため初期値を使用します`, err);
+      return cloneFallback(fallback);
+    }
+  }
+
+  function normalizeJmaCode(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    if (!/^\d+$/.test(raw)) return raw;
+    return raw.length < 6 ? raw.padStart(6, '0') : raw;
+  }
+
+  function dedupeFeeds(feeds) {
+    const seen = new Set();
+    return (Array.isArray(feeds) ? feeds : [])
+      .map(feed => ({
+        name: String(feed?.name || '').trim(),
+        url: String(feed?.url || '').trim()
+      }))
+      .filter(feed => {
+        if (!feed.url) return false;
+        const key = feed.url;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        if (!feed.name) feed.name = feed.url;
+        return true;
+      });
+  }
+
+  function migrateWeatherLocation(location) {
+    const name = String(location?.name || '').trim();
+    let jmaCode = normalizeJmaCode(
+      location?.jmaCode ||
+      location?.code ||
+      PREF_JMA_CODES[name] ||
+      ''
+    );
+
+    // 北海道・沖縄の旧データで都道府県名だけ残っている場合の既定値。
+    if (!jmaCode && name === '北海道') jmaCode = '016000';
+    if (!jmaCode && name === '沖縄県') jmaCode = '471000';
+
+    let lat = Number(location?.lat);
+    let lon = Number(location?.lon);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      const coords = CODE_COORDS[jmaCode] || PREF_COORDS[name];
+      if (!coords) {
+        throw new Error(
+          `天気の地域「${name || '名称不明'}」を新アプリ用へ変換できませんでした。` +
+          `旧アプリの天気設定を一度編集・保存してから、もう一度書き出してください。`
+        );
+      }
+      [lat, lon] = coords;
+    }
+
+    if (!jmaCode) {
+      throw new Error(`天気の地域「${name || '名称不明'}」の気象庁コードが見つかりませんでした。`);
+    }
+
+    return {
+      name: name || '登録地域',
+      jmaCode,
+      lat,
+      lon
+    };
+  }
+
+  function migrateTwitterFeed(feed) {
+    const name = String(feed?.name || '').trim() || 'Twitter / X';
+    const raw = String(feed?.id || feed?.url || '').trim();
+    if (!raw) return null;
+
+    if (/^https?:\/\//i.test(raw) || raw.startsWith('/')) {
+      return { name, url: raw };
+    }
+
+    return { name, id: raw };
+  }
+
+  function migrateNamedValue(feed) {
+    const value = String(feed?.value || feed?.url || '').trim();
+    if (!value) return null;
+    const name = String(feed?.name || '').trim();
+    return { name, value };
+  }
+
+  function buildPayload() {
+    const oldWeather = readArray('weatherLocations', LEGACY_DEFAULTS.weatherLocations);
+    const oldNews = readArray('newsFeeds', LEGACY_DEFAULTS.newsFeeds);
+    const oldKnowledge = readArray('knowledgeFeeds', LEGACY_DEFAULTS.knowledgeFeeds);
+    const oldYoutube = readArray('youtubeFeeds', LEGACY_DEFAULTS.youtubeFeeds);
+    const oldTwitch = readArray('twitchFeeds', LEGACY_DEFAULTS.twitchFeeds);
+    const oldTwitter = readArray('twitterFeeds', LEGACY_DEFAULTS.twitterFeeds);
+
+    const paperFeeds = dedupeFeeds(
+      oldNews
+        .filter(feed => /\/api\/papers-feed(?:\?|$)/i.test(String(feed?.url || '')))
+        .map(feed => ({
+          name: String(feed?.name || '論文').trim() || '論文',
+          url: String(feed?.url || '/api/papers-feed').trim()
+        }))
+    );
+
+    const newsFeeds = dedupeFeeds(
+      oldNews.filter(feed => !/\/api\/papers-feed(?:\?|$)/i.test(String(feed?.url || '')))
+    );
+
+    const knowledgeFeeds = dedupeFeeds([
+      ...V2_KNOWLEDGE_DEFAULTS,
+      ...oldKnowledge
+    ]);
+
+    const youtubeChannels = oldYoutube
+      .map(migrateNamedValue)
+      .filter(Boolean);
+
+    const twitchChannels = oldTwitch
+      .map(migrateNamedValue)
+      .filter(Boolean);
+
+    const twitterFeeds = oldTwitter
+      .map(migrateTwitterFeed)
+      .filter(Boolean);
+
+    return {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      source: 'legacy-personal-dashboard',
+      values: {
+        weatherLocations: oldWeather.map(migrateWeatherLocation),
+        newsFeeds,
+        knowledgeFeeds,
+        paperFeeds: paperFeeds.length
+          ? paperFeeds
+          : [{ name: '論文', url: '/api/papers-feed' }],
+        youtubeChannels,
+        twitchChannels,
+        twitterFeeds
+      }
+    };
+  }
+
+  function setExportStatus(message) {
+    const el = document.getElementById('export-v2-status');
+    if (el) el.textContent = message;
+  }
+
+  async function downloadPayload() {
+    setExportStatus('設定データを変換中…');
+
+    const payload = buildPayload();
+    const json = JSON.stringify(payload, null, 2);
+    const filename = `dashboard-v2-settings-from-old-${new Date().toISOString().slice(0, 10)}.json`;
+
+    // iPhone / iPad Safari・ホーム画面PWAでは
+    // Web Share API のファイル共有が最も確実。
+    try {
+      const file = new File(
+        [json],
+        filename,
+        { type: 'application/json' }
+      );
+
+      if (
+        navigator.share &&
+        navigator.canShare &&
+        navigator.canShare({ files: [file] })
+      ) {
+        setExportStatus('共有画面を開いています…');
+
+        await navigator.share({
+          files: [file],
+          title: 'Dashboard V2 設定',
+          text: '新しいWebアプリへ読み込む設定ファイルです。'
+        });
+
+        setExportStatus('書き出し完了。「ファイルに保存」したJSONを新アプリで読み込んでください。');
+        return;
+      }
+    } catch (err) {
+      // ユーザーが共有シートを閉じた場合は終了。
+      if (err && err.name === 'AbortError') {
+        setExportStatus('書き出しをキャンセルしました。');
+        return;
+      }
+      console.warn('[migration-export] Web Share failed; fallback to download.', err);
+    }
+
+    // 通常ブラウザ向けフォールバック
+    try {
+      const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.rel = 'noopener';
+      anchor.style.display = 'none';
+
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+      setExportStatus('書き出し完了。ダウンロードしたJSONを新アプリで読み込んでください。');
+
+      alert(
+        '設定JSONを書き出しました。\n\n' +
+        '新しいWebアプリで\n' +
+        '「設定 → 設定を読み込む」\n' +
+        'を開き、保存したJSONを選んでください。'
+      );
+      return;
+    } catch (err) {
+      console.error('[migration-export] Download fallback failed.', err);
+    }
+
+    // 最終フォールバック：JSONを画面に表示してコピー可能にする
+    setExportStatus('自動保存できなかったため、JSONを画面に表示します。');
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0;z-index:999999;background:#fff;padding:16px;' +
+      'padding-top:max(16px,env(safe-area-inset-top));overflow:auto;color:#111;';
+
+    const title = document.createElement('h2');
+    title.textContent = '設定JSON';
+    title.style.margin = '0 0 12px';
+
+    const note = document.createElement('p');
+    note.textContent = '下の内容をコピーして .json ファイルとして保存してください。';
+    note.style.fontSize = '13px';
+
+    const textarea = document.createElement('textarea');
+    textarea.value = json;
+    textarea.readOnly = true;
+    textarea.style.cssText =
+      'box-sizing:border-box;width:100%;height:65vh;font-size:12px;' +
+      'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;';
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '閉じる';
+    close.className = 'btn primary';
+    close.style.marginTop = '12px';
+    close.addEventListener('click', () => overlay.remove());
+
+    overlay.append(title, note, textarea, close);
+    document.body.appendChild(overlay);
+    textarea.focus();
+    textarea.select();
+  }
+
+  function init() {
+    const button = document.getElementById('export-v2-settings-btn');
+    if (!button || button.dataset.migrationExportBound === '1') return;
+
+    button.dataset.migrationExportBound = '1';
+    setExportStatus('準備完了');
+
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      const originalText = button.textContent;
+      button.textContent = '書き出し中…';
+
+      try {
+        await downloadPayload();
+      } catch (err) {
+        console.error('[migration-export]', err);
+        setExportStatus('エラー: ' + (err?.message || '設定の書き出しに失敗しました。'));
+        alert(err?.message || '設定の書き出しに失敗しました。');
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
+  }
+
+  window.__legacyV2ExporterLoaded = true;
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
+  }
+})();
+
+  </script>
 </body>
 </html>
