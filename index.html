@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>ダッシュボード</title>
-  
+
   <!-- PWA & iOS 設定 -->
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#f2f2f7">
@@ -113,6 +113,21 @@
         <div class="loading">配信者を追加してください。</div>
       </div>
     </section>
+
+    <!-- 7. 新アプリへ引き継ぎ -->
+    <section class="card" id="data-migration-section">
+      <div class="section-header">
+        <h2>新アプリへ引き継ぎ</h2>
+        <div class="action-buttons">
+          <button id="export-v2-settings-btn" class="btn primary" type="button">
+            設定を書き出す
+          </button>
+        </div>
+      </div>
+      <div style="font-size:13px; line-height:1.6; color:var(--text-sub);">
+        新しいWebアプリの「設定 → 設定を読み込む」で使えるJSONを保存します。
+      </div>
+    </section>
   </main>
 
 
@@ -159,5 +174,8 @@
   <!-- ニュース/知識の左右スワイプ + 要約オーバーレイの上下スワイプ -->
   <script src="https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.js"></script>
   <script src="app.js"></script>
+
+  <!-- 旧アプリ → Dashboard V2 設定移行 -->
+  <script src="migration-export.js"></script>
 </body>
 </html>
